@@ -217,3 +217,47 @@ The Tasmota platform processes `sdkconfig.defaults` even in Arduino-only mode. T
 - Add `-D ESP32_ARDUINO_NO_RGB_BUILTIN` (inherited from V5 base)
 - NeoPixelBus CORE3 branch (inherited from V5 lib_deps)
 - lib_ignore NeoESP32RmtHI (inherited from V5)
+
+## Wave 2 Findings
+
+### IDF v5 Rebase
+- Upstream WLED main rebased cleanly — only 1 conflict (our AGENTS.md, two versions)
+- `esp32_idf_V5` section has 72 references in platformio.ini
+- V4 section retained for backward compat
+
+### IDF v5 Build Sizes (vs V4 baseline)
+| Env | V4 | V5 | Delta |
+|-----|----|----|-------|
+| m5stickc | 1,265,216 B | 1,284,496 B | +19,280 B (+1.5%) |
+| lean | 1,106,080 B | 1,136,992 B | +30,912 B (+2.8%) |
+| ppp | — | 1,135,792 B | (based on lean + PPP) |
+
+V5 slightly larger due to shared RMT driver, DMX input, NeoPixelBus CORE3.
+
+### PPP Implementation
+- 59 PPP symbols confirmed in firmware.elf
+- `wled_ppp.h` + `wled_ppp.cpp`: ~200 lines of new code
+- Follows isEthernet() pattern exactly
+- PPP server mode: 169.254.7.1 (ESP32) / 169.254.7.2 (host)
+- UART0 at 1.5Mbps, server waits for host pppd
+- IP_EVENT_PPP_GOT_IP triggers interfacesInited → web server starts
+
+### sdkconfig.defaults
+Works with framework=arduino on Tasmota platform (IDF 5.3.4).
+lwIP compiles from source with PPP enabled. Key options:
+- CONFIG_LWIP_PPP_SUPPORT=y
+- CONFIG_LWIP_PPP_SERVER_SUPPORT=y
+- CONFIG_LWIP_PPP_PAP_SUPPORT=y
+- LCP echo keepalive enabled
+
+### Variant Symlink Issue (pioarduino V5)
+pioarduino V5 renamed m5stick_c variant to m5stack_stickc.
+Need to create symlink in the variant directory for build to find board files.
+
+### TFT Display as WLED Segment (ADR addition)
+- BusHub75Matrix is the exact pattern — non-LED display as pixel output bus
+- Type IDs 72-79 are unused — perfect slot for BusTFTMatrix
+- 20x40 virtual pixels (4x upscale to 80x160) = 800 pixels, ~7KB total memory
+- SPI (TFT) and RMT (LEDs) are independent peripherals — no conflicts
+- LovyanGFX preferred for M5StickC (native board defs, DMA support)
+- This is novel — no existing TFT-as-bus in WLED community
