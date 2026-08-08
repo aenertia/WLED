@@ -290,3 +290,32 @@ This is acceptable — we only build m5stickc_ppp for our device.
 - 1,143,840 bytes (60.2% of 1.81MB partition)
 - 738 KB headroom
 - Includes: PPP transport, ARGB passthrough, all effects, particle systems, pixelforge, filesystem
+
+## Multi-MCU Build Targets (Build Targets Plan)
+
+### Size Comparison Across MCU Families
+
+| Target | MCU | Binary | Partition | Usage | Headroom | Single-MCU? |
+|---|---|---|---|---|---|---|
+| m5stickc_ppp | ESP32 | 1,143,840 B | 1.81 MB | 60.2% | 738 KB | No (needs Pico) |
+| atoms3_lean | ESP32-S3 | 1,134,240 B | 2.0 MB | 54.1% | 960 KB | **Yes — native USB** |
+| atoms3u_lean | ESP32-S3 | 1,138,784 B | 2.0 MB | 54.3% | 956 KB | **Yes — USB-A direct!** |
+| stamps3_lean | ESP32-S3 | 1,134,240 B | 2.0 MB | 54.1% | 960 KB | **Yes — smallest** |
+| esp32dev_ppp | ESP32 | 1,143,840 B | 1.81 MB | 60.2% | 738 KB | No |
+| esp32_wrover_ppp | ESP32+PSRAM | 1,144,400 B | 1.81 MB | 60.2% | 738 KB | No |
+| esp32c3_ppp | ESP32-C3 | 1,144,144 B | 1.57 MB | 72.7% | 429 KB | No |
+
+### Key Findings
+
+1. **S3 binaries are smaller** than ESP32 classic despite same source — better compiler (GCC 13.2 vs 8.4), more efficient ISA
+2. **S3 partitions are larger** (2.0MB vs 1.81MB) — more headroom for USB-ECM/NCM stack
+3. **960KB headroom on S3** — plenty for TinyUSB CDC-NCM + DHCP + mDNS (~150KB estimated)
+4. **AtomS3U is the dream board** — USB-A plugs directly into mobo internal header, 128x128 OLED, 24x24mm
+5. **C3 is viable but tight** — 72.7% usage, only 429KB headroom, single core, 2 RMT channels
+
+### Build Fixes Discovered
+
+1. S3 needs explicit `board_build.arduino.memory_type` (qio_qspi or qio_opi)
+2. ESP32 classic needs `board_build.flash_mode = dio` (not dout)
+3. WROVER board ID is `esp-wrover-kit` (not esp32-wrover-kit)
+4. custom_sdkconfig contaminates framework globally — PPP and non-PPP envs can't coexist
