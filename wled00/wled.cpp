@@ -552,6 +552,7 @@ void WLED::setup()
   if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) == 0 && !configBackupExists())
     showWelcomePage = true;
 
+#ifndef WLED_USE_PPP
   #ifndef ESP8266
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.persistent(true); // storing credentials in NVM fixes boot-up pause as connection is much faster, is disabled after first connection
@@ -573,6 +574,9 @@ void WLED::setup()
 #endif
 
   findWiFi(true);      // start scanning for available WiFi-s
+#else
+  initPPP();
+#endif // WLED_USE_PPP
 
   // all GPIOs are allocated at this point
   serialCanRX = !PinManager::isPinAllocated(hardwareRX); // Serial RX pin (GPIO 3 on ESP32 and ESP8266)
@@ -956,6 +960,18 @@ void WLED::initInterfaces()
 
 void WLED::handleConnection()
 {
+#ifdef WLED_USE_PPP
+  // PPP connection management — skip all WiFi logic
+  if (ppp_connected && !interfacesInited) {
+    DEBUG_PRINTLN(F("PPP connected, initializing interfaces"));
+    initInterfaces();
+  }
+  if (!ppp_connected && interfacesInited) {
+    DEBUG_PRINTLN(F("PPP disconnected"));
+    interfacesInited = false;
+  }
+  return;
+#endif
   static bool scanDone = true;
   static byte stacO = 0;
   const unsigned long now = millis();

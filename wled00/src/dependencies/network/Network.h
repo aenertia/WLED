@@ -17,6 +17,9 @@ public:
   void localMAC(uint8_t* MAC);
   bool isConnected();
   bool isEthernet();
+#ifdef WLED_USE_PPP
+  bool isPPP();
+#endif
 };
 
 extern WLEDNetworkClass WLEDNetwork;

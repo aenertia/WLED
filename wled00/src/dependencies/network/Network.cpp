@@ -1,8 +1,19 @@
 #include "Network.h"
+#ifdef WLED_USE_PPP
+#include "wled_ppp.h"
+#endif
 
 IPAddress WLEDNetworkClass::localIP()
 {
   IPAddress localIP;
+#ifdef WLED_USE_PPP
+  if (isPPP() && ppp_netif) {
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(ppp_netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+      return IPAddress(ip_info.ip.addr);
+    }
+  }
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && defined(WLED_USE_ETHERNET)
   localIP = ETH.localIP();
   if (localIP[0] != 0) {
@@ -73,7 +84,11 @@ void WLEDNetworkClass::localMAC(uint8_t* MAC)
 
 bool WLEDNetworkClass::isConnected()
 {
-  return (WiFi.localIP()[0] != 0 && WiFi.status() == WL_CONNECTED) || isEthernet();
+  return (WiFi.localIP()[0] != 0 && WiFi.status() == WL_CONNECTED) || isEthernet()
+#ifdef WLED_USE_PPP
+        || isPPP()
+#endif
+        ;
 }
 
 bool WLEDNetworkClass::isEthernet()
@@ -83,5 +98,12 @@ bool WLEDNetworkClass::isEthernet()
 #endif
   return false;
 }
+
+#ifdef WLED_USE_PPP
+bool WLEDNetworkClass::isPPP()
+{
+  return ppp_connected;
+}
+#endif
 
 WLEDNetworkClass WLEDNetwork;
