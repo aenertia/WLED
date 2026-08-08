@@ -31,9 +31,15 @@ static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id
             ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
             ESP_LOGI(TAG, "PPP Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
             ppp_connected = true;
+            #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+            stopARGBPassthrough();
+            #endif
         } else if (event_id == IP_EVENT_PPP_LOST_IP) {
             ESP_LOGI(TAG, "PPP Lost IP");
             ppp_connected = false;
+            #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+            startARGBPassthrough();
+            #endif
         }
     }
 }

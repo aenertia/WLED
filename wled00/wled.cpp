@@ -89,6 +89,9 @@ void WLED::loop()
   #endif
   handleImprovWifiScan();
   handleNotifications();
+  #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+  handleARGBPassthrough();
+  #endif
   handleTransitions();
   #ifdef WLED_ENABLE_DMX
   handleDMXOutput();
@@ -577,6 +580,10 @@ void WLED::setup()
 #else
   initPPP();
 #endif // WLED_USE_PPP
+#ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+  initARGBPassthrough();
+  startARGBPassthrough();  // boot in passthrough mode
+#endif
 
   // all GPIOs are allocated at this point
   serialCanRX = !PinManager::isPinAllocated(hardwareRX); // Serial RX pin (GPIO 3 on ESP32 and ESP8266)

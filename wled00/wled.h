@@ -123,6 +123,9 @@
 #ifdef WLED_USE_PPP
 #include "wled_ppp.h"
 #endif
+#ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+#include "wled_argb_passthrough.h"
+#endif
 
 #ifdef WLED_USE_MY_CONFIG
   #include "my_config.h"
