@@ -205,3 +205,95 @@ The Pico intercepts the USB connection:
 | Pico raw ETH → SPI bridge | ~200 lines | ~100 lines (SPI netif driver) | 3-4 days |
 | Pico eppp_link SPI | ~500 lines | ~50 lines (eppp_link config) | 4-5 days |
 | ESP32-S3 single board | N/A | ~50 lines (USB-ECM netif) | 2 days + port |
+
+## Fastest Path: UART via Grove at 3-4 Mbps
+
+### GPIO Constraint Analysis
+
+M5StickC available GPIOs:
+- G26 (HAT): LED data output — MUST stay free
+- G32 (Grove yellow): Available
+- G33 (Grove white): Available
+- G0 (HAT): Strapping pin — risky
+- G36 (HAT): Input-only — can't be SPI MISO
+
+SPI needs 4 pins (SCK+MOSI+MISO+CS) — we only have 3 usable (G26+G32+G33),
+and G26 is reserved for LEDs. SPI is physically impossible without sacrificing LED output.
+
+**UART needs 2 pins** — G32 (TX) + G33 (RX) on Grove. G26 stays free. Clean.
+
+### Baud Rate Capabilities
+
+| MCU | Max UART | Clock Source |
+|---|---|---|
+| ESP32 | ~5 Mbps | APB 80 MHz |
+| RP2040 | ~7.8 Mbps | System clock / 8 |
+| **Common max** | **~4 Mbps** | Both comfortable |
+
+Target: **3 Mbps** (proven in eppp_link benchmarks) or 4 Mbps (within both chips' range).
+
+### Throughput Budget
+
+```
+USB Full Speed:     12 Mbps raw → ~8 Mbps effective (CDC-NCM overhead)
+UART at 3 Mbps:    3 Mbps raw → ~2 Mbps TCP throughput (eppp_link measured)
+Bottleneck:         USB (8 Mbps) > UART (2 Mbps) — UART is the limiter
+```
+
+But for our actual traffic:
+| Traffic | Bandwidth | % of 2 Mbps |
+|---|---|---|
+| Dashboard initial load (55KB) | Burst: 0.22s | — |
+| WebSocket state updates (3KB/s) | 24 kbps | 1.2% |
+| DDP 300 LEDs @ 30fps (27KB/s) | 216 kbps | 10.8% |
+| WS live preview 300 LEDs (22KB/s) | 176 kbps | 8.8% |
+| **All simultaneous** | **~440 kbps** | **22%** |
+
+78% headroom. **UART at 3 Mbps is not the bottleneck for any realistic workload.**
+
+### Wiring (final)
+
+```
+Pi Pico (USB-C)              M5StickC (Grove HY2.0-4P)
+┌──────────────┐            ┌──────────────┐
+│ GP0 (UART TX)├────────────┤ G33 (RX)     │  White wire
+│ GP1 (UART RX)├────────────┤ G32 (TX)     │  Yellow wire  
+│ GND          ├────────────┤ GND          │  Black wire
+│ VBUS (5V USB)│            │ 5V           │  (optional — separate USB power)
+└──────────────┘            └──────────────┘
+                             G26 (HAT) → 74AHCT125 → LED strip
+```
+
+3 wires total (TX, RX, GND). Pico powered by its own USB cable from PC.
+M5StickC powered by its own USB cable (or battery).
+
+### Architecture (chosen approach)
+
+```
+Host PC ←─ USB-C CDC-NCM ─→ Pi Pico RP2040 ←─ UART 3Mbps ─→ M5StickC ESP32
+               12 Mbps        │ TinyUSB NCM      │ PPP/eppp      │ esp_netif
+               zero-config    │ lwIP bridge       │ G32/G33 Grove │ WLED
+               Ethernet       │ PPP client        │               │ AsyncWebSvr
+                               └─ ~300 lines FW    └─ existing PPP │ DDP/E1.31
+                                                     code works!   │ Effects
+                                                                   │ G26 → LEDs
+```
+
+### Implementation: Pico Firmware
+
+Two options for the Pico side:
+
+**Option 1: CDC-NCM → PPP bridge (simplest, ESP32 unchanged)**
+- TinyUSB presents CDC-NCM to host
+- lwIP on Pico handles IP routing
+- PPP client over UART to ESP32
+- ESP32 runs existing PPP server code — ZERO CHANGES
+
+**Option 2: CDC-NCM → raw frame bridge (fastest, minimal Pico code)**
+- TinyUSB presents CDC-NCM to host
+- Raw Ethernet frames forwarded over UART with length-prefix framing
+- ESP32 needs custom esp_netif driver to unwrap frames
+- Slightly more ESP32 work but eliminates PPP overhead
+
+**Option 1 is recommended** — our ESP32 PPP code is already written and tested.
+The Pico just needs to be a "smart FTDI" that speaks Ethernet on one side and PPP on the other.
