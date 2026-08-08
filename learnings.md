@@ -180,3 +180,40 @@ with additional usermod code. WiFi stack removal (Wave 2) would save another
 Start with **Option A** (patch liblwip.a) for the PPP PoC, plan migration to
 **Option B** (ESP-IDF framework) for production. The 775 KB flash headroom from
 the lean build provides ample space for PPP stack overhead.
+
+## IDF v5 Migration Path (discovered post-Wave 1)
+
+### Critical Finding: Upstream WLED main already migrated to IDF v5
+
+Our v16.0.1 tag is behind. Upstream `main` has `[esp32_idf_V5]` as the DEFAULT:
+- ESP-IDF 5.3.4
+- arduino-esp32 v3.1.10
+- Tasmota platform `2026.02.30`
+- New shared RMT driver (`WLED_USE_SHARED_RMT`)
+- NeoPixelBus CORE3 branch for IDF v5 compatibility
+
+### Key insight: `framework = arduino` gives full IDF access
+
+Arduino-esp32 v3.x IS an IDF component. All ESP-IDF APIs (`esp_netif_*`, `uart_*`, PPP) are directly available. No need for dual framework (`arduino, espidf`).
+
+### sdkconfig.defaults works with framework = arduino
+
+The Tasmota platform processes `sdkconfig.defaults` even in Arduino-only mode. This means:
+- `CONFIG_LWIP_PPP_SUPPORT=y` → lwIP compiles PPP from source
+- `CONFIG_LWIP_PPP_SERVER_SUPPORT=y` → server mode available
+- No prebuilt `liblwip.a` blocker (IDF v5 compiles everything from source)
+
+### Wave 2 plan: Rebase onto upstream main
+
+1. `git fetch upstream && git rebase upstream/main`
+2. Resolve conflicts in `platformio_override.ini` (our custom envs)
+3. Update `platformio_override.ini` to extend `esp32_idf_V5` instead of `esp32_idf_V4`
+4. Add `sdkconfig.defaults` with PPP + tuning flags
+5. Build and verify M5StickC on IDF v5
+6. PPP should just work (lwIP compiled from source with PPP enabled)
+
+### V5 build flag changes needed
+- Add `-D WLED_USE_SHARED_RMT` (inherited from V5 base)
+- Add `-D ESP32_ARDUINO_NO_RGB_BUILTIN` (inherited from V5 base)
+- NeoPixelBus CORE3 branch (inherited from V5 lib_deps)
+- lib_ignore NeoESP32RmtHI (inherited from V5)

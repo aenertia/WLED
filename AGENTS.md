@@ -41,8 +41,8 @@ M5StickC (ESP32)  ←— USB Serial (PPP, 1.5Mbps) —→  Host PC (pppd)
 - PlatformIO Core 6.1.19 (`~/.local/bin/pio`)
 - PLATFORMIO_CORE_DIR → NVMe (set in `~/.bash_profile`)
 - Node.js v22.23.1, npm 10.9.8 (needed for WLED web UI build via `build_ui.py`)
-- Framework: Arduino-ESP32 2.0.18 (IDF v4 based) — Tasmota fork
-- Toolchain: xtensa-esp32 8.4.0
+- Framework: Migrating to Arduino-ESP32 v3.1.10 (IDF v5.3.4) — Tasmota platform 2026.02.30
+- Toolchain: xtensa-esp32 13.2 (IDF v5.3.4 default)
 
 **Build command**:
 ```bash
@@ -62,7 +62,7 @@ ssh koero "bash -l -c 'cd /var/mnt/koero/workspace/wled && pio run -e m5stickc'"
 
 ## Critical Warnings
 
-- **`esp32_idf_V5` does NOT exist** in this WLED version. Use `esp32_idf_V4`.
+- `esp32_idf_V5` exists in upstream main (rebase needed) in this WLED version. Use `esp32_idf_V4`.
 - **`platformio_override.ini` is .gitignored** by WLED. Use `git add -f` to commit it.
 - **Unset proxy before podman/pip/git on koero**: `unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy`
 - **SSH to Forgejo uses port 2222**: `ssh://git@git.awa.3d.ae.net.nz:2222/aenertia/wled.git`
