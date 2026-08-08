@@ -24,6 +24,7 @@ target_link_libraries(pico_ncm_ppp_bridge
     tinyusb_board
     pico_lwip_core
     pico_lwip_core4
+    pico_lwip_core6
     pico_lwip_netif
     pico_lwip_ppp
     pico_lwip_nosys
