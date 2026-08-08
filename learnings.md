@@ -319,3 +319,22 @@ This is acceptable — we only build m5stickc_ppp for our device.
 2. ESP32 classic needs `board_build.flash_mode = dio` (not dout)
 3. WROVER board ID is `esp-wrover-kit` (not esp32-wrover-kit)
 4. custom_sdkconfig contaminates framework globally — PPP and non-PPP envs can't coexist
+
+## Performance Matrix Summary
+
+### LED refresh is physics-limited (all MCUs identical)
+- 300 LEDs: 107 fps (single bus)
+- 600 LEDs: 55 fps
+- 1000 LEDs: 33 fps
+- Parallel buses split the chain: ESP32 has 8 RMT ch, S3 has 4 (but S3 has DMA)
+
+### Single-MCU gains (S3 vs ESP32+Pico)
+- USB throughput: 8Mbps (USB FS) vs 3.3Mbps (PPP) — 2.4x
+- LED memory: 192KB vs 85KB — 2.3x more LEDs
+- RMT DMA: CPU-free LED output (S3/P4 only)
+- Components: 1 board vs 2, 2 wires vs 12, $9 vs $16.50
+- Dashboard: 55ms vs 133ms load time
+- Single firmware image vs two
+
+### For PC case (300-600 LEDs): all MCUs handle it trivially
+The gain is simplicity and latency, not raw LED performance.
