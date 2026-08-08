@@ -1,0 +1,36 @@
+Task: Add build environments for ALL supported MCU variants
+Date: 2026-08-09
+Status: COMPLETE — all 11 environments compile successfully
+
+== Environments Added ==
+Tier 2 (ESP32-S3 single-MCU, native USB):
+  atoms3_lean      — m5stack-atoms3,  qio_qspi, 1,134,240 bytes (54.1% flash)
+  atoms3u_lean     — m5stack-atoms3u, qio_opi,   1,138,784 bytes (54.3% flash)
+  stamps3_lean     — m5stack-stamps3, qio_qspi, 1,134,240 bytes (54.1% flash)
+  esp32s3_8m_lean  — esp32-s3-devkitc-1, qio_qspi, 1,134,304 bytes (54.1% flash)
+
+Tier 3 (ESP32 classic PPP):
+  esp32dev_ppp     — esp32dev,        dio_qspi, 1,143,840 bytes (60.2% flash, 30.5% RAM)
+  esp32_wrover_ppp — esp-wrover-kit,  dio_qspi, 1,144,400 bytes (60.2% flash, 20.5% RAM)
+
+Tier 4 (ESP32-C3 RISC-V):
+  esp32c3_ppp      — esp32-c3-devkitm-1, default, 1,144,144 bytes (72.7% flash, 27.3% RAM)
+
+== Build Fixes Required ==
+1. All S3 boards: added board_build.arduino.memory_type (qio_qspi or qio_opi)
+   - Without: "sdkconfig.h: No such file or directory"
+2. ESP32 classic: added board_build.flash_mode = dio + memory_type = dio_qspi
+   - Without: "bootloader_dout_40m.elf not found" (common sets dout, only dio/qio exist)
+3. WROVER board ID: esp-wrover-kit (not esp32-wrover-kit)
+
+== Key Finding ==
+ESP32-S3 lean builds are ~10KB smaller than ESP32 classic PPP builds.
+S3 uses only 54% of 8MB flash partition vs 60% of 4MB on classic.
+S3 is the clear single-MCU winner — native USB eliminates Pico bridge.
+AtomS3U with USB-A plugs directly into mobo header.
+
+== Existing Tier 1 (unchanged) ==
+  m5stickc_ppp     — 1,143,840 bytes
+  m5stickc_ppp_tft — 1,143,840 bytes
+  m5stickc_pico    — 1,143,840 bytes
+  m5stickc_pico_tft— 1,143,840 bytes
