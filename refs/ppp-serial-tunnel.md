@@ -38,8 +38,8 @@ From `esp_netif_ppp.h`:
 typedef struct esp_netif_ppp_config {
     bool ppp_phase_event_enabled;
     bool ppp_error_event_enabled;
-    esp_ip4_addr_t ppp_our_ip4_addr;    // ESP32's IP (10.0.0.1)
-    esp_ip4_addr_t ppp_their_ip4_addr;  // Host PC's IP (10.0.0.2)
+    esp_ip4_addr_t ppp_our_ip4_addr;    // ESP32's IP (169.254.7.1)
+    esp_ip4_addr_t ppp_their_ip4_addr;  // Host PC's IP (169.254.7.2)
     esp_ip4_addr_t ppp_dns1_addr;
     esp_ip4_addr_t ppp_dns2_addr;
     bool ppp_passive;                    // true = server mode (ppp_listen)
@@ -90,8 +90,8 @@ void ppp_init(void) {
     esp_netif_ppp_config_t ppp_config = {
         .ppp_phase_event_enabled = true,
         .ppp_error_event_enabled = true,
-        .ppp_our_ip4_addr = { .addr = ESP_IP4TOADDR(10, 0, 0, 1) },
-        .ppp_their_ip4_addr = { .addr = ESP_IP4TOADDR(10, 0, 0, 2) },
+        .ppp_our_ip4_addr = { .addr = ESP_IP4TOADDR(169, 254, 7, 1) },
+        .ppp_their_ip4_addr = { .addr = ESP_IP4TOADDR(169, 254, 7, 2) },
         .ppp_passive = true,  // Server mode — wait for host pppd
     };
     esp_netif_ppp_set_params(s_ppp_netif, &ppp_config);
@@ -131,14 +131,15 @@ Measured throughput: UART @ 3 Mbaud → 2 Mbps TCP/UDP (66% efficiency).
 # Basic connection
 sudo pppd /dev/ttyUSB0 1500000 \
     noauth local nocrtscts nodetach \
-    10.0.0.2:10.0.0.1
+    169.254.7.2:169.254.7.1
 
 # After connection:
 # - ppp0 interface created
-# - Local IP: 10.0.0.2
-# - Remote (ESP32): 10.0.0.1
-# - Browse to http://10.0.0.1
-# - OpenRGB DDP to 10.0.0.1:4048
+# - Local IP: 169.254.7.2
+# - Remote (ESP32): 169.254.7.1
+# - mDNS: wled.local → 169.254.7.1
+# - Browse to http://wled.local
+# - OpenRGB DDP to wled.local:4048
 ```
 
 ### Linux — systemd auto-connect on USB plug-in
@@ -164,7 +165,7 @@ BindsTo=dev-%i.device
 [Service]
 Type=simple
 ExecStart=/usr/sbin/pppd /dev/%i 1500000 noauth local nocrtscts \
-    10.0.0.2:10.0.0.1 persist maxfail 0 holdoff 3
+    169.254.7.2:169.254.7.1 persist maxfail 0 holdoff 3
 Restart=on-failure
 RestartSec=5
 
@@ -288,17 +289,17 @@ Similarly extend `localIP()`, `subnetMask()`, `gatewayIP()` to return PPP interf
 │   M5StickC (ESP32-PICO-D4)  │◄═════════════════════════════►│   Host PC (koero/z20)      │
 │                              │     FTDI FT232                │                            │
 │  ┌─────────────────────┐    │     PPP HDLC frames           │  pppd → ppp0 interface     │
-│  │ WLED (stock)        │    │                               │  IP: 10.0.0.2              │
+│  │ WLED (stock)        │    │                               │  IP: 169.254.7.2           │
 │  │  AsyncWebServer :80 │    │                               │                            │
-│  │  WebSocket /ws      │    │                               │  Browser → http://10.0.0.1 │
-│  │  DDP :4048 (UDP)    │    │                               │  OpenRGB → DDP 10.0.0.1    │
+│  │  WebSocket /ws      │    │                               │  Browser → http://wled.local│
+│  │  DDP :4048 (UDP)    │    │                               │  OpenRGB → DDP wled.local   │
 │  │  E1.31 :5568 (UDP)  │    │                               │  JSON API → POST /json     │
 │  │  Effects engine     │    │                               │                            │
 │  └────────┬────────────┘    │                               │  systemd auto-connect on   │
 │           │                  │                               │  USB plug-in via udev rule │
 │  ┌────────▼────────────┐    │                               └────────────────────────────┘
 │  │ esp_netif PPP       │    │
-│  │ IP: 10.0.0.1        │    │
+│  │ IP: 169.254.7.1     │    │
 │  │ ppp_listen() server │    │
 │  └────────┬────────────┘    │
 │           │                  │
@@ -322,5 +323,5 @@ Everything from the original serial-only ADR that is now unnecessary:
 | TPM2 serial reception | E1.31 over UDP over PPP | Stock WLED |
 | Serial baud rate switching | Fixed 1.5 Mbps PPP link | No runtime switching |
 | Serial RX buffer management | PPP + lwIP handle framing | Kernel-level |
-| `wled-serial-cli` companion | `curl http://10.0.0.1/json` | Standard HTTP tools |
+| `wled-serial-cli` companion | `curl http://wled.local/json` | Standard HTTP tools |
 | Custom serial multiplexer | IP handles multiplexing | TCP + UDP coexist natively |

@@ -22,7 +22,7 @@ PC ARGB (addressable RGB) lighting is controlled by motherboard headers or dedic
 1. **Full WLED over USB** — web dashboard, WebSocket, JSON API, DDP/E1.31 realtime — all via PPP-over-serial, no WiFi required
 2. **OpenRGB compatibility via DDP** — OpenRGB's preferred WLED protocol, now over the PPP tunnel instead of WiFi
 3. **Zero custom serial protocols** — no Adalight byte parsing, no custom JSON framing. All traffic is standard IP (TCP + UDP) over PPP
-4. **Complete WLED web dashboard** — browse to `http://10.0.0.1` from the host PC, get the full effects UI, color picker, segments, presets
+4. **Complete WLED web dashboard** — browse to `http://wled.local` from the host PC, get the full effects UI, color picker, segments, presets
 5. **WLED effects engine preserved** — all 200+ effects, segments, palettes, presets run locally when not in DDP realtime mode
 6. **Minimal hardware** — M5StickC + level shifter + standard 3-pin ARGB connectors, powered by external 5V
 7. **Upstream-rebasing fork** — thin patch set following WLED's existing Ethernet (`WLED_USE_ETHERNET`) pattern
@@ -92,19 +92,20 @@ PPP HDLC overhead: ~8% (framing, FCS, ACCM byte escaping). Effective: **~1.38 Mb
 **Chosen**: PPP (Point-to-Point Protocol) over the USB UART, creating a standard IP link between the ESP32 and host PC. All WLED traffic — HTTP, WebSocket, DDP, E1.31 — flows over standard TCP/UDP through the PPP tunnel.
 
 ```
-┌────────────────────────┐   USB Serial (1.5 Mbps)   ┌─────────────────────────┐
-│ M5StickC (ESP32)       │◄══════════════════════════►│ Host PC                 │
-│                        │   FTDI FT232               │                         │
-│ PPP Server             │   PPP HDLC frames          │ pppd → ppp0 interface   │
-│ esp_netif PPP          │                            │ IP: 10.0.0.2            │
-│ IP: 10.0.0.1           │                            │                         │
-│                        │                            │ Browser → 10.0.0.1      │
-│ AsyncWebServer :80     │◄── TCP (HTTP/WebSocket) ──│ OpenRGB → DDP 10.0.0.1  │
-│ DDP :4048 (UDP)        │◄── UDP (realtime pixels) ─│ curl → /json/state      │
-│ E1.31 :5568 (UDP)      │◄── UDP (realtime pixels) ─│                         │
-│ Effects engine         │                            │ Auto-connect via udev + │
-│                        │                            │ systemd on USB plug-in  │
-│ G26 → 74AHCT125 → LEDs│                            └─────────────────────────┘
+┌────────────────────────┐   USB Serial (1.5 Mbps)   ┌──────────────────────────────┐
+│ M5StickC (ESP32)       │◄══════════════════════════►│ Host PC                      │
+│                        │   FTDI FT232               │                              │
+│ PPP Server             │   PPP HDLC frames          │ pppd → ppp0 interface        │
+│ esp_netif PPP          │                            │ IP: 169.254.7.2              │
+│ IP: 169.254.7.1        │                            │                              │
+│ mDNS: wled.local       │                            │ Avahi picks up wled.local     │
+│                        │                            │ Browser → http://wled.local   │
+│ AsyncWebServer :80     │◄── TCP (HTTP/WebSocket) ──│ OpenRGB → DDP wled.local      │
+│ DDP :4048 (UDP)        │◄── UDP (realtime pixels) ─│ curl → http://wled.local/json │
+│ E1.31 :5568 (UDP)      │◄── UDP (realtime pixels) ─│                              │
+│ Effects engine         │                            │ Dolphin Network → sees WLED   │
+│                        │                            │ Auto-connect: udev + systemd  │
+│ G26 → 74AHCT125 → LEDs│                            └──────────────────────────────┘
 └────────────────────────┘
 ```
 
@@ -115,6 +116,11 @@ PPP HDLC overhead: ~8% (framing, FCS, ACCM byte escaping). Effective: **~1.38 Mb
 **Why PPP, not SLIP**: SLIP was removed from ESP-IDF `esp_netif` core in v5.1 (Aug 2022). PPP is first-class in ESP-IDF, battle-tested in every ESP32 cellular project, has LCP/IPCP auto-negotiation, FCS error detection, VJ header compression, and works natively on Linux (`pppd`), macOS (`pppd`), and Windows (built-in DUN). See [`refs/ppp-serial-tunnel.md`](refs/ppp-serial-tunnel.md).
 
 **Why not custom serial protocols**: Tunneling IP eliminates ALL custom protocol work. No Adalight byte parsing, no serial JSON framing, no baud rate switching, no serial buffer management. WLED's stock HTTP server, WebSocket handler, and DDP/E1.31 receivers all work unmodified.
+
+**Addressing**: Link-local IPs per RFC 3927 (`169.254.0.0/16`). Avoids collisions with any LAN/VPN/container subnet:
+- ESP32: `169.254.7.1`
+- Host: `169.254.7.2`
+- PPP server (ESP32) assigns both via IPCP — no manual config on the host side
 
 **Rejected alternatives**:
 - **Adalight over serial** (original ADR Rev 1): Works for pixel data but loses web dashboard, WebSocket, and requires custom JSON serial framing for API access. DDP over PPP is strictly superior.
@@ -175,9 +181,9 @@ CONFIG_LWIP_PPP_SUPPORT=y
 CONFIG_LWIP_PPP_SERVER_SUPPORT=y
 ```
 
-**ESP32 acts as PPP server** (assigns IPs):
-- ESP32 IP: `10.0.0.1`
-- Host IP: `10.0.0.2`
+**ESP32 acts as PPP server** (assigns IPs via IPCP):
+- ESP32 IP: `169.254.7.1` (link-local, RFC 3927)
+- Host IP: `169.254.7.2` (assigned to host by IPCP — no manual config)
 - `ppp_passive = true` → waits for host `pppd` to connect
 
 **UART setup**: UART0 at 1,500,000 baud, 8N1, no flow control. PPP RX task feeds `esp_netif_receive()`. Transmit callback calls `uart_write_bytes()`.
@@ -200,7 +206,70 @@ CONFIG_LWIP_PPP_SERVER_SUPPORT=y
   - AXP192 battery monitoring and clean shutdown
   - Optional: Button B (G39) long-press for config reset
 
-### Decision 5: LED Output Configuration
+### Decision 5: Zeroconf / mDNS — `wled.local`
+
+**Chosen**: WLED's existing mDNS stack announces `wled.local` with HTTP and WLED service types. User browses to `http://wled.local` — it just works.
+
+**WLED already does this** (verified in `wled.cpp:850-860`, `initInterfaces()`):
+
+```cpp
+MDNS.begin(cmDNS);                                    // hostname → wled.local
+MDNS.addService("http", "tcp", 80);                    // HTTP service discovery
+MDNS.addService("wled", "tcp", 80);                    // WLED-specific service
+MDNS.addServiceTxt("wled", "tcp", "mac", escapedMac.c_str()); // TXT record
+```
+
+**Our build flag sets the hostname to `wled`**:
+```
+-D MDNS_NAME=\"wled\"
+```
+
+This means:
+- `wled.local` resolves to `169.254.7.1` via mDNS
+- `_http._tcp` service announced → appears in **Dolphin Network**, **macOS Finder**, **Windows Network**
+- `_wled._tcp` service announced → WLED app auto-discovery works
+- OpenRGB can target `wled.local` instead of a raw IP
+
+**mDNS is NOT WiFi-gated** in WLED — it runs inside `initInterfaces()` which fires after *any* network interface gets an IP (WiFi, Ethernet, or our PPP). The ESPmDNS library uses lwIP's mDNS responder which binds to all netifs.
+
+**Host-side requirements** (one-time setup):
+
+| Component | Package | Purpose | Status on koero |
+|---|---|---|---|
+| Avahi daemon | `avahi` | mDNS responder/reflector | Installed, active |
+| Avahi tools | `avahi-tools` | `avahi-browse`, `avahi-resolve` | Installed |
+| nss-mdns | `nss-mdns` | `.local` name resolution in glibc | **NOT installed — needs install** |
+| avahi-daemon.conf | — | `allow-point-to-point=yes` | **Default is no — needs change** |
+
+**Setup commands** (one-time, on any host that connects):
+```bash
+# Install .local resolution
+sudo dnf install -y nss-mdns
+
+# Enable .local in name resolution
+# Verify /etc/nsswitch.conf has: hosts: ... mdns_minimal [NOTFOUND=return] ...
+# RHEL 10 / Fedora: nss-mdns adds this automatically via authselect
+
+# Allow Avahi on PPP point-to-point interfaces
+sudo sed -i 's/^#allow-point-to-point=no/allow-point-to-point=yes/' /etc/avahi/avahi-daemon.conf
+sudo systemctl restart avahi-daemon
+```
+
+**Verification**:
+```bash
+# After M5StickC is connected and PPP is up:
+avahi-browse -t _http._tcp          # Should show "wled" on ppp0
+avahi-resolve -n wled.local          # Should return 169.254.7.1
+curl http://wled.local/json/info     # Should return WLED info JSON
+```
+
+**Network browser visibility**: With `_http._tcp` announced, the device appears automatically in:
+- **KDE Dolphin** → Network → "Web Services" (via Avahi/zeroconf KIO)
+- **GNOME Files** → Network → "Web Services"
+- **macOS Finder** → Network (via Bonjour)
+- **Windows Explorer** → Network (via Bonjour for Windows, if installed)
+
+### Decision 6: LED Output Configuration
 
 **Chosen**: Single channel on G26 (HAT header), configurable via build defaults.
 
@@ -217,20 +286,19 @@ build_flags =
 
 ## 5. OpenRGB Integration
 
-### How It Works — DDP over PPP
+### How It Works — DDP over PPP, Discovered via mDNS
 
-OpenRGB's preferred WLED protocol is **DDP** (Distributed Display Protocol) over UDP. With PPP, this works exactly as it does over WiFi — OpenRGB targets the ESP32's IP address:
-
-1. Flash firmware on M5StickC, connect USB
-2. Host auto-connects via `pppd` (systemd/udev, see §6)
-3. Configure OpenRGB `OpenRGB.json`:
+1. Plug M5StickC USB into PC
+2. udev triggers `pppd` → PPP link auto-establishes (systemd, see §6)
+3. mDNS announces `wled.local` → Avahi picks it up → `wled.local` resolves to `169.254.7.1`
+4. Configure OpenRGB `OpenRGB.json`:
 
 ```json
 {
     "DDPDevices": {
         "devices": [{
             "name": "WLED M5StickC USB",
-            "ip": "10.0.0.1",
+            "ip": "wled.local",
             "port": 4048,
             "num_leds": 60
         }]
@@ -238,7 +306,7 @@ OpenRGB's preferred WLED protocol is **DDP** (Distributed Display Protocol) over
 }
 ```
 
-4. OpenRGB sends DDP UDP packets → PPP tunnel → WLED's stock `handleDDPPacket()` → LEDs update
+5. OpenRGB sends DDP UDP packets → PPP tunnel → WLED's stock `handleDDPPacket()` → LEDs update
 
 **Also supported** (no config changes, WLED stock):
 - **E1.31/sACN** (UDP port 5568) — configure in OpenRGB's E1.31 settings
@@ -246,22 +314,22 @@ OpenRGB's preferred WLED protocol is **DDP** (Distributed Display Protocol) over
 
 ### Web Dashboard Access
 
-Browse to `http://10.0.0.1` — full WLED dashboard with effects picker, color wheel, segments, presets, settings. WebSocket live preview works.
+Browse to **`http://wled.local`** — full WLED dashboard with effects picker, color wheel, segments, presets, settings. WebSocket live preview works. Falls back to `http://169.254.7.1` if mDNS is unavailable.
 
 ### JSON API Access
 
 ```bash
 # Query state
-curl http://10.0.0.1/json/state
+curl http://wled.local/json/state
 
 # Set brightness
-curl -X POST http://10.0.0.1/json -d '{"bri":128}'
+curl -X POST http://wled.local/json -d '{"bri":128}'
 
 # List effects
-curl http://10.0.0.1/json/eff
+curl http://wled.local/json/eff
 
 # List palettes
-curl http://10.0.0.1/json/pal
+curl http://wled.local/json/pal
 ```
 
 Standard HTTP — any tool, any language, no custom serial framing.
@@ -283,8 +351,9 @@ build_flags = ${common.build_flags} ${esp32_idf_V5.build_flags}
   ; --- PPP-over-serial mode ---
   -D WLED_USE_PPP
   -D PPP_BAUD=1500000
-  -D PPP_OUR_IP=\"10.0.0.1\"
-  -D PPP_THEIR_IP=\"10.0.0.2\"
+  -D PPP_OUR_IP=\"169.254.7.1\"
+  -D PPP_THEIR_IP=\"169.254.7.2\"
+  -D MDNS_NAME=\"wled\"
   ; --- Disable unused modules ---
   -D WLED_DISABLE_ALEXA
   -D WLED_DISABLE_HUESYNC
@@ -337,9 +406,9 @@ PlatformIO and ESP-IDF toolchains install into koero's workspace NVMe (`/var/mnt
 
 **Linux (one-shot)**:
 ```bash
-sudo pppd /dev/ttyUSB0 1500000 noauth local nocrtscts nodetach \
-    10.0.0.2:10.0.0.1
-# Then: http://10.0.0.1 in browser
+sudo pppd /dev/ttyUSB0 1500000 noauth local nocrtscts nodetach
+# IPCP assigns 169.254.7.2 automatically (ESP32 is PPP server)
+# Then: http://wled.local in browser
 ```
 
 **Linux (auto-connect on USB plug-in)**:
@@ -364,7 +433,7 @@ BindsTo=dev-%i.device
 [Service]
 Type=simple
 ExecStart=/usr/sbin/pppd /dev/%i 1500000 noauth local nocrtscts \
-    10.0.0.2:10.0.0.1 persist maxfail 0 holdoff 3
+    persist maxfail 0 holdoff 3
 Restart=on-failure
 RestartSec=5
 
@@ -372,11 +441,18 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-Plug in M5StickC → udev creates symlink + starts pppd → `ppp0` interface up → browse to `http://10.0.0.1`. Unplug → pppd stops, interface gone.
+**One-time host setup** (Avahi/mDNS — needed for `wled.local` resolution):
+```bash
+sudo dnf install -y nss-mdns
+sudo sed -i 's/^#allow-point-to-point=no/allow-point-to-point=yes/' /etc/avahi/avahi-daemon.conf
+sudo systemctl restart avahi-daemon
+```
 
-**macOS**: `sudo pppd /dev/tty.usbserial-* 1500000 noauth local nocrtscts nodetach`
+**User experience**: Plug in M5StickC → udev starts pppd → IPCP negotiates link-local IPs → mDNS announces `wled.local` → Avahi picks it up → browse to `http://wled.local`. Device appears in Dolphin Network panel. Unplug → pppd stops, mDNS withdraws, interface gone.
 
-**Windows**: WSL2 with `pppd`, or create a Direct Cable Connection (DUN) via Network Settings.
+**macOS**: `sudo pppd /dev/tty.usbserial-* 1500000 noauth local nocrtscts nodetach` (Bonjour picks up `wled.local` automatically — no extra setup)
+
+**Windows**: WSL2 with `pppd`, or create a Direct Cable Connection (DUN) via Network Settings. Install Bonjour Print Services for `.local` resolution.
 
 ## 7. Repository Strategy
 
@@ -423,13 +499,13 @@ Target: **~80 lines of core changes**, rest in usermod. Follows the exact same p
 4. Extend `isConnected()`, `localIP()`, `subnetMask()` to include PPP interface
 5. Hook `IP_EVENT_PPP_GOT_IP` to trigger `interfacesInited = true`
 6. Disable WiFi init when `WLED_USE_PPP` is set
-7. Test: `sudo pppd /dev/ttyUSB0 1500000 noauth local nocrtscts nodetach` → browse `http://10.0.0.1`
+7. Test: `sudo pppd /dev/ttyUSB0 1500000 noauth local nocrtscts nodetach` → browse `http://wled.local` (or `http://169.254.7.1`)
 
 **Exit criteria**: WLED web dashboard accessible over PPP serial link. WebSocket live updates work. JSON API responds to `curl`.
 
 ### Phase 3: DDP Pixel Streaming over PPP
 
-1. Configure OpenRGB with DDP device at `10.0.0.1:4048`
+1. Configure OpenRGB with DDP device at `wled.local:4048` (or `169.254.7.1:4048`)
 2. Verify realtime pixel control from OpenRGB → DDP UDP → PPP → WLED → LEDs
 3. Measure latency and throughput — target <20ms input-to-photon for 60 LEDs
 4. Test E1.31/sACN as alternative protocol
@@ -463,7 +539,7 @@ Everything from the original serial-only design (ADR Rev 1) that is now unnecess
 
 | Was Needed (Rev 1) | Now Replaced By | Notes |
 |---|---|---|
-| Custom serial JSON API (`req` field routing) | `curl http://10.0.0.1/json` | Stock WLED HTTP API |
+| Custom serial JSON API (`req` field routing) | `curl http://wled.local/json` | Stock WLED HTTP API |
 | Adalight serial reception | DDP over UDP over PPP | Stock WLED, OpenRGB preferred method |
 | TPM2 serial reception | E1.31 over UDP over PPP | Stock WLED |
 | Serial baud rate switching (`0xB0-0xB7`) | Fixed 1.5 Mbps PPP link | No runtime switching needed |
