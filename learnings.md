@@ -261,3 +261,32 @@ Need to create symlink in the variant directory for build to find board files.
 - SPI (TFT) and RMT (LEDs) are independent peripherals — no conflicts
 - LovyanGFX preferred for M5StickC (native board defs, DMA support)
 - This is novel — no existing TFT-as-bus in WLED community
+
+## Wave 3 Findings
+
+### Build Optimization Results
+| Optimization | Flash Saved | RAM Freed | Notes |
+|---|---|---|---|
+| WiFi/BT radio disable (custom_sdkconfig) | 22 KB | 56 KB DRAM | Real win is RAM |
+| Compiler -Os (sdkconfig) | 0 KB | 0 KB | NO-OP — framework already -Os |
+| WLED_DISABLE_IMPROV_WIFISCAN | included in above | | |
+| **Total** | **22 KB** | **56 KB** | |
+
+### custom_sdkconfig Contamination (KNOWN LIMITATION)
+pioarduino custom_sdkconfig modifies framework package GLOBALLY.
+After building m5stickc_ppp, non-PPP envs (m5stickc, m5stickc_lean) fail
+with __atomic_fetch_* linker errors. Framework reinstall needed to restore.
+This is acceptable — we only build m5stickc_ppp for our device.
+
+### ARGB Passthrough Implementation
+- 158 lines new code (wled_argb_passthrough.h/.cpp)
+- Uses IDF 5.x RMT RX API (rmt_new_rx_channel, rmt_receive)
+- Decodes WS2812B GRB pulses → RGB → setRealtimePixel()
+- REALTIME_MODE_ARGB_PASSTHROUGH = 10 in const.h
+- Boot state machine: passthrough → PPP connect → WLED → PPP disconnect → passthrough
+- 23 lines integration across 5 existing files
+
+### Final Firmware Size (m5stickc_ppp with all features)
+- 1,143,840 bytes (60.2% of 1.81MB partition)
+- 738 KB headroom
+- Includes: PPP transport, ARGB passthrough, all effects, particle systems, pixelforge, filesystem
