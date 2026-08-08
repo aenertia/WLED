@@ -105,9 +105,15 @@ static volatile uint32_t uart_rx_tail;
 
 static struct pbuf *received_frame;
 
-uint8_t tud_network_mac_address[6] = {0x02, 0x02, 0x84, 0x6A, 0x96, 0x00};
+/* Fixed MAC — WLED-themed, locally administered (IEEE 802 bit 1), unicast
+ * 02:57:4C:ED:07:01 → W=0x57, L=0x4C, 0xED, subnet .7, device .1 */
+uint8_t tud_network_mac_address[6] = {0x02, 0x57, 0x4C, 0xED, 0x07, 0x01};
 
 static volatile bool ppp_connected;
+
+/* mDNS gratuitous announcement burst state (RFC 6762 §8.3) */
+static volatile uint8_t mdns_announce_remaining;
+static uint32_t mdns_announce_next_ms;
 
 /* ------------------------------------------------------------------ */
 /* Minimal DHCP Server (single-client, fixed 169.254.7.2)              */
@@ -214,6 +220,17 @@ static void dhcp_server_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     dhcp_add_opt_u32(reply.options, &oi, DHCP_OPT_LEASE, 86400);
     dhcp_add_opt_u32(reply.options, &oi, DHCP_OPT_SUBNET, USB_NETMASK);
     dhcp_add_opt_u32(reply.options, &oi, DHCP_OPT_ROUTER, DHCP_GATEWAY_IP);
+    /* Option 249: Microsoft Classless Static Routes (msstaticroutes)
+     * Route: 0.0.0.0/0 via 169.254.7.3
+     * Prevents Windows "Unidentified Network" / forces Private profile */
+    reply.options[oi++] = 249;
+    reply.options[oi++] = 5;     /* length: 1 (prefix) + 4 (gateway) */
+    reply.options[oi++] = 0;     /* prefix length 0 = default route */
+    reply.options[oi++] = 169;   /* gateway: 169.254.7.3 */
+    reply.options[oi++] = 254;
+    reply.options[oi++] = 7;
+    reply.options[oi++] = 3;
+
     reply.options[oi++] = DHCP_OPT_END;
 
     struct pbuf *rp = pbuf_alloc(PBUF_TRANSPORT, sizeof(reply), PBUF_RAM);
@@ -456,12 +473,58 @@ static void mdns_responder_init(void) {
     ip4_addr_t mdns_group;
     IP4_ADDR(&mdns_group, 224, 0, 0, 251);
     igmp_joingroup(netif_ip4_addr(&usb_netif), &mdns_group);
+
+#if LWIP_IPV6
+    /* Join IPv6 mDNS multicast group ff02::fb */
+    ip6_addr_t mdns6_group;
+    IP6_ADDR(&mdns6_group, PP_HTONL(0xFF020000UL), 0, 0, PP_HTONL(0xFBUL));
+    mld6_joingroup(netif_ip6_addr(&usb_netif, 0), &mdns6_group);
+#endif
 }
 
-/* Send unsolicited mDNS announcement (call after PPP up / periodically) */
+#if LWIP_IPV6
+/* Send mDNS A-record response via IPv6 multicast (ff02::fb) */
+static void mdns_send_response_v6(struct udp_pcb *pcb, uint16_t txn_id) {
+    uint8_t resp[12 + MDNS_NAME_LEN + 10 + 4];
+    memset(resp, 0, sizeof(resp));
+
+    resp[0] = (uint8_t)(txn_id >> 8);
+    resp[1] = (uint8_t)(txn_id);
+    resp[2] = 0x84;  /* QR=1, AA=1 */
+    resp[7] = 1;     /* ANCOUNT=1 */
+
+    uint16_t off = 12;
+    memcpy(&resp[off], mdns_name_wled, MDNS_NAME_LEN);
+    off += MDNS_NAME_LEN;
+    resp[off++] = 0x00; resp[off++] = 0x01;  /* TYPE A */
+    resp[off++] = 0x80; resp[off++] = 0x01;  /* CLASS IN + cache-flush */
+    resp[off++] = 0x00; resp[off++] = 0x00;
+    resp[off++] = (MDNS_TTL >> 8) & 0xFF;
+    resp[off++] = MDNS_TTL & 0xFF;
+    resp[off++] = 0x00; resp[off++] = 0x04;
+    resp[off++] = 169; resp[off++] = 254;
+    resp[off++] = 7;   resp[off++] = 1;
+
+    struct pbuf *rp = pbuf_alloc(PBUF_TRANSPORT, off, PBUF_RAM);
+    if (!rp) return;
+    memcpy(rp->payload, resp, off);
+
+    ip_addr_t mdns6;
+    ip6_addr_t mdns6_inner;
+    IP6_ADDR(&mdns6_inner, PP_HTONL(0xFF020000UL), 0, 0, PP_HTONL(0xFBUL));
+    ip_addr_copy_from_ip6(mdns6, mdns6_inner);
+    udp_sendto_if(pcb, rp, &mdns6, MDNS_PORT, &usb_netif);
+    pbuf_free(rp);
+}
+#endif
+
+/* Send unsolicited mDNS announcement on both IPv4 and IPv6 multicast */
 static void mdns_announce(void) {
     if (!mdns_pcb) return;
     mdns_send_response(mdns_pcb, NULL, MDNS_PORT, 0);
+#if LWIP_IPV6
+    mdns_send_response_v6(mdns_pcb, 0);
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -531,7 +594,9 @@ uint16_t tud_network_xmit_cb(uint8_t *dst, void *ref, uint16_t arg) {
 }
 
 void tud_network_init_cb(void) {
-    /* Reset state on host re-enumeration */
+    /* Trigger gratuitous mDNS + ARP burst on USB re-enumeration */
+    mdns_announce_remaining = 3;
+    mdns_announce_next_ms = board_millis();
 }
 
 /* ------------------------------------------------------------------ */
@@ -589,9 +654,9 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
             ppp_connected = true;
             printf("PPP up: local=%s", ip4addr_ntoa(netif_ip4_addr(pppif)));
             printf(" peer=%s\n", ip4addr_ntoa(netif_ip4_gw(pppif)));
-            /* Announce ESP32 reachability to host */
-            send_gratuitous_arp();
-            mdns_announce();
+            /* Schedule 3x gratuitous mDNS + ARP burst (RFC 6762 §8.3) */
+            mdns_announce_remaining = 3;
+            mdns_announce_next_ms = board_millis();
             break;
         case PPPERR_USER:
             ppp_connected = false;
@@ -662,6 +727,18 @@ static void mdns_periodic_task(void) {
     if (ppp_connected) mdns_announce();
 }
 
+/* mDNS + ARP link-up burst: 3 announcements at 1s intervals (RFC 6762 §8.3) */
+static void mdns_announce_burst_task(void) {
+    if (mdns_announce_remaining == 0) return;
+    uint32_t now = board_millis();
+    if ((int32_t)(now - mdns_announce_next_ms) < 0) return;
+
+    send_gratuitous_arp();
+    mdns_announce();
+    mdns_announce_remaining--;
+    mdns_announce_next_ms = now + 1000;
+}
+
 /* ------------------------------------------------------------------ */
 /* lwIP + main                                                         */
 /* ------------------------------------------------------------------ */
@@ -719,6 +796,7 @@ int main(void) {
         sys_check_timeouts();
         led_blink_task();
         mdns_periodic_task();
+        mdns_announce_burst_task();
     }
     return 0;
 }
