@@ -94,3 +94,89 @@ PPP needs exclusive UART0 access. WLED_DISABLE_ADALIGHT disables the serial hand
 2. `GifDecoder_Impl.h:181`: variable shadowing
 3. `esp32-hal-i2c-slave.c:547`: variable shadowing
 4. PSRAM not defined message (expected — M5StickC has no PSRAM)
+
+## Lean Build Analysis (Task 4)
+
+### m5stickc_lean (IDF v4, all non-essential modules disabled)
+- firmware.bin: 1,106,080 bytes (1.05 MB)
+- Flash: 58.2% of 1,900,544 (1.81MB OTA partition)
+- RAM: 23.8% (78,088 / 327,680)
+- Headroom: ~775 KB per OTA slot
+
+### Size Comparison: Stock vs Lean
+| Metric | Stock m5stickc | Lean m5stickc | Delta |
+|--------|---------------|---------------|-------|
+| firmware.bin | 1,265,216 B | 1,106,080 B | **-159,136 B (-155 KB)** |
+| Flash usage | 66.2% | 58.2% | -8.0 pp |
+| Headroom | 620 KB | 775 KB | +155 KB |
+| RAM | 80,984 B (24.7%) | 78,088 B (23.8%) | -2,896 B (-2.8 KB) |
+
+### Disabled Modules (combined savings: 155 KB flash, 2.8 KB RAM)
+- WLED_DISABLE_ALEXA — Alexa/Hue emulation
+- WLED_DISABLE_HUESYNC — Philips Hue sync
+- WLED_DISABLE_INFRARED — IR remote receiver
+- WLED_DISABLE_MQTT — MQTT client
+- WLED_DISABLE_OTA — ArduinoOTA (HTTP OTA via /update still works)
+- WLED_DISABLE_ESPNOW — ESP-NOW mesh
+- WLED_DISABLE_LOXONE — Loxone home automation
+- WLED_DISABLE_2D — 2D matrix effects
+- WLED_DISABLE_BROWNOUT_DET — brownout detector
+- WLED_DISABLE_ADALIGHT — serial LED protocol (freed for PPP UART)
+
+### Flash Budget After Lean
+With 775 KB headroom, PPP stack (~30-50 KB estimated) fits comfortably even
+with additional usermod code. WiFi stack removal (Wave 2) would save another
+~40-60 KB but requires source changes.
+
+## PPP Feasibility Analysis (Task 5)
+
+### IDF Version Confirmed
+- Arduino-ESP32: framework-arduinoespressif32 (PlatformIO prebuilt)
+- ESP-IDF version: **4.4.8** (MAJOR=4, MINOR=4, PATCH=8)
+
+### PPP Header Availability: ✅ FOUND
+- `esp_netif_ppp.h` exists at: `tools/sdk/esp32/include/esp_netif/include/esp_netif_ppp.h`
+- lwip PPP headers exist: `netif/ppp/*.h` (ccp, chap, eap, ecp, fsm, ipcp, etc.)
+- `PPP_SERVER` macro defined in `ppp_opts.h` (conditional on `PPP_SUPPORT`)
+
+### PPP Server API: ⚠️ CLIENT-ONLY in esp_netif
+- `esp_netif_ppp.h` provides: `esp_netif_ppp_set_auth()`, `esp_netif_ppp_set_params()`, `esp_netif_ppp_get_params()`
+- NO server-mode API (`ppp_listen`, `ppp_passive`, `ppp_set_server`) in esp_netif headers
+- lwip's `ppp_opts.h` has `PPP_SERVER` support at the lwip level, but esp_netif doesn't expose it
+
+### Critical Blocker: Prebuilt liblwip.a has PPP DISABLED
+- `sdkconfig` in Arduino-ESP32 SDK: `# CONFIG_LWIP_PPP_SUPPORT is not set`
+- `liblwip.a` contains zero PPP symbols (verified via nm)
+- `-D CONFIG_LWIP_PPP_SUPPORT=1` as a build flag has NO EFFECT — it only affects
+  preprocessor guards in headers, but the actual lwip object code is already compiled
+  without PPP and linked from the prebuilt static library
+
+### PPP Enablement Paths (Wave 2 Options)
+
+**Option A: Patch liblwip.a (Recommended for PoC)**
+- Rebuild lwip from Arduino-ESP32 source with `CONFIG_LWIP_PPP_SUPPORT=y`
+- Replace the prebuilt `liblwip.a` in the framework package
+- Pros: No framework migration needed, surgical change
+- Cons: Fragile, must redo on framework updates
+
+**Option B: Switch to ESP-IDF framework (Recommended for production)**
+- Change PlatformIO framework from `arduino` to `espidf` (or `arduino+espidf`)
+- Use `sdkconfig.defaults` with `CONFIG_LWIP_PPP_SUPPORT=y` and `CONFIG_LWIP_PPP_SERVER_SUPPORT=y`
+- This triggers a full IDF build that compiles lwip from source with PPP enabled
+- Pros: Proper, maintainable, enables sdkconfig control
+- Cons: May break Arduino-dependent WLED code, significant migration effort
+
+**Option C: Raw lwip PPP API bypass**
+- Use lwip's `pppapi.h` / `pppos.h` directly instead of esp_netif abstraction
+- Still blocked by prebuilt liblwip.a — same rebuild requirement as Option A
+- But avoids the missing esp_netif server API problem
+
+**Option D: Upgrade to IDF v5 / Arduino-ESP32 3.x**
+- Arduino-ESP32 3.x uses IDF v5.x which may have PPP compiled in by default
+- Would also get the newer esp_netif PPP server API if available
+- Cons: WLED v16 may not support Arduino-ESP32 3.x yet
+
+### Recommendation
+Start with **Option A** (patch liblwip.a) for the PPP PoC, plan migration to
+**Option B** (ESP-IDF framework) for production. The 775 KB flash headroom from
+the lean build provides ample space for PPP stack overhead.
