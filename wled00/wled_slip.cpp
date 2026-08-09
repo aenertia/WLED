@@ -102,8 +102,8 @@ static void slip_rx_task(void *arg) {
 void initSLIP() {
     ESP_LOGI(TAG, "Initializing SLIP over UART%d at %d baud", SLIP_UART_NUM, SLIP_BAUD);
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_init();
+    esp_event_loop_create_default();
 
     uart_config_t uart_config = {};
     uart_config.baud_rate = SLIP_BAUD;
