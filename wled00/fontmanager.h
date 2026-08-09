@@ -56,7 +56,7 @@ struct SegmentFontMetadata {
 // [Bitmap data] - sequential, matches registry order
 
 static constexpr uint8_t MAX_CACHED_GLYPHS = 64;     // max segment string length is 64 chars so this is absolute worst case
-static constexpr uint8_t MAX_FONTS = 5;              // scrolli text supports font numbers 0-4
+static constexpr uint8_t MAX_FONTS = 7;              // scrolling text supports font numbers 0-6
 static constexpr size_t  FONT_NAME_BUFFER_SIZE = 64; // font names
 
 // font header, identical to wbf header, size must be FONT_HEADER_SIZE

@@ -15,6 +15,8 @@
 #include "src/font/font_5x12.h"
 #include "src/font/console_font_6x8.h"
 #include "src/font/c64esque_9px.h"
+#include "src/font/font_dejavu_18px.h"
+#include "src/font/font_dejavu_40px.h"
 
 // get metadata pointer
 SegmentFontMetadata* FontManager::getMetadata() {
@@ -203,6 +205,8 @@ void FontManager::rebuildCache(const char* text) {
     case 2: flashFont = console_font_6x8;      break;
     case 3: flashFont = c64esque_9px;          break;
     case 4: flashFont = font_5x12;             break;
+    case 5: flashFont = font_dejavu_18px;       break;
+    case 6: flashFont = font_dejavu_40px;       break;
   }
 
   // read wbf font header

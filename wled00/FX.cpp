@@ -6462,7 +6462,7 @@ void mode_2Dscrollingtext(void) {
 
   // Font selection
   bool useCustomFont = SEGMENT.check2;
-  uint8_t fontNum = map(SEGMENT.custom2, 0, 255, 0, 4);
+  uint8_t fontNum = map(SEGMENT.custom2, 0, 255, 0, 6);
 
   // letters orientation: -2/+2 = upside down, -1 = 90° clockwise, 0 = normal, 1 = 90° counterclockwise
   const int8_t rotate = map(SEGMENT.custom3, 0, 31, -2, 2);
