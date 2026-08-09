@@ -552,8 +552,10 @@ void WLED::setup()
     handlePresets();  // handle presets again to give a chance for anything queued by the boot preset or playlist
   }
   
+#if !defined(WLED_USE_PPP) && !defined(WLED_USE_SLIP)
   if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) == 0 && !configBackupExists())
     showWelcomePage = true;
+#endif
 
 #if !defined(WLED_USE_PPP) && !defined(WLED_USE_SLIP)
   #ifndef ESP8266
