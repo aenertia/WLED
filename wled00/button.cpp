@@ -24,7 +24,7 @@ void shortPressAction(uint8_t b)
   if (!buttons[b].macroButton) {
     switch (b) {
       case 0: ++effectPalette %= getPaletteCount(); stateChanged = true; colorUpdated(CALL_MODE_BUTTON); break;
-      case 1: ++effectCurrent %= strip.getModeCount(); stateChanged = true; colorUpdated(CALL_MODE_BUTTON); break;
+      case 1: strip.getMainSegment().deallocateData(); ++effectCurrent %= strip.getModeCount(); stateChanged = true; colorUpdated(CALL_MODE_BUTTON); break;
     }
   } else {
     applyPreset(buttons[b].macroButton, CALL_MODE_BUTTON_PRESET);
