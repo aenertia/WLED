@@ -1055,19 +1055,32 @@ void Segment::fill(uint32_t c) const {
   for (unsigned i = 0; i < length(); i++) setPixelColorRaw(i,c); // always fill all pixels (blending will take care of grouping, spacing and clipping)
 }
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+static uint8_t _deferredFadeBlend[MAX_NUM_SEGMENTS] = {};
+static uint8_t _deferredFadeScale[MAX_NUM_SEGMENTS];
+
+static struct _InitDeferredFade {
+  _InitDeferredFade() { memset(_deferredFadeScale, 255, sizeof(_deferredFadeScale)); }
+} _initDeferredFade;
+#endif
+
 /*
  * fade out function, higher rate = quicker fade
  * fading is highly dependant on frame rate (higher frame rates, faster fading)
  * each frame will fade at max 9% or as little as 0.8%
  */
 void Segment::fade_out(uint8_t rate) const {
-#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
+#ifdef WLED_ENABLE_DDP_COMPRESSION
   if (!isActive()) return;
-  rate = (256-rate) >> 1;
-  const int mappedRate = 256 / (rate + 1);
-  uint16_t newAccum = _fadeAccum + ((uint16_t)(255 - _fadeAccum) * mappedRate) / 256;
-  _fadeAccum = (newAccum > 253) ? 255 : (uint8_t)newAccum;
-#else
+  uint8_t idx = strip.getCurrSegmentId();
+  if (idx < MAX_NUM_SEGMENTS) {
+    rate = (256-rate) >> 1;
+    const int mappedRate = 256 / (rate + 1);
+    uint16_t newAccum = _deferredFadeBlend[idx] + ((uint16_t)(255 - _deferredFadeBlend[idx]) * mappedRate) / 256;
+    _deferredFadeBlend[idx] = (newAccum > 253) ? 255 : (uint8_t)newAccum;
+  }
+  return;
+#endif
   if (!isActive()) return; // not active
   rate = (256-rate) >> 1;
   const int mappedRate = 256 / (rate + 1);
@@ -1088,28 +1101,34 @@ void Segment::fade_out(uint8_t rate) const {
     }
     setPixelColorRaw(j, color);
   }
-#endif
 }
 
 // fades all pixels to secondary color
 void Segment::fadeToSecondaryBy(uint8_t fadeBy) const {
-#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
+#ifdef WLED_ENABLE_DDP_COMPRESSION
   if (!isActive() || fadeBy == 0) return;
-  uint16_t newAccum = _fadeAccum + ((uint16_t)(255 - _fadeAccum) * fadeBy) / 256;
-  _fadeAccum = (newAccum > 253) ? 255 : (uint8_t)newAccum;
-#else
+  uint8_t idx = strip.getCurrSegmentId();
+  if (idx < MAX_NUM_SEGMENTS) {
+    uint16_t newAccum = _deferredFadeBlend[idx] + ((uint16_t)(255 - _deferredFadeBlend[idx]) * fadeBy) / 256;
+    _deferredFadeBlend[idx] = (newAccum > 253) ? 255 : (uint8_t)newAccum;
+  }
+  return;
+#endif
   if (!isActive() || fadeBy == 0) return;   // optimization - no scaling to apply
   const size_t rlength = rawLength();  // calculate only once
   for (unsigned i = 0; i < rlength; i++) setPixelColorRaw(i, color_blend(getPixelColorRaw(i), colors[1], fadeBy));
-#endif
 }
 
 // fades all pixels to black using nscale8()
 void Segment::fadeToBlackBy(uint8_t fadeBy) const {
-#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
+#ifdef WLED_ENABLE_DDP_COMPRESSION
   if (!isActive() || fadeBy == 0) return;
-  _scaleAccum = ((uint16_t)_scaleAccum * (255 - fadeBy)) >> 8;
-#else
+  uint8_t idx = strip.getCurrSegmentId();
+  if (idx < MAX_NUM_SEGMENTS) {
+    _deferredFadeScale[idx] = ((uint16_t)_deferredFadeScale[idx] * (255 - fadeBy)) >> 8;
+  }
+  return;
+#endif
   if (!isActive() || fadeBy == 0) return;
   const size_t rlength = rawLength();
   const uint8_t scale = 255 - fadeBy;
@@ -1119,32 +1138,13 @@ void Segment::fadeToBlackBy(uint8_t fadeBy) const {
     if (scaled == c && c != 0) scaled = 0;
     setPixelColorRaw(i, scaled);
   }
-#endif
 }
-
-#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
-void Segment::flushDeferredFade() const {
-  if (_fadeAccum == 0 && _scaleAccum == 255) return;
-  const size_t rlength = rawLength();
-  for (unsigned i = 0; i < rlength; i++) {
-    uint32_t c = pixels[i];
-    if (_scaleAccum < 255) c = fast_color_scale(c, _scaleAccum);
-    if (_fadeAccum > 0) c = color_blend(c, colors[1], _fadeAccum);
-    pixels[i] = c;
-  }
-  _fadeAccum = 0;
-  _scaleAccum = 255;
-}
-#endif
 
 /*
  * blurs segment content, source: FastLED colorutils.cpp
  * Note: for blur_amount > 215 this function does not work properly (creates alternating pattern)
  */
 void Segment::blur(uint8_t blur_amount, bool smear) const {
-#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
-  flushDeferredFade();
-#endif
   if (!isActive() || blur_amount == 0) return; // optimization: 0 means "don't blur"
 #ifndef WLED_DISABLE_2D
   if (is2D()) {
@@ -1792,6 +1792,25 @@ void WS2812FX::show() {
       blendSegment(seg);              // blend segment's buffer into frame buffer
     }
   }
+
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  for (size_t s = 0; s < _segments.size() && s < MAX_NUM_SEGMENTS; s++) {
+    if (!_segments[s].isActive()) continue;
+    uint8_t fadeBlend = _deferredFadeBlend[s];
+    uint8_t fadeScale = _deferredFadeScale[s];
+    if (fadeBlend == 0 && fadeScale == 255) continue;
+    unsigned segStart = _segments[s].start;
+    unsigned segStop = _segments[s].stop;
+    for (unsigned i = segStart; i < segStop && i < totalLen; i++) {
+      uint32_t c = _pixels[i];
+      if (fadeScale < 255) c = fast_color_scale(c, fadeScale);
+      if (fadeBlend > 0) c = color_blend(c, _segments[s].colors[1], fadeBlend);
+      _pixels[i] = c;
+    }
+    _deferredFadeBlend[s] = 0;
+    _deferredFadeScale[s] = 255;
+  }
+#endif
 
   // avoid race condition, capture _callback value
   show_callback callback = _callback;
