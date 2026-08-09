@@ -91,7 +91,7 @@
 struct pbuf;
 struct netif;
 int ddp_hook_ip_input(struct pbuf *p, struct netif *inp, int is_v6);
-#define LWIP_HOOK_IP4_INPUT(p,inp,dest) ddp_hook_ip_input(p, inp, 0)
+#define LWIP_HOOK_IP4_INPUT(p,inp) ddp_hook_ip_input(p, inp, 0)
 #define LWIP_HOOK_IP6_INPUT(p,inp)      ddp_hook_ip_input(p, inp, 1)
 
 #endif /* LWIPOPTS_H */
