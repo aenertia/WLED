@@ -552,7 +552,11 @@ class Segment {
 #endif
   #ifndef WLED_DISABLE_2D
     inline void     setPixelColorXYRaw(unsigned x, unsigned y, uint32_t c) const  { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; pixels[XY(x,y)] = c; }
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+    inline uint32_t getPixelColorXYRaw(unsigned x, unsigned y) const              { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; return getPixelColorRaw(XY(x,y)); }
+#else
     inline uint32_t getPixelColorXYRaw(unsigned x, unsigned y) const              { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; return pixels[XY(x,y)]; };
+#endif
   #endif
     void resetIfRequired();         // sets all SEGENV variables to 0 and clears data buffer
     void loadPalette(CRGBPalette16 &tgt, uint8_t pal);

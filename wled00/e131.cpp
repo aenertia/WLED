@@ -116,14 +116,15 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       size_t explicitStart = hdrLen + 2;
 
       // Step A: apply uniform transform to all pixels in range
+      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;
       if (tOp == DDP_TRANSFORM_SCALE_TOWARD) {
-        for (unsigned px = start; px < totalLen; px++) {
+        for (unsigned px = start; px < transformEnd; px++) {
           uint32_t prev = strip.getPixelColor(px + arlsOffset);
           uint32_t blended = color_blend(prev, tTarget, tParam);
           setRealtimePixel(px, R(blended), G(blended), B(blended), W(blended));
         }
       } else if (tOp == DDP_TRANSFORM_SCALE_MULT) {
-        for (unsigned px = start; px < totalLen; px++) {
+        for (unsigned px = start; px < transformEnd; px++) {
           uint32_t prev = strip.getPixelColor(px + arlsOffset);
           uint32_t scaled = fast_color_scale(prev, tParam);
           setRealtimePixel(px, R(scaled), G(scaled), B(scaled), W(scaled));
@@ -157,7 +158,9 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
 ddp_push:
+#endif
   ddpSeenPush |= push;
   if (!ddpSeenPush || push) { // if we've never seen a push, or this is one, render display
     e131NewData = true;
