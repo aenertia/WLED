@@ -75,28 +75,71 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
     uint8_t compType = p->sequenceNum & 0xF0;
     unsigned totalLen = strip.getLengthTotal();
-    RLEDecoder rle;
-    rle.init(data + c, dataLen);
-    unsigned pixel = start;
-    uint8_t ch[4];
-    unsigned ci = 0;
-    bool isDelta = (compType == DDP_COMP_TYPE_DELTA_RLE);
 
-    while (pixel < totalLen) {
-      uint8_t decoded;
-      if (!rle.next(&decoded)) break;
-      ch[ci++] = decoded;
-      if (ci >= ddpChannelsPerLed) {
-        if (isDelta) {
-          uint32_t prev = strip.getPixelColor(pixel + arlsOffset);
-          setRealtimePixel(pixel, R(prev) ^ ch[0], G(prev) ^ ch[1], B(prev) ^ ch[2],
-                           ddpChannelsPerLed > 3 ? (W(prev) ^ ch[3]) : 0);
-        } else {
-          setRealtimePixel(pixel, ch[0], ch[1], ch[2],
-                           ddpChannelsPerLed > 3 ? ch[3] : 0);
+    if (compType == DDP_COMP_TYPE_DELTA_RLE || compType == DDP_COMP_TYPE_RLE) {
+      RLEDecoder rle;
+      rle.init(data + c, dataLen);
+      unsigned pixel = start;
+      uint8_t ch[4];
+      unsigned ci = 0;
+      bool isDelta = (compType == DDP_COMP_TYPE_DELTA_RLE);
+
+      while (pixel < totalLen) {
+        uint8_t decoded;
+        if (!rle.next(&decoded)) break;
+        ch[ci++] = decoded;
+        if (ci >= ddpChannelsPerLed) {
+          if (isDelta) {
+            uint32_t prev = strip.getPixelColor(pixel + arlsOffset);
+            setRealtimePixel(pixel, R(prev) ^ ch[0], G(prev) ^ ch[1], B(prev) ^ ch[2],
+                             ddpChannelsPerLed > 3 ? (W(prev) ^ ch[3]) : 0);
+          } else {
+            setRealtimePixel(pixel, ch[0], ch[1], ch[2],
+                             ddpChannelsPerLed > 3 ? ch[3] : 0);
+          }
+          pixel++;
+          ci = 0;
         }
-        pixel++;
-        ci = 0;
+      }
+    } else if (compType == DDP_COMP_TYPE_TRANSFORM) {
+      const uint8_t *tdata = data + c;
+      size_t trem = dataLen;
+      if (trem < 2 + ddpChannelsPerLed + 2) goto ddp_push; // need op + param + target + explicit count
+      uint8_t tOp = tdata[0];
+      uint8_t tParam = tdata[1];
+      // read target color (3 or 4 bytes depending on ddpChannelsPerLed)
+      uint8_t tR = tdata[2], tG = tdata[3], tB = tdata[4];
+      uint8_t tW = (ddpChannelsPerLed > 3) ? tdata[5] : 0;
+      uint32_t tTarget = RGBW32(tR, tG, tB, tW);
+      size_t hdrLen = 2 + ddpChannelsPerLed;
+      uint16_t numExplicit = tdata[hdrLen] | (tdata[hdrLen + 1] << 8);
+      size_t explicitStart = hdrLen + 2;
+
+      // Step A: apply uniform transform to all pixels in range
+      if (tOp == DDP_TRANSFORM_SCALE_TOWARD) {
+        for (unsigned px = start; px < totalLen; px++) {
+          uint32_t prev = strip.getPixelColor(px + arlsOffset);
+          uint32_t blended = color_blend(prev, tTarget, tParam);
+          setRealtimePixel(px, R(blended), G(blended), B(blended), W(blended));
+        }
+      } else if (tOp == DDP_TRANSFORM_SCALE_MULT) {
+        for (unsigned px = start; px < totalLen; px++) {
+          uint32_t prev = strip.getPixelColor(px + arlsOffset);
+          uint32_t scaled = fast_color_scale(prev, tParam);
+          setRealtimePixel(px, R(scaled), G(scaled), B(scaled), W(scaled));
+        }
+      }
+      // tOp == DDP_TRANSFORM_NOP: skip transform, only apply explicit writes below
+
+      // Step B: apply explicit pixel writes
+      size_t bytesPerWrite = 2 + ddpChannelsPerLed; // 2B index + 3-4B color
+      for (uint16_t e = 0; e < numExplicit; e++) {
+        size_t off = explicitStart + e * bytesPerWrite;
+        if (off + bytesPerWrite > trem) break;
+        uint16_t pxIdx = tdata[off] | (tdata[off + 1] << 8);
+        if (pxIdx >= totalLen) continue;
+        setRealtimePixel(pxIdx, tdata[off + 2], tdata[off + 3], tdata[off + 4],
+                         ddpChannelsPerLed > 3 ? tdata[off + 5] : 0);
       }
     }
   } else
@@ -114,6 +157,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
+ddp_push:
   ddpSeenPush |= push;
   if (!ddpSeenPush || push) { // if we've never seen a push, or this is one, render display
     e131NewData = true;

@@ -65,6 +65,11 @@ typedef struct ip_addr ip4_addr_t;
 #define DDP_COMP_TYPE_NONE      0x00  // no compression (standard DDP)
 #define DDP_COMP_TYPE_DELTA_RLE 0x10  // XOR delta + byte-level RLE
 #define DDP_COMP_TYPE_RLE       0x20  // byte-level RLE only (no delta, used for keyframes)
+#define DDP_COMP_TYPE_TRANSFORM 0x30  // uniform transform + sparse explicit pixel writes
+
+#define DDP_TRANSFORM_SCALE_TOWARD  0x01  // blend each pixel toward target color by param/256
+#define DDP_TRANSFORM_SCALE_MULT    0x02  // multiply each pixel by param/256
+#define DDP_TRANSFORM_NOP           0x03  // no transform, only explicit pixel writes
 
 #define DDP_CHANNELS_PER_PACKET 1440 // 480 leds
 
