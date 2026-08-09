@@ -6521,7 +6521,7 @@ void mode_2Dscrollingtext(void) {
       SEGENV.aux0 = (cols + totalTextWidth) / 2; // text fits, position it at the center
     }
     ++SEGENV.aux1 &= 0xFF; // color shift
-    SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 50);
+    SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
   SEGMENT.fade_out(255 - (SEGMENT.custom1>>4));  // trail
