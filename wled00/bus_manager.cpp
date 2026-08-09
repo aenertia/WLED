@@ -1283,7 +1283,7 @@ BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
   if (!_tft_instance) {
     _tft_instance = new TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
     _tft_instance->init();
-    _tft_instance->setRotation(0);         // portrait 80x160
+    _tft_instance->setRotation(1);         // landscape 160x80 (M5StickC on its side)
     _tft_instance->fillScreen(TFT_BLACK);
   }
 

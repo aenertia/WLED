@@ -23,7 +23,7 @@ void shortPressAction(uint8_t b)
 {
   if (!buttons[b].macroButton) {
     switch (b) {
-      case 0: toggleOnOff(); stateUpdated(CALL_MODE_BUTTON); break;
+      case 0: ++effectPalette %= getPaletteCount(); stateChanged = true; colorUpdated(CALL_MODE_BUTTON); break;
       case 1: ++effectCurrent %= strip.getModeCount(); stateChanged = true; colorUpdated(CALL_MODE_BUTTON); break;
     }
   } else {
@@ -45,7 +45,9 @@ void longPressAction(uint8_t b)
   if (!buttons[b].macroLongPress) {
     switch (b) {
       case 0: setRandomColor(colPri); colorUpdated(CALL_MODE_BUTTON); break;
-      case 1: 
+      case 1:
+        effectCurrent = 0; stateChanged = true; colorUpdated(CALL_MODE_BUTTON); break;
+      case 2:
         if(buttonBriDirection) {
           if (bri == 255) break; // avoid unnecessary updates to brightness
           if (bri >= 255 - WLED_LONG_BRI_STEPS) bri = 255;
