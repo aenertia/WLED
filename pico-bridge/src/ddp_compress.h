@@ -74,51 +74,8 @@ inline bool rle_encode(const uint8_t *src, size_t srcLen,
   return true;
 }
 
-// Streaming RLE decoder state — decodes one byte at a time without buffering
-// the full decompressed output. Used by the ESP32 receiver for zero-copy decode.
-struct RLEDecoder {
-  const uint8_t *src;
-  size_t srcLen;
-  size_t pos;       // current position in src
-  size_t remaining; // bytes left in current run/literal span
-  uint8_t value;    // current run value (only meaningful during a run)
-  bool isRun;       // true = repeating `value`, false = reading literals
-
-  void init(const uint8_t *data, size_t len) {
-    src = data; srcLen = len; pos = 0; remaining = 0;
-  }
-
-  // Decode next byte. Returns false when input exhausted.
-  bool next(uint8_t *out) {
-    if (remaining > 0) {
-      remaining--;
-      if (isRun) {
-        *out = value;
-      } else {
-        if (pos >= srcLen) return false;
-        *out = src[pos++];
-      }
-      return true;
-    }
-    // read next control byte
-    if (pos >= srcLen) return false;
-    uint8_t ctrl = src[pos++];
-    size_t count = (ctrl & 0x7F) + 1;
-    if (ctrl & 0x80) {
-      isRun = false;
-      remaining = count - 1;
-      if (pos >= srcLen) return false;
-      *out = src[pos++];
-    } else {
-      isRun = true;
-      if (pos >= srcLen) return false;
-      value = src[pos++];
-      remaining = count - 1;
-      *out = value;
-    }
-    return true;
-  }
-};
+// RLEDecoder (streaming decoder) is C++ only — used by ESP32 receiver (wled00/ddp_compress.h).
+// Pico only needs the encoder functions above.
 
 // Adaptive compression: tries delta+RLE and raw RLE, picks the smaller result.
 // `cur`: current frame pixel data (rawLen bytes)
