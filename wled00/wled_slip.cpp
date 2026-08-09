@@ -122,20 +122,11 @@ void initSLIP() {
     delay(3000);
     uart_flush_input(SLIP_UART_NUM);
 
-    ip4_addr_t ipaddr, netmask, gw;
-    ip4addr_aton(SLIP_OUR_IP, &ipaddr);
-    ip4addr_aton(SLIP_NETMASK, &netmask);
-    ip4addr_aton(SLIP_THEIR_IP, &gw);
-
-    netif_add(&slip_netif, &ipaddr, &netmask, &gw, NULL, slip_netif_init, tcpip_input);
-    netif_set_default(&slip_netif);
-    netif_set_up(&slip_netif);
-    netif_set_link_up(&slip_netif);
-
+    // Phase 1: just UART — no lwIP netif yet (diagnostic: does UART alone crash?)
     xTaskCreatePinnedToCore(slip_rx_task, "slip_rx", 4096, NULL, 5, NULL, 0);
 
     slip_connected = true;
-    ESP_LOGI(TAG, "SLIP initialized: %s (gw %s)", SLIP_OUR_IP, SLIP_THEIR_IP);
+    ESP_LOGI(TAG, "SLIP UART initialized (no netif yet — diagnostic build)");
 }
 
 #endif
