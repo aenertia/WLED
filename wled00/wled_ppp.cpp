@@ -115,9 +115,8 @@ void initPPP()
     delay(3000);
     uart_flush_input(PPP_UART_NUM);
 
-    // Start PPP connection
+    // Start PPP connection (server waits for client LCP)
     esp_netif_action_start(ppp_netif, 0, 0, NULL);
-    esp_netif_action_connected(ppp_netif, 0, 0, NULL);
 
     // Start RX task on core 0 (LED output uses core 1 via RMT)
     xTaskCreatePinnedToCore(ppp_rx_task, "ppp_rx", 8192, NULL, 5, NULL, 0);
