@@ -244,7 +244,7 @@ uint32_t IRAM_ATTR_YN Segment::getPixelColorXY(int x, int y) const {
 
 // 2D blurring, can be asymmetrical
 void Segment::blur2D(uint8_t blur_x, uint8_t blur_y, bool smear) const {
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
   flushDeferredFade();
 #endif
   if (!isActive()) return; // not active

@@ -1061,7 +1061,7 @@ void Segment::fill(uint32_t c) const {
  * each frame will fade at max 9% or as little as 0.8%
  */
 void Segment::fade_out(uint8_t rate) const {
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
   if (!isActive()) return;
   rate = (256-rate) >> 1;
   const int mappedRate = 256 / (rate + 1);
@@ -1093,7 +1093,7 @@ void Segment::fade_out(uint8_t rate) const {
 
 // fades all pixels to secondary color
 void Segment::fadeToSecondaryBy(uint8_t fadeBy) const {
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
   if (!isActive() || fadeBy == 0) return;
   uint16_t newAccum = _fadeAccum + ((uint16_t)(255 - _fadeAccum) * fadeBy) / 256;
   _fadeAccum = (newAccum > 253) ? 255 : (uint8_t)newAccum;
@@ -1106,7 +1106,7 @@ void Segment::fadeToSecondaryBy(uint8_t fadeBy) const {
 
 // fades all pixels to black using nscale8()
 void Segment::fadeToBlackBy(uint8_t fadeBy) const {
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
   if (!isActive() || fadeBy == 0) return;
   _scaleAccum = ((uint16_t)_scaleAccum * (255 - fadeBy)) >> 8;
 #else
@@ -1122,7 +1122,7 @@ void Segment::fadeToBlackBy(uint8_t fadeBy) const {
 #endif
 }
 
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
 void Segment::flushDeferredFade() const {
   if (_fadeAccum == 0 && _scaleAccum == 255) return;
   const size_t rlength = rawLength();
@@ -1142,7 +1142,7 @@ void Segment::flushDeferredFade() const {
  * Note: for blur_amount > 215 this function does not work properly (creates alternating pattern)
  */
 void Segment::blur(uint8_t blur_amount, bool smear) const {
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
   flushDeferredFade();
 #endif
   if (!isActive() || blur_amount == 0) return; // optimization: 0 means "don't blur"

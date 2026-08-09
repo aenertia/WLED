@@ -474,7 +474,7 @@ class Segment {
     uint32_t *pixels;                 // pixel data
     unsigned _dataLen;
     uint8_t  _default_palette;        // palette number that gets assigned to pal0
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
     mutable uint8_t _fadeAccum;      // deferred fade_out blend factor (0 = no pending fade)
     mutable uint8_t _scaleAccum;     // deferred fadeToBlackBy scale (255 = no pending scale)
 #endif
@@ -537,7 +537,7 @@ class Segment {
 
     inline uint32_t *getPixels() const                              { return pixels; }
     inline void     setPixelColorRaw(unsigned i, uint32_t c) const  { pixels[i] = c; }
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
     inline uint32_t getPixelColorRaw(unsigned i) const {
       uint32_t c = pixels[i];
       if (_scaleAccum < 255) c = fast_color_scale(c, _scaleAccum);
@@ -547,12 +547,12 @@ class Segment {
 #else
     inline uint32_t getPixelColorRaw(unsigned i) const              { return pixels[i]; };
 #endif
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
     void flushDeferredFade() const;
 #endif
   #ifndef WLED_DISABLE_2D
     inline void     setPixelColorXYRaw(unsigned x, unsigned y, uint32_t c) const  { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; pixels[XY(x,y)] = c; }
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
     inline uint32_t getPixelColorXYRaw(unsigned x, unsigned y) const              { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; return getPixelColorRaw(XY(x,y)); }
 #else
     inline uint32_t getPixelColorXYRaw(unsigned x, unsigned y) const              { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; return pixels[XY(x,y)]; };
@@ -610,7 +610,7 @@ class Segment {
     , data(nullptr)
     , _dataLen(0)
     , _default_palette(6)
-#ifdef WLED_ENABLE_DDP_COMPRESSION
+#if defined(WLED_ENABLE_DDP_COMPRESSION) && !defined(WLED_DISABLE_DEFERRED_FADE)
     , _fadeAccum(0)
     , _scaleAccum(255)
 #endif
