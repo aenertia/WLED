@@ -1061,6 +1061,13 @@ void Segment::fill(uint32_t c) const {
  * each frame will fade at max 9% or as little as 0.8%
  */
 void Segment::fade_out(uint8_t rate) const {
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  if (!isActive()) return;
+  rate = (256-rate) >> 1;
+  const int mappedRate = 256 / (rate + 1);
+  uint16_t newAccum = _fadeAccum + ((uint16_t)(255 - _fadeAccum) * mappedRate) / 256;
+  _fadeAccum = (newAccum > 253) ? 255 : (uint8_t)newAccum;
+#else
   if (!isActive()) return; // not active
   rate = (256-rate) >> 1;
   const int mappedRate = 256 / (rate + 1);
@@ -1081,17 +1088,28 @@ void Segment::fade_out(uint8_t rate) const {
     }
     setPixelColorRaw(j, color);
   }
+#endif
 }
 
 // fades all pixels to secondary color
 void Segment::fadeToSecondaryBy(uint8_t fadeBy) const {
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  if (!isActive() || fadeBy == 0) return;
+  uint16_t newAccum = _fadeAccum + ((uint16_t)(255 - _fadeAccum) * fadeBy) / 256;
+  _fadeAccum = (newAccum > 253) ? 255 : (uint8_t)newAccum;
+#else
   if (!isActive() || fadeBy == 0) return;   // optimization - no scaling to apply
   const size_t rlength = rawLength();  // calculate only once
   for (unsigned i = 0; i < rlength; i++) setPixelColorRaw(i, color_blend(getPixelColorRaw(i), colors[1], fadeBy));
+#endif
 }
 
 // fades all pixels to black using nscale8()
 void Segment::fadeToBlackBy(uint8_t fadeBy) const {
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  if (!isActive() || fadeBy == 0) return;
+  _scaleAccum = ((uint16_t)_scaleAccum * (255 - fadeBy)) >> 8;
+#else
   if (!isActive() || fadeBy == 0) return;
   const size_t rlength = rawLength();
   const uint8_t scale = 255 - fadeBy;
@@ -1101,13 +1119,32 @@ void Segment::fadeToBlackBy(uint8_t fadeBy) const {
     if (scaled == c && c != 0) scaled = 0;
     setPixelColorRaw(i, scaled);
   }
+#endif
 }
+
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+void Segment::flushDeferredFade() const {
+  if (_fadeAccum == 0 && _scaleAccum == 255) return;
+  const size_t rlength = rawLength();
+  for (unsigned i = 0; i < rlength; i++) {
+    uint32_t c = pixels[i];
+    if (_scaleAccum < 255) c = fast_color_scale(c, _scaleAccum);
+    if (_fadeAccum > 0) c = color_blend(c, colors[1], _fadeAccum);
+    pixels[i] = c;
+  }
+  _fadeAccum = 0;
+  _scaleAccum = 255;
+}
+#endif
 
 /*
  * blurs segment content, source: FastLED colorutils.cpp
  * Note: for blur_amount > 215 this function does not work properly (creates alternating pattern)
  */
 void Segment::blur(uint8_t blur_amount, bool smear) const {
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  flushDeferredFade();
+#endif
   if (!isActive() || blur_amount == 0) return; // optimization: 0 means "don't blur"
 #ifndef WLED_DISABLE_2D
   if (is2D()) {

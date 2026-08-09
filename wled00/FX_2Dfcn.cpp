@@ -244,6 +244,9 @@ uint32_t IRAM_ATTR_YN Segment::getPixelColorXY(int x, int y) const {
 
 // 2D blurring, can be asymmetrical
 void Segment::blur2D(uint8_t blur_x, uint8_t blur_y, bool smear) const {
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  flushDeferredFade();
+#endif
   if (!isActive()) return; // not active
   const unsigned cols = vWidth();
   const unsigned rows = vHeight();
