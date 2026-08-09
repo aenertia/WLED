@@ -83,7 +83,7 @@ void initPPP()
                                                 &ppp_event_handler, NULL));
 
     // Create PPP netif with driver post-attach
-    esp_netif_driver_base_t driver_base = {};
+    static esp_netif_driver_base_t driver_base = {};
     driver_base.post_attach = ppp_driver_post_attach;
 
     esp_netif_inherent_config_t base_netif_cfg = ESP_NETIF_INHERENT_DEFAULT_PPP();
