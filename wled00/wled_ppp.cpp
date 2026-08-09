@@ -120,7 +120,7 @@ void initPPP()
     esp_netif_action_connected(ppp_netif, 0, 0, NULL);
 
     // Start RX task on core 0 (LED output uses core 1 via RMT)
-    xTaskCreatePinnedToCore(ppp_rx_task, "ppp_rx", 4096, NULL, 5, NULL, 0);
+    xTaskCreatePinnedToCore(ppp_rx_task, "ppp_rx", 8192, NULL, 5, NULL, 0);
 
     ESP_LOGI(TAG, "PPP initialized, waiting for host pppd...");
 }
