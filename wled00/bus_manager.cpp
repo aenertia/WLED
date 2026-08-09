@@ -1329,15 +1329,7 @@ void BusTFTMatrix::show() {
 }
 
 void BusTFTMatrix::setBrightness(uint8_t b) {
-  if (_bri == b) return;
   _bri = b;
-  int vol = map(b, 0, 255, 2500, 3300);
-  int val = (vol - 1800) / 100;
-  if (val < 0) val = 0;
-  if (val > 15) val = 15;
-  uint8_t reg = axpRead(0x28);
-  uint8_t newReg = (reg & 0x0F) | (val << 4);
-  if (reg != newReg) axpWrite(0x28, newReg);
 }
 
 size_t BusTFTMatrix::getPins(uint8_t* pinArray) const {
