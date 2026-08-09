@@ -16,20 +16,24 @@ static uint8_t slip_rx_pkt[1600];
 static int slip_rx_pos = 0;
 static bool slip_rx_esc = false;
 
+static uint8_t slip_tx_buf[3200];
+
 static err_t slip_netif_output(struct netif *nif, struct pbuf *p, const ip4_addr_t *ipaddr) {
     (void)nif; (void)ipaddr;
-    Serial.write(SLIP_END);
+    int pos = 0;
+    slip_tx_buf[pos++] = SLIP_END;
     for (struct pbuf *q = p; q != NULL; q = q->next) {
         uint8_t *data = (uint8_t *)q->payload;
         for (int i = 0; i < q->len; i++) {
             switch (data[i]) {
-                case SLIP_END: Serial.write(SLIP_ESC); Serial.write(SLIP_ESC_END); break;
-                case SLIP_ESC: Serial.write(SLIP_ESC); Serial.write(SLIP_ESC_ESC); break;
-                default:       Serial.write(data[i]); break;
+                case SLIP_END: slip_tx_buf[pos++] = SLIP_ESC; slip_tx_buf[pos++] = SLIP_ESC_END; break;
+                case SLIP_ESC: slip_tx_buf[pos++] = SLIP_ESC; slip_tx_buf[pos++] = SLIP_ESC_ESC; break;
+                default:       slip_tx_buf[pos++] = data[i]; break;
             }
         }
     }
-    Serial.write(SLIP_END);
+    slip_tx_buf[pos++] = SLIP_END;
+    Serial.write(slip_tx_buf, pos);
     return ERR_OK;
 }
 
@@ -43,7 +47,7 @@ static err_t slip_netif_init(struct netif *nif) {
 }
 
 static void slip_rx_packet(uint8_t *data, int len) {
-    if (len < 20) return;
+    if (len < 20 || !slip_netif.input) return;
     struct pbuf *p = pbuf_alloc(PBUF_IP, len, PBUF_RAM);
     if (!p) return;
     memcpy(p->payload, data, len);
@@ -83,10 +87,13 @@ static void slip_process_byte(uint8_t b) {
 
 static void slip_rx_task(void *arg) {
     for (;;) {
-        if (Serial.available()) {
-            while (Serial.available()) {
+        int avail = Serial.available();
+        if (avail > 0) {
+            int count = (avail > 256) ? 256 : avail;
+            while (count-- > 0) {
                 slip_process_byte(Serial.read());
             }
+            taskYIELD();
         } else {
             vTaskDelay(pdMS_TO_TICKS(1));
         }
@@ -101,11 +108,19 @@ void initSLIP() {
     delay(3000);
     while (Serial.available()) Serial.read();
 
-    // Phase 1: just UART — no lwIP netif yet (diagnostic: does UART alone crash?)
+    ip4_addr_t ip, mask, gw;
+    ip4addr_aton(SLIP_OUR_IP, &ip);
+    ip4addr_aton(SLIP_NETMASK, &mask);
+    ip4addr_aton(SLIP_THEIR_IP, &gw);
+
+    netif_add(&slip_netif, &ip, &mask, &gw, NULL, slip_netif_init, tcpip_input);
+    netif_set_default(&slip_netif);
+    netif_set_up(&slip_netif);
+
     xTaskCreatePinnedToCore(slip_rx_task, "slip_rx", 4096, NULL, 5, NULL, 0);
 
     slip_connected = true;
-    ESP_LOGI(TAG, "SLIP UART initialized (no netif yet — diagnostic build)");
+    ESP_LOGI(TAG, "SLIP ready — %s gw %s", SLIP_OUR_IP, SLIP_THEIR_IP);
 }
 
 #endif

@@ -1,4 +1,7 @@
 #include "wled.h"
+#ifdef ARDUINO_ARCH_ESP32
+#include "esp_system.h"
+#endif
 
 #define JSON_PATH_STATE      1
 #define JSON_PATH_INFO       2
@@ -879,6 +882,10 @@ void serializeInfo(JsonObject root)
 #endif
 
   root[F("freeheap")] = getFreeHeapSize();
+  #ifdef ARDUINO_ARCH_ESP32
+  root[F("resetReason")] = (int)esp_reset_reason();
+  root[F("minheap")] = ESP.getMinFreeHeap();
+  #endif
   #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
   // Report PSRAM information
   // Free PSRAM in bytes (backward compatibility)

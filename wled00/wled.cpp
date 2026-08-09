@@ -578,8 +578,17 @@ void WLED::setup()
 
   findWiFi(true);      // start scanning for available WiFi-s
 #elif defined(WLED_USE_SLIP)
+  // lwIP tcpip_init() is normally called by WiFi.mode() -> Network.begin() -> esp_netif_init().
+  // With WiFi disabled, we must initialize the TCP/IP stack explicitly before any socket operations.
+  ESP_ERROR_CHECK(esp_netif_init());
+  { esp_err_t e = esp_event_loop_create_default();
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
   initSLIP();
 #else
+  // Same lwIP bootstrap needed for PPP — WiFi.mode() is skipped when WLED_USE_PPP is defined.
+  ESP_ERROR_CHECK(esp_netif_init());
+  { esp_err_t e = esp_event_loop_create_default();
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
   initPPP();
 #endif
 #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
@@ -588,8 +597,14 @@ void WLED::setup()
 #endif
 
   // all GPIOs are allocated at this point
+#ifdef WLED_USE_SLIP
+  // SLIP owns UART0 exclusively — block all other WLED serial access
+  serialCanRX = false;
+  serialCanTX = false;
+#else
   serialCanRX = !PinManager::isPinAllocated(hardwareRX); // Serial RX pin (GPIO 3 on ESP32 and ESP8266)
   serialCanTX = !PinManager::isPinAllocated(hardwareTX) || PinManager::getPinOwner(hardwareTX) == PinOwner::DebugOut; // Serial TX pin (GPIO 1 on ESP32 and ESP8266)
+#endif
 
   #ifdef WLED_ENABLE_ADALIGHT
   //Serial RX (Adalight, Improv, Serial JSON) only possible if GPIO3 unused
@@ -934,6 +949,10 @@ void WLED::initInterfaces()
 
 #ifdef WLED_ENABLE_AOTA
   if (aOtaEnabled) ArduinoOTA.begin();
+#endif
+
+#ifdef WLED_ENABLE_WEBSOCKETS
+  ws.onEvent(wsEvent);
 #endif
 
   // Set up mDNS responder:

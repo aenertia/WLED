@@ -60,6 +60,9 @@ void initPPP()
 {
     ESP_LOGI(TAG, "Initializing PPP over UART%d at %d baud", PPP_UART_NUM, PPP_BAUD);
 
+    // Release Arduino Serial before uart_driver_install takes exclusive UART ownership
+    Serial.end();
+
     // Configure UART
     uart_config_t uart_config = {};
     uart_config.baud_rate = PPP_BAUD;
