@@ -555,7 +555,7 @@ void WLED::setup()
   if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) == 0 && !configBackupExists())
     showWelcomePage = true;
 
-#ifndef WLED_USE_PPP
+#if !defined(WLED_USE_PPP) && !defined(WLED_USE_SLIP)
   #ifndef ESP8266
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.persistent(true); // storing credentials in NVM fixes boot-up pause as connection is much faster, is disabled after first connection
@@ -577,9 +577,11 @@ void WLED::setup()
 #endif
 
   findWiFi(true);      // start scanning for available WiFi-s
+#elif defined(WLED_USE_SLIP)
+  initSLIP();
 #else
   initPPP();
-#endif // WLED_USE_PPP
+#endif
 #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
   initARGBPassthrough();
   startARGBPassthrough();  // boot in passthrough mode
@@ -967,17 +969,21 @@ void WLED::initInterfaces()
 
 void WLED::handleConnection()
 {
-#ifdef WLED_USE_PPP
-  // PPP connection management — skip all WiFi logic
+#if defined(WLED_USE_PPP) || defined(WLED_USE_SLIP)
+#ifdef WLED_USE_SLIP
+  if (slip_connected && !interfacesInited) {
+    initInterfaces();
+  }
+  return;
+#else
   if (ppp_connected && !interfacesInited) {
-    DEBUG_PRINTLN(F("PPP connected, initializing interfaces"));
     initInterfaces();
   }
   if (!ppp_connected && interfacesInited) {
-    DEBUG_PRINTLN(F("PPP disconnected"));
     interfacesInited = false;
   }
   return;
+#endif
 #endif
   static bool scanDone = true;
   static byte stacO = 0;

@@ -123,6 +123,9 @@
 #ifdef WLED_USE_PPP
 #include "wled_ppp.h"
 #endif
+#ifdef WLED_USE_SLIP
+#include "wled_slip.h"
+#endif
 #ifdef WLED_ENABLE_TFT_MATRIX
 #include "bus_tft_matrix.h"
 #endif
