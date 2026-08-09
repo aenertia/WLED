@@ -632,10 +632,19 @@ Segment &Segment::setName(const char *newName) {
   if (newName) {
     const int newLen = min(strlen(newName), (size_t)WLED_MAX_SEGNAME_LEN);
     if (newLen) {
-      if (name) p_free(name); // free old name
-      name = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
-      if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true); // if the name changes in scrolling text mode, we need to copy the segment for blending
-      if (name) strlcpy(name, newName, newLen+1);
+      // allocate and fill new name BEFORE freeing old to avoid race condition:
+      // the effect service loop (Core 1) may read SEGMENT.name while this runs (Core 0).
+      // Old code freed name first, leaving a window where name pointed to heap garbage.
+      char *newBuf = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
+      if (newBuf) {
+        strlcpy(newBuf, newName, newLen+1);
+        // start transition BEFORE swapping — the copy constructor deep-copies the current
+        // (still valid) name, so the old segment gets the correct previous text for blending.
+        if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true);
+        char *oldName = name;
+        name = newBuf;  // atomic pointer swap — effect now reads valid new name
+        if (oldName) p_free(oldName);
+      }
       return *this;
     }
   }
