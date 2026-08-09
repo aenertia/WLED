@@ -103,9 +103,6 @@ static void slip_rx_task(void *arg) {
 void initSLIP() {
     ESP_LOGI(TAG, "Initializing SLIP over UART%d at %d baud", SLIP_UART_NUM, SLIP_BAUD);
 
-    esp_netif_init();
-    esp_event_loop_create_default();
-
     uart_config_t uart_config = {};
     uart_config.baud_rate = SLIP_BAUD;
     uart_config.data_bits = UART_DATA_8_BITS;
@@ -114,11 +111,12 @@ void initSLIP() {
     uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     uart_config.source_clk = UART_SCLK_DEFAULT;
 
-    ESP_ERROR_CHECK(uart_param_config(SLIP_UART_NUM, &uart_config));
-    ESP_ERROR_CHECK(uart_set_pin(SLIP_UART_NUM, SLIP_TX_PIN, SLIP_RX_PIN,
-                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-    ESP_ERROR_CHECK(uart_driver_install(SLIP_UART_NUM, SLIP_RX_BUF_SIZE * 2,
-                                         SLIP_RX_BUF_SIZE * 2, 0, NULL, 0));
+    uart_driver_delete(SLIP_UART_NUM);
+    uart_param_config(SLIP_UART_NUM, &uart_config);
+    uart_set_pin(SLIP_UART_NUM, SLIP_TX_PIN, SLIP_RX_PIN,
+                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(SLIP_UART_NUM, SLIP_RX_BUF_SIZE * 2,
+                        SLIP_RX_BUF_SIZE * 2, 0, NULL, 0);
 
     ESP_LOGI(TAG, "Waiting for serial port to stabilize...");
     delay(3000);
@@ -129,12 +127,10 @@ void initSLIP() {
     ip4addr_aton(SLIP_NETMASK, &netmask);
     ip4addr_aton(SLIP_THEIR_IP, &gw);
 
-    LOCK_TCPIP_CORE();
     netif_add(&slip_netif, &ipaddr, &netmask, &gw, NULL, slip_netif_init, tcpip_input);
     netif_set_default(&slip_netif);
     netif_set_up(&slip_netif);
     netif_set_link_up(&slip_netif);
-    UNLOCK_TCPIP_CORE();
 
     xTaskCreatePinnedToCore(slip_rx_task, "slip_rx", 4096, NULL, 5, NULL, 0);
 
