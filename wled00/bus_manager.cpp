@@ -1242,6 +1242,128 @@ size_t BusHub75Matrix::getPins(uint8_t* pinArray) const {
 #endif
 // ***************************************************************************
 
+#ifdef WLED_ENABLE_TFT_MATRIX
+
+void BusTFTMatrix::axpWrite(uint8_t reg, uint8_t val) {
+  Wire1.beginTransmission(0x34);
+  Wire1.write(reg);
+  Wire1.write(val);
+  Wire1.endTransmission();
+}
+
+uint8_t BusTFTMatrix::axpRead(uint8_t reg) {
+  Wire1.beginTransmission(0x34);
+  Wire1.write(reg);
+  Wire1.endTransmission(false);
+  Wire1.requestFrom((uint8_t)0x34, (uint8_t)1);
+  return Wire1.read();
+}
+
+BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
+: Bus(bc.type, bc.start, bc.autoWhite, TFT_VIRTUAL_W * TFT_VIRTUAL_H)
+, _panelWidth(TFT_VIRTUAL_W)
+, _panelHeight(TFT_VIRTUAL_H)
+, _scaleX(TFT_WIDTH / TFT_VIRTUAL_W)
+, _scaleY(TFT_HEIGHT / TFT_VIRTUAL_H)
+, _ledBuffer(nullptr)
+, _ledsDirty(nullptr)
+{
+  _hasRgb = true;
+  _hasWhite = false;
+  _hasCCT = false;
+
+  // AXP192 PMIC: enable TFT power rails BEFORE SPI init
+  Wire1.begin(21, 22);
+  Wire1.setClock(400000);
+  axpWrite(0x28, 0xCC);                    // LDO2+LDO3 = 3.0V
+  axpWrite(0x12, axpRead(0x12) | 0x0C);    // Enable LDO2 (backlight) + LDO3 (TFT logic)
+  delay(10);
+
+  // Init TFT
+  if (!_tft_instance) {
+    _tft_instance = new TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
+    _tft_instance->init();
+    _tft_instance->setRotation(0);         // portrait 80x160
+    _tft_instance->fillScreen(TFT_BLACK);
+  }
+
+  // Allocate pixel buffer (uint32_t for BFRALLOC_NOBYTEACCESS compatibility)
+  _ledBuffer = (uint32_t*)calloc(_len, sizeof(uint32_t));
+  // Allocate dirty-bit array (1 bit per pixel)
+  size_t dirtyBytes = (_len + 7) / 8;
+  _ledsDirty = (byte*)calloc(dirtyBytes, 1);
+
+  _valid = (_ledBuffer != nullptr && _ledsDirty != nullptr && _tft_instance != nullptr);
+  DEBUGBUS_PRINTF_P(PSTR("TFT Matrix: %dx%d (%d pixels), scale %dx%d, valid=%d\n"),
+                    _panelWidth, _panelHeight, _len, _scaleX, _scaleY, _valid);
+}
+
+void IRAM_ATTR BusTFTMatrix::setPixelColor(unsigned pix, uint32_t c) {
+  if (!_valid || pix >= _len) return;
+  if (_ledBuffer[pix] != c) {
+    _ledBuffer[pix] = c;
+    setBitInArray(_ledsDirty, pix, true);
+  }
+}
+
+uint32_t BusTFTMatrix::getPixelColor(unsigned pix) const {
+  if (!_valid || pix >= _len) return 0;
+  return _ledBuffer[pix];
+}
+
+void BusTFTMatrix::show() {
+  if (!_valid || !_tft_instance) return;
+  for (unsigned pix = 0; pix < _len; pix++) {
+    if (getBitFromArray(_ledsDirty, pix)) {
+      uint32_t c = color_fade(_ledBuffer[pix], _bri, true);
+      uint16_t x = (pix % _panelWidth) * _scaleX;
+      uint16_t y = (pix / _panelWidth) * _scaleY;
+      uint16_t color565 = ((R(c) & 0xF8) << 8) | ((G(c) & 0xFC) << 3) | (B(c) >> 3);
+      _tft_instance->fillRect(x, y, _scaleX, _scaleY, color565);
+    }
+  }
+  setBitArray(_ledsDirty, _len, false);
+}
+
+void BusTFTMatrix::setBrightness(uint8_t b) {
+  _bri = b;
+  // Map WLED brightness to AXP192 LDO2 voltage (backlight)
+  int vol = map(b, 0, 255, 2500, 3300);
+  int val = (vol - 1800) / 100;
+  if (val < 0) val = 0;
+  if (val > 15) val = 15;
+  axpWrite(0x28, (axpRead(0x28) & 0x0F) | (val << 4));
+}
+
+size_t BusTFTMatrix::getPins(uint8_t* pinArray) const {
+  if (pinArray) {
+    pinArray[0] = TFT_MOSI;
+    pinArray[1] = TFT_SCLK;
+    pinArray[2] = TFT_CS;
+    pinArray[3] = TFT_DC;
+  }
+  return 4;
+}
+
+std::vector<LEDType> BusTFTMatrix::getLEDTypes() {
+  return {
+    {TYPE_TFT_MATRIX, "", PSTR("TFT Matrix (SPI)")},
+  };
+}
+
+void BusTFTMatrix::cleanup() {
+  DEBUGBUS_PRINTLN(F("TFT Matrix Cleanup."));
+  free(_ledBuffer);
+  _ledBuffer = nullptr;
+  free(_ledsDirty);
+  _ledsDirty = nullptr;
+  _valid = false;
+  // Don't delete _tft_instance — it's a singleton shared across bus recreations
+}
+
+#endif // WLED_ENABLE_TFT_MATRIX
+// ***************************************************************************
+
 BusPlaceholder::BusPlaceholder(const BusConfig &bc)
 : Bus(bc.type, bc.start, bc.autoWhite, bc.count, bc.reversed, bc.refreshReq)
 , _colorOrder(bc.colorOrder)
@@ -1273,6 +1395,10 @@ size_t BusConfig::memUsage() const {
     mem += sizeof(BusDigital) + PolyBus::memUsage(count + skipAmount, iType);
   } else if (Bus::isOnOff(type)) {
     mem += sizeof(BusOnOff);
+#ifdef WLED_ENABLE_TFT_MATRIX
+  } else if (Bus::isTFT(type)) {
+    mem += sizeof(BusTFTMatrix) + (count * sizeof(uint32_t));
+#endif
   } else {
     mem += sizeof(BusPwm);
   }
@@ -1299,6 +1425,10 @@ int BusManager::add(const BusConfig &bc, bool placeholder) {
 #ifdef WLED_ENABLE_HUB75MATRIX
   } else if (Bus::isHub75(bc.type)) {
     busses.push_back(make_unique<BusHub75Matrix>(bc));
+#endif
+#ifdef WLED_ENABLE_TFT_MATRIX
+  } else if (Bus::isTFT(bc.type)) {
+    busses.push_back(make_unique<BusTFTMatrix>(bc));
 #endif
   } else if (Bus::isDigital(bc.type)) {
     busses.push_back(make_unique<BusDigital>(bc));
@@ -1333,6 +1463,9 @@ String BusManager::getLEDTypesJSONString() {
   //json += LEDTypesToJson(BusVirtual::getLEDTypes());
   #ifdef WLED_ENABLE_HUB75MATRIX
   json += LEDTypesToJson(BusHub75Matrix::getLEDTypes());
+  #endif
+  #ifdef WLED_ENABLE_TFT_MATRIX
+  json += LEDTypesToJson(BusTFTMatrix::getLEDTypes());
   #endif
 
   json.setCharAt(json.length()-1, ']'); // replace last comma with bracket

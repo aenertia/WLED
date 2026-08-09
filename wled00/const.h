@@ -382,6 +382,10 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
 #define TYPE_HUB75MATRIX_QS      66
 #define TYPE_HUB75MATRIX_MAX     71
 
+#define TYPE_TFT_MATRIX_MIN  72
+#define TYPE_TFT_MATRIX      72            //SPI TFT as pixel matrix (ST7735/ST7789)
+#define TYPE_TFT_MATRIX_MAX  79
+
 //Network types (master broadcast) (80-95)
 #define TYPE_VIRTUAL_MIN         80
 #define TYPE_NET_DDP_RGB         80            //network DDP RGB bus (master broadcast bus)

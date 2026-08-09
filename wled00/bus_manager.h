@@ -195,6 +195,7 @@ class Bus {
     static constexpr bool  isPWM(uint8_t type)        { return (type >= TYPE_ANALOG_MIN && type <= TYPE_ANALOG_MAX); }
     static constexpr bool  isVirtual(uint8_t type)    { return (type >= TYPE_VIRTUAL_MIN && type <= TYPE_VIRTUAL_MAX); }
     static constexpr bool  isHub75(uint8_t type)      { return (type >= TYPE_HUB75MATRIX_MIN && type <= TYPE_HUB75MATRIX_MAX); }
+    static constexpr bool  isTFT(uint8_t type)        { return (type >= TYPE_TFT_MATRIX_MIN && type <= TYPE_TFT_MATRIX_MAX); }
     static constexpr bool  is16bit(uint8_t type)      { return type == TYPE_UCS8903 || type == TYPE_UCS8904 || type == TYPE_SM16825; }
     static constexpr bool  mustRefresh(uint8_t type)  { return type == TYPE_TM1814; }
     static constexpr int   numPWMPins(uint8_t type)   { return (type - 40); }
@@ -448,6 +449,31 @@ class BusHub75Matrix : public Bus {
     static constexpr uint32_t IS_BLACK = 0x000000u;
     static constexpr uint32_t IS_DARKGREY = 0x333333u;
     static constexpr int PIN_COUNT = 14;
+};
+#endif
+
+#ifdef WLED_ENABLE_TFT_MATRIX
+class BusTFTMatrix : public Bus {
+  public:
+    BusTFTMatrix(const BusConfig &bc);
+    ~BusTFTMatrix() { cleanup(); }
+    [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
+    [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
+    void show() override;
+    void setBrightness(uint8_t b) override;
+    size_t getPins(uint8_t* pinArray = nullptr) const override;
+    size_t getBusSize() const override { return sizeof(BusTFTMatrix) + (_valid ? _len * sizeof(uint32_t) : 0); }
+    void cleanup();
+    static std::vector<LEDType> getLEDTypes();
+  private:
+    uint16_t _panelWidth;
+    uint16_t _panelHeight;
+    uint8_t  _scaleX;
+    uint8_t  _scaleY;
+    uint32_t *_ledBuffer;
+    byte     *_ledsDirty;
+    static void axpWrite(uint8_t reg, uint8_t val);
+    static uint8_t axpRead(uint8_t reg);
 };
 #endif
 
