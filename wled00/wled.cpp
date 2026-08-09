@@ -578,7 +578,7 @@ void WLED::setup()
 
   findWiFi(true);      // start scanning for available WiFi-s
 #elif defined(WLED_USE_SLIP)
-  initSLIP();
+  // initSLIP(); // DIAGNOSTIC: disabled to isolate crash
 #else
   initPPP();
 #endif

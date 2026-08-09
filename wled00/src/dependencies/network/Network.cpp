@@ -93,7 +93,7 @@ void WLEDNetworkClass::localMAC(uint8_t* MAC)
   }
 #endif
 #ifdef WLED_USE_SLIP
-  esp_efuse_mac_get_default(MAC);
+  WiFi.macAddress(MAC);
 #else
   WiFi.macAddress(MAC);
 #endif
