@@ -53,6 +53,8 @@
 #include "netif/ppp/ppp.h"
 #include "netif/ppp/pppos.h"
 
+#include "ddp_compress.h"
+
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
 /* ------------------------------------------------------------------ */
@@ -678,6 +680,111 @@ static void ppp_bridge_init(void) {
         return;
     }
     ppp_connect(ppp_pcb_inst, 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* DDP compression hook                                                */
+/* ------------------------------------------------------------------ */
+
+static uint8_t ddp_prev_frame[DDP_CHANNELS_PER_PACKET];
+static uint8_t ddp_comp_buf[DDP_CHANNELS_PER_PACKET + 16];
+static uint8_t ddp_workspace[DDP_CHANNELS_PER_PACKET * 2 + 16];
+static uint16_t ddp_frame_count = 0;
+static bool ddp_has_prev = false;
+
+int ddp_hook_ip_input(struct pbuf *p, struct netif *inp, int is_v6) {
+    if (!ppp_connected) return 0;
+
+    uint16_t ip_hdr_len;
+    uint8_t proto;
+    if (is_v6) {
+        if (p->tot_len < 48) return 0;
+        uint8_t *ip6 = (uint8_t *)p->payload;
+        proto = ip6[6];
+        ip_hdr_len = 40;
+    } else {
+        if (p->tot_len < 28) return 0;
+        uint8_t *ip4 = (uint8_t *)p->payload;
+        proto = ip4[9];
+        ip_hdr_len = (ip4[0] & 0x0F) * 4;
+    }
+
+    if (proto != 17) return 0;
+
+    uint8_t *udp_hdr = (uint8_t *)p->payload + ip_hdr_len;
+    uint16_t dst_port = (udp_hdr[2] << 8) | udp_hdr[3];
+    if (dst_port != DDP_DEFAULT_PORT) return 0;
+
+    uint16_t udp_len = (udp_hdr[4] << 8) | udp_hdr[5];
+    if (udp_len < 8 + DDP_HEADER_LEN) return 0;
+
+    uint8_t *ddp = udp_hdr + 8;
+    uint8_t ddp_flags = ddp[0];
+    uint16_t ddp_data_len = (ddp[8] << 8) | ddp[9];
+    uint8_t *ddp_data = ddp + DDP_HEADER_LEN;
+
+    if (ddp_flags & DDP_FLAGS_COMPRESSED) return 0;
+    if (ddp_data_len > DDP_CHANNELS_PER_PACKET) return 0;
+    if (ddp_data_len == 0) return 0;
+
+    bool is_push = ddp_flags & DDP_FLAGS_PUSH;
+    if (!ddp_has_prev || ddp_frame_count % 30 == 0) {
+        memcpy(ddp_prev_frame, ddp_data, ddp_data_len);
+        ddp_has_prev = true;
+        if (is_push) ddp_frame_count++;
+        return 0;
+    }
+
+    size_t comp_len;
+    uint8_t comp_type;
+    if (!rle_encode_adaptive(ddp_data, ddp_prev_frame, ddp_data_len,
+                             ddp_comp_buf, ddp_workspace, &comp_len, &comp_type)) {
+        memcpy(ddp_prev_frame, ddp_data, ddp_data_len);
+        if (is_push) ddp_frame_count++;
+        return 0;
+    }
+
+    memcpy(ddp_prev_frame, ddp_data, ddp_data_len);
+    if (is_push) ddp_frame_count++;
+
+    ddp[0] = ddp_flags | DDP_FLAGS_COMPRESSED;
+    ddp[1] = (ddp[1] & 0x0F) | comp_type;
+    ddp[8] = (comp_len >> 8) & 0xFF;
+    ddp[9] = comp_len & 0xFF;
+
+    memcpy(ddp_data, ddp_comp_buf, comp_len);
+
+    uint16_t new_udp_len = 8 + DDP_HEADER_LEN + comp_len;
+    udp_hdr[4] = (new_udp_len >> 8) & 0xFF;
+    udp_hdr[5] = new_udp_len & 0xFF;
+
+    udp_hdr[6] = 0;
+    udp_hdr[7] = 0;
+
+    if (is_v6) {
+        uint8_t *ip6 = (uint8_t *)p->payload;
+        uint16_t new_payload_len = new_udp_len;
+        ip6[4] = (new_payload_len >> 8) & 0xFF;
+        ip6[5] = new_payload_len & 0xFF;
+    } else {
+        uint8_t *ip4 = (uint8_t *)p->payload;
+        uint16_t new_ip_len = ip_hdr_len + new_udp_len;
+        ip4[2] = (new_ip_len >> 8) & 0xFF;
+        ip4[3] = new_ip_len & 0xFF;
+        ip4[10] = 0; ip4[11] = 0;
+        uint32_t sum = 0;
+        for (int i = 0; i < ip_hdr_len; i += 2)
+            sum += (ip4[i] << 8) | ip4[i + 1];
+        while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+        uint16_t cksum = ~sum;
+        ip4[10] = (cksum >> 8) & 0xFF;
+        ip4[11] = cksum & 0xFF;
+    }
+
+    p->tot_len = ip_hdr_len + new_udp_len;
+    p->len = p->tot_len;
+
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
