@@ -1313,6 +1313,7 @@ uint32_t BusTFTMatrix::getPixelColor(unsigned pix) const {
 
 void BusTFTMatrix::show() {
   if (!_valid || !_tft_instance) return;
+  _tft_instance->startWrite();
   for (unsigned pix = 0; pix < _len; pix++) {
     if (getBitFromArray(_ledsDirty, pix)) {
       uint32_t c = color_fade(_ledBuffer[pix], _bri, true);
@@ -1321,7 +1322,9 @@ void BusTFTMatrix::show() {
       uint16_t color565 = ((R(c) & 0xF8) << 8) | ((G(c) & 0xFC) << 3) | (B(c) >> 3);
       _tft_instance->fillRect(x, y, _scaleX, _scaleY, color565);
     }
+    if ((pix & 0x7F) == 0x7F) { yield(); }
   }
+  _tft_instance->endWrite();
   setBitArray(_ledsDirty, _len, false);
 }
 
