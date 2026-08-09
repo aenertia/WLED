@@ -107,6 +107,14 @@ void initPPP()
 #endif
     ESP_ERROR_CHECK(esp_netif_ppp_set_params(ppp_netif, &ppp_config));
 
+    // Wait for FTDI serial port to stabilize after auto-reset
+    // When the host opens /dev/ttyUSB0, the FTDI's DTR/RTS lines reset the ESP32.
+    // On the second boot, the port is already open — no more resets.
+    // This delay lets the FTDI settle and any baud-rate-mismatch garbage accumulate.
+    ESP_LOGI(TAG, "Waiting for serial port to stabilize...");
+    delay(3000);
+    uart_flush_input(PPP_UART_NUM);
+
     // Start PPP connection
     esp_netif_action_start(ppp_netif, 0, 0, NULL);
     esp_netif_action_connected(ppp_netif, 0, 0, NULL);
