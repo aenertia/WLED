@@ -108,4 +108,43 @@ struct RLEDecoder {
   }
 };
 
+// Adaptive compression: tries delta+RLE and raw RLE, picks the smaller result.
+// `cur`: current frame pixel data (rawLen bytes)
+// `prev`: previous frame pixel data (rawLen bytes), or nullptr for first frame
+// `rawLen`: size of cur/prev buffers in bytes
+// `dst`: output buffer, must be at least rle_max_encoded_size(rawLen) bytes
+// `workspace`: scratch buffer, must be at least rawLen + rle_max_encoded_size(rawLen) bytes
+// `outLen`: receives the compressed output length
+// `outType`: receives DDP_COMP_TYPE_DELTA_RLE, DDP_COMP_TYPE_RLE, or DDP_COMP_TYPE_NONE
+// Returns true if compression was beneficial (outLen < rawLen), false if raw is better.
+inline bool rle_encode_adaptive(const uint8_t *cur, const uint8_t *prev,
+                                size_t rawLen, uint8_t *dst, uint8_t *workspace,
+                                size_t *outLen, uint8_t *outType) {
+  if (!rawLen) { *outLen = 0; *outType = DDP_COMP_TYPE_NONE; return false; }
+
+  size_t bestLen = rawLen;
+  *outType = DDP_COMP_TYPE_NONE;
+
+  // Attempt 1: raw RLE of current frame → dst
+  size_t rawRleLen = 0;
+  if (rle_encode(cur, rawLen, dst, &rawRleLen) && rawRleLen < bestLen) {
+    bestLen = rawRleLen;
+    *outType = DDP_COMP_TYPE_RLE;
+  }
+
+  // Attempt 2: delta+RLE → workspace (only if previous frame available)
+  if (prev) {
+    for (size_t i = 0; i < rawLen; i++) workspace[i] = cur[i] ^ prev[i];
+    size_t deltaRleLen = 0;
+    if (rle_encode(workspace, rawLen, workspace + rawLen, &deltaRleLen) && deltaRleLen < bestLen) {
+      bestLen = deltaRleLen;
+      *outType = DDP_COMP_TYPE_DELTA_RLE;
+      for (size_t i = 0; i < bestLen; i++) dst[i] = workspace[rawLen + i];
+    }
+  }
+
+  *outLen = bestLen;
+  return *outType != DDP_COMP_TYPE_NONE;
+}
+
 #endif // WLED_ENABLE_DDP_COMPRESSION
