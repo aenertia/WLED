@@ -104,7 +104,7 @@ void initSLIP() {
     ESP_LOGI(TAG, "Initializing SLIP over UART%d at %d baud", SLIP_UART_NUM, SLIP_BAUD);
 
     uart_config_t uart_config = {};
-    uart_config.baud_rate = SLIP_BAUD;
+    uart_config.baud_rate = 115200;  // DIAGNOSTIC: keep at 115200 to see crash backtrace
     uart_config.data_bits = UART_DATA_8_BITS;
     uart_config.parity = UART_PARITY_DISABLE;
     uart_config.stop_bits = UART_STOP_BITS_1;
