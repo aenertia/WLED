@@ -1,6 +1,7 @@
 #ifdef ESP8266
   #include <ESP8266WiFi.h>
 #elif defined(WLED_USE_SLIP)
+  #include <Arduino.h>
   #include <esp_mac.h>
 #else // ESP32
   #include <WiFi.h>
