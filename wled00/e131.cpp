@@ -1,4 +1,5 @@
 #include "wled.h"
+#include "ddp_compress.h"
 
 #define MAX_3_CH_LEDS_PER_UNIVERSE 170
 #define MAX_4_CH_LEDS_PER_UNIVERSE 128
@@ -57,7 +58,6 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   uint32_t start =  htonl(p->channelOffset) / ddpChannelsPerLed;
   start += DMXAddress / ddpChannelsPerLed;
   uint16_t dataLen = htons(p->dataLen);
-  unsigned stop = start + dataLen / ddpChannelsPerLed;
   uint8_t* data = p->data;
   unsigned c = 0;
   if (p->flags & DDP_FLAGS_TIME) c = 4; //packet has timecode flag, we do not support it, but data starts 4 bytes later
@@ -68,17 +68,47 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     return;
   }
 
-  unsigned numLeds = stop - start; // stop >= start is guaranteed
-  unsigned maxDataIndex = numLeds * ddpChannelsPerLed; // validate bounds before accessing data array
-  if (maxDataIndex > dataLen) {
-    DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
-    return;
-  }
-
   if (realtimeMode != REALTIME_MODE_DDP) ddpSeenPush = false; // just starting, no push yet
   realtimeLock(realtimeTimeoutMs, REALTIME_MODE_DDP);
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
+    uint8_t compType = p->sequenceNum & 0xF0;
+    unsigned totalLen = strip.getLengthTotal();
+    RLEDecoder rle;
+    rle.init(data + c, dataLen);
+    unsigned pixel = start;
+    uint8_t ch[4];
+    unsigned ci = 0;
+    bool isDelta = (compType == DDP_COMP_TYPE_DELTA_RLE);
+
+    while (pixel < totalLen) {
+      uint8_t decoded;
+      if (!rle.next(&decoded)) break;
+      ch[ci++] = decoded;
+      if (ci >= ddpChannelsPerLed) {
+        if (isDelta) {
+          uint32_t prev = strip.getPixelColor(pixel + arlsOffset);
+          setRealtimePixel(pixel, R(prev) ^ ch[0], G(prev) ^ ch[1], B(prev) ^ ch[2],
+                           ddpChannelsPerLed > 3 ? (W(prev) ^ ch[3]) : 0);
+        } else {
+          setRealtimePixel(pixel, ch[0], ch[1], ch[2],
+                           ddpChannelsPerLed > 3 ? ch[3] : 0);
+        }
+        pixel++;
+        ci = 0;
+      }
+    }
+  } else
+#endif
   if (!realtimeOverride) {
+    unsigned stop = start + dataLen / ddpChannelsPerLed;
+    unsigned numLeds = stop - start;
+    unsigned maxDataIndex = numLeds * ddpChannelsPerLed;
+    if (maxDataIndex > dataLen) {
+      DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
+      return;
+    }
     for (unsigned i = start; i < stop; i++, c += ddpChannelsPerLed) {
       setRealtimePixel(i, data[c], data[c+1], data[c+2], ddpChannelsPerLed >3 ? data[c+3] : 0);
     }
