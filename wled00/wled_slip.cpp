@@ -17,26 +17,19 @@ static int slip_rx_pos = 0;
 static bool slip_rx_esc = false;
 
 static err_t slip_netif_output(struct netif *nif, struct pbuf *p, const ip4_addr_t *ipaddr) {
-    (void)ipaddr;
-    uint8_t end = SLIP_END;
-    uart_write_bytes(SLIP_UART_NUM, &end, 1);
+    (void)nif; (void)ipaddr;
+    Serial.write(SLIP_END);
     for (struct pbuf *q = p; q != NULL; q = q->next) {
         uint8_t *data = (uint8_t *)q->payload;
         for (int i = 0; i < q->len; i++) {
             switch (data[i]) {
-                case SLIP_END:
-                    uart_write_bytes(SLIP_UART_NUM, (const uint8_t[]){SLIP_ESC, SLIP_ESC_END}, 2);
-                    break;
-                case SLIP_ESC:
-                    uart_write_bytes(SLIP_UART_NUM, (const uint8_t[]){SLIP_ESC, SLIP_ESC_ESC}, 2);
-                    break;
-                default:
-                    uart_write_bytes(SLIP_UART_NUM, &data[i], 1);
-                    break;
+                case SLIP_END: Serial.write(SLIP_ESC); Serial.write(SLIP_ESC_END); break;
+                case SLIP_ESC: Serial.write(SLIP_ESC); Serial.write(SLIP_ESC_ESC); break;
+                default:       Serial.write(data[i]); break;
             }
         }
     }
-    uart_write_bytes(SLIP_UART_NUM, &end, 1);
+    Serial.write(SLIP_END);
     return ERR_OK;
 }
 
@@ -89,13 +82,13 @@ static void slip_process_byte(uint8_t b) {
 }
 
 static void slip_rx_task(void *arg) {
-    uint8_t buf[256];
     for (;;) {
-        int len = uart_read_bytes(SLIP_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
-        if (len > 0) {
-            for (int i = 0; i < len; i++) {
-                slip_process_byte(buf[i]);
+        if (Serial.available()) {
+            while (Serial.available()) {
+                slip_process_byte(Serial.read());
             }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
 }
@@ -103,24 +96,10 @@ static void slip_rx_task(void *arg) {
 void initSLIP() {
     ESP_LOGI(TAG, "Initializing SLIP over UART%d at %d baud", SLIP_UART_NUM, SLIP_BAUD);
 
-    uart_config_t uart_config = {};
-    uart_config.baud_rate = 115200;  // DIAGNOSTIC: keep at 115200 to see crash backtrace
-    uart_config.data_bits = UART_DATA_8_BITS;
-    uart_config.parity = UART_PARITY_DISABLE;
-    uart_config.stop_bits = UART_STOP_BITS_1;
-    uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
-    uart_config.source_clk = UART_SCLK_DEFAULT;
-
-    uart_driver_delete(SLIP_UART_NUM);
-    uart_param_config(SLIP_UART_NUM, &uart_config);
-    uart_set_pin(SLIP_UART_NUM, SLIP_TX_PIN, SLIP_RX_PIN,
-                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(SLIP_UART_NUM, SLIP_RX_BUF_SIZE * 2,
-                        SLIP_RX_BUF_SIZE * 2, 0, NULL, 0);
-
-    ESP_LOGI(TAG, "Waiting for serial port to stabilize...");
+    Serial.end();
+    Serial.begin(SLIP_BAUD);
     delay(3000);
-    uart_flush_input(SLIP_UART_NUM);
+    while (Serial.available()) Serial.read();
 
     // Phase 1: just UART — no lwIP netif yet (diagnostic: does UART alone crash?)
     xTaskCreatePinnedToCore(slip_rx_task, "slip_rx", 4096, NULL, 5, NULL, 0);
