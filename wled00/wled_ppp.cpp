@@ -7,9 +7,16 @@ static const char *TAG = "WLED_PPP";
 esp_netif_t *ppp_netif = nullptr;
 volatile bool ppp_connected = false;
 
+// --- Diagnostic counters (visible on TFT via WLED info) ---
+static volatile uint32_t ppp_rx_bytes = 0;
+static volatile uint32_t ppp_tx_bytes = 0;
+static volatile uint32_t ppp_tx_calls = 0;
+
 // Transmit callback — lwIP PPP calls this to send HDLC frames out UART
 static esp_err_t ppp_transmit_cb(void *h, void *buffer, size_t len)
 {
+    ppp_tx_calls++;
+    ppp_tx_bytes += len;
     int written = uart_write_bytes(PPP_UART_NUM, buffer, len);
     return (written == (int)len) ? ESP_OK : ESP_FAIL;
 }
@@ -51,6 +58,7 @@ static void ppp_rx_task(void *arg)
     for (;;) {
         int len = uart_read_bytes(PPP_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
         if (len > 0 && ppp_netif) {
+            ppp_rx_bytes += len;
             esp_netif_receive(ppp_netif, buf, len, NULL);
         }
     }
@@ -60,7 +68,7 @@ void initPPP()
 {
     ESP_LOGI(TAG, "Initializing PPP over UART%d at %d baud", PPP_UART_NUM, PPP_BAUD);
 
-    // Release Arduino Serial before uart_driver_install takes exclusive UART ownership
+    // Release Arduino Serial if it was initialized (no-op if begin() was never called)
     Serial.end();
 
     // Configure UART
@@ -73,7 +81,9 @@ void initPPP()
     uart_config.source_clk = UART_SCLK_DEFAULT;
 
     ESP_ERROR_CHECK(uart_param_config(PPP_UART_NUM, &uart_config));
-    ESP_ERROR_CHECK(uart_set_pin(PPP_UART_NUM, PPP_TX_PIN, PPP_RX_PIN,
+    // Explicit pin assignment — don't rely on IO_MUX defaults persisting
+    // M5StickC ESP32-PICO-D4: UART0 TX=GPIO1, RX=GPIO3 (via FTDI FT232)
+    ESP_ERROR_CHECK(uart_set_pin(PPP_UART_NUM, 1, 3,
                                   UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     ESP_ERROR_CHECK(uart_driver_install(PPP_UART_NUM, PPP_RX_BUF_SIZE * 2,
                                          PPP_RX_BUF_SIZE * 2, 0, NULL, 0));
@@ -110,21 +120,20 @@ void initPPP()
 #endif
     ESP_ERROR_CHECK(esp_netif_ppp_set_params(ppp_netif, &ppp_config));
 
-    // Wait for FTDI serial port to stabilize after auto-reset
-    // When the host opens /dev/ttyUSB0, the FTDI's DTR/RTS lines reset the ESP32.
-    // On the second boot, the port is already open — no more resets.
-    // This delay lets the FTDI settle and any baud-rate-mismatch garbage accumulate.
-    ESP_LOGI(TAG, "Waiting for serial port to stabilize...");
-    delay(3000);
-    uart_flush_input(PPP_UART_NUM);
+    // Brief settle for UART hardware — no flush. PPP's HDLC deframer
+    // naturally ignores garbage and syncs on the next 0x7E flag byte.
+    // The old 3s delay + uart_flush_input() was discarding valid LCP ConfReq
+    // from the host pppd, causing the "LCP Silent" bug.
+    delay(500);
 
-    // Start PPP connection (server waits for client LCP)
-    esp_netif_action_start(ppp_netif, 0, 0, NULL);
-
-    // Start RX task on core 0 (LED output uses core 1 via RMT)
+    // Start RX task BEFORE PPP — ppp_listen() is passive, needs RX ready
     xTaskCreatePinnedToCore(ppp_rx_task, "ppp_rx", 8192, NULL, 5, NULL, 0);
 
-    ESP_LOGI(TAG, "PPP initialized, waiting for host pppd...");
+    // Start PPP (ppp_listen: passive server, responds to host's LCP ConfReq)
+    esp_netif_action_start(ppp_netif, 0, 0, NULL);
+
+    ESP_LOGI(TAG, "PPP listening on UART%d (rx=%lu tx=%lu)",
+             PPP_UART_NUM, ppp_rx_bytes, ppp_tx_bytes);
 }
 
 #endif // WLED_USE_PPP
