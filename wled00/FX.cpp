@@ -6568,7 +6568,7 @@ void mode_2Dscrollingtext(void) {
       uint8_t dir = SEGMENT.custom3 & 0x07;           // bits 0-2: angle (0-7)
       uint8_t distMul = (SEGMENT.custom3 >> 3) & 0x03; // bits 3-4: distance (0-3)
       static const uint8_t distBase[] = {2, 3, 4, 6};
-      int dist = max(1, (int)distBase[distMul] * (int)fontHeight / 18);
+      int dist = distBase[distMul];  // direct distance: 2/3/4/6px
       int shX = sdx[dir] * dist;
       int shY = sdy[dir] * dist;
       uint8_t shadowBri = map(SEGMENT.custom1, 1, 255, 15, 180);
