@@ -6524,9 +6524,9 @@ void mode_2Dscrollingtext(void) {
     SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
-  // c1=0: crisp fill(BLACK). c1>0: fade_out for gradient bg transitions + drop shadow.
-  if (SEGMENT.custom1 == 0) SEGMENT.fill(SEGCOLOR(1));  // colored bg, no trail
-  else                      SEGMENT.fade_out(240);  // fade toward SEGCOLOR(1)
+  // c1=0: crisp, no shadow. c1=1-127: crisp+shadow. c1=128-255: trail+shadow.
+  if (SEGMENT.custom1 < 128) SEGMENT.fill(SEGCOLOR(1));  // crisp background
+  else                       SEGMENT.fade_out(240);       // trail toward SEGCOLOR(1)
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
 
@@ -6569,7 +6569,7 @@ void mode_2Dscrollingtext(void) {
       static const int8_t sdy[] = {0, 1, 1, 1, 0, -1, -1, -1};
       uint8_t dir = SEGMENT.custom3 & 0x07;           // bits 0-2: angle (0-7)
       uint8_t distMul = (SEGMENT.custom3 >> 3) & 0x03; // bits 3-4: distance (0-3)
-      static const uint8_t distBase[] = {2, 3, 4, 6};
+      static const uint8_t distBase[] = {1, 2, 3, 5};
       int dist = distBase[distMul];  // direct distance: 2/3/4/6px
       int shX = sdx[dir] * dist;
       int shY = sdy[dir] * dist;
