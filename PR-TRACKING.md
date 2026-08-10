@@ -19,36 +19,36 @@
 
 | Branch | Files | Lines | Upstream Issue | Status | Review |
 |--------|-------|-------|----------------|--------|--------|
-| [`pr/effects-fade-snap`](../compare/main...pr/effects-fade-snap) | 2 | +68 | [#4976](https://github.com/wled/WLED/issues/4976) (open, `keep`) | Ready | Snap-to-target fix for interrupted transitions |
-| [`pr/text-drop-shadow`](../compare/main...pr/text-drop-shadow) | 3 | +71 | None — create issue first | Ready | Drop shadow with angle/distance/intensity |
+| [`pr/effects-fade-snap`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/effects-fade-snap) | 2 | +68 | [#4976](https://github.com/wled/WLED/issues/4976) (open, `keep`) | Ready | Snap-to-target fix for interrupted transitions |
+| [`pr/text-drop-shadow`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/text-drop-shadow) | 3 | +71 | None — create issue first | Ready | Drop shadow with angle/distance/intensity |
 
 #### Phase 2 — Independent Features (submit in parallel)
 
 | Branch | Files | Lines | Upstream Issue | Status | Review |
 |--------|-------|-------|----------------|--------|--------|
-| [`pr/ddp-rle-codec`](../compare/main...pr/ddp-rle-codec) | 2 | +182 | None — create issue first | Ready | Standalone delta+RLE compression codec |
-| [`pr/argb-passthrough`](../compare/main...pr/argb-passthrough) | 3 | +193 | [#2675](https://github.com/wled/WLED/issues/2675), [#1116](https://github.com/wled/WLED/issues/1116) (adjacent) | Ready | RMT RX→TX motherboard ARGB signal relay |
-| [`pr/tft-bus-matrix`](../compare/main...pr/tft-bus-matrix) | 5 | +200 | None — create issue first | Ready | TFT display as WLED pixel matrix output bus |
+| [`pr/ddp-rle-codec`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/ddp-rle-codec) | 2 | +182 | None — create issue first | Ready | Standalone delta+RLE compression codec |
+| [`pr/argb-passthrough`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/argb-passthrough) | 3 | +193 | [#2675](https://github.com/wled/WLED/issues/2675), [#1116](https://github.com/wled/WLED/issues/1116) (adjacent) | Ready | RMT RX→TX motherboard ARGB signal relay |
+| [`pr/tft-bus-matrix`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/tft-bus-matrix) | 5 | +200 | None — create issue first | Ready | TFT display as WLED pixel matrix output bus |
 
 #### Phase 3 — DDP Receiver (depends on Phase 2)
 
 | Branch | Files | Lines | Upstream Issue | Depends On | Review |
 |--------|-------|-------|----------------|------------|--------|
-| [`pr/ddp-compressed-receiver`](../compare/main...pr/ddp-compressed-receiver) | 4 | +266 | Same as ddp-rle-codec | `pr/ddp-rle-codec` merged | Compressed DDP decode in handleDDPPacket() |
+| [`pr/ddp-compressed-receiver`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/ddp-compressed-receiver) | 4 | +266 | Same as ddp-rle-codec | `pr/ddp-rle-codec` merged | Compressed DDP decode in handleDDPPacket() |
 
 #### Phase 4 — PPP Transport (flagship)
 
 | Branch | Files | Lines | Upstream Issue | Status | Review |
 |--------|-------|-------|----------------|--------|--------|
-| [`pr/ppp-transport`](../compare/main...pr/ppp-transport) | 9 | +408 | None — create Discussion first | Ready | PPP-over-serial: full WLED over USB/UART |
+| [`pr/ppp-transport`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/ppp-transport) | 9 | +408 | None — create Discussion first | Ready | PPP-over-serial: full WLED over USB/UART |
 
 #### Phase 5 — Follow-ups
 
 | Branch | Files | Lines | Upstream Issue | Depends On | Review |
 |--------|-------|-------|----------------|------------|--------|
-| [`pr/effects-deferred-fade`](../compare/main...pr/effects-deferred-fade) | 3 | +82 | Related to [#4976](https://github.com/wled/WLED/issues/4976) | `pr/effects-fade-snap` merged | Compositor-level deferred fade accumulator |
-| [`pr/text-aa-fonts`](../compare/main...pr/text-aa-fonts) | 3 | +3352 | None — create issue first | None | 4bpp anti-aliased DejaVu Bold 18px + 40px |
-| [`pr/slip-transport`](../compare/main...pr/slip-transport) | 3 | +184 | None | None | SLIP serial transport + compressed DDP bridge |
+| [`pr/effects-deferred-fade`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/effects-deferred-fade) | 3 | +82 | Related to [#4976](https://github.com/wled/WLED/issues/4976) | `pr/effects-fade-snap` merged | Compositor-level deferred fade accumulator |
+| [`pr/text-aa-fonts`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/text-aa-fonts) | 3 | +3352 | None — create issue first | None | 4bpp anti-aliased DejaVu Bold 18px + 40px |
+| [`pr/slip-transport`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/slip-transport) | 3 | +184 | None | None | SLIP serial transport + compressed DDP bridge |
 
 ## Dependency Graph
 
