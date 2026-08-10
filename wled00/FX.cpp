@@ -6525,22 +6525,16 @@ void mode_2Dscrollingtext(void) {
   }
 
   // Trail/fade linked to scroll speed:
-  // c1=0: no trail, crisp glyphs (fill black before draw)
-  // c1>0: trail length scales with c1, fade auto-adjusts for scroll speed
-  // At high speed + low c1, auto-falls back to fill(BLACK) — trail needs
-  // enough fade headroom to not accumulate into a white mess.
-  {
-    uint16_t fade = 0;
-    if (SEGMENT.custom1 > 0) {
-      uint16_t scrollMs = map(SEGMENT.speed, 0, 255, 250, 10);
-      fade = map(SEGMENT.custom1, 1, 255, 100, 250);
-      fade = fade * scrollMs / 250;  // fast scroll → aggressive fade, slow → gentle
-    }
-    if (fade < 32) {
-      SEGMENT.fill(BLACK);  // crisp — fade too low to look good
-    } else {
-      SEGMENT.fade_out(fade);
-    }
+  // c1=0: crisp (fill black). c1>0: trail, full slider range works at any speed.
+  // Speed shifts the low end so fast+low c1 stays crisp, but high c1 always trails.
+  if (SEGMENT.custom1 == 0) {
+    SEGMENT.fill(BLACK);
+  } else {
+    uint16_t scrollMs = map(SEGMENT.speed, 0, 255, 250, 10);
+    uint16_t minFade = scrollMs / 8;  // fast=1, slow=31 — floor scales with speed
+    uint16_t fade = map(SEGMENT.custom1, 1, 255, minFade, 252);
+    if (fade < 16) SEGMENT.fill(BLACK);  // too low to look clean
+    else           SEGMENT.fade_out(fade);
   }
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
