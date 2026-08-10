@@ -6524,7 +6524,9 @@ void mode_2Dscrollingtext(void) {
     SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
-  SEGMENT.fade_out(240);  // fade toward SEGCOLOR(1) — fixed rate for background gradient transitions — creates natural gradient background
+  // c1=0: crisp fill(BLACK). c1>0: fade_out for gradient bg transitions + drop shadow.
+  if (SEGMENT.custom1 == 0) SEGMENT.fill(SEGCOLOR(1));  // colored bg, no trail
+  else                      SEGMENT.fade_out(240);  // fade toward SEGCOLOR(1)
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
 
