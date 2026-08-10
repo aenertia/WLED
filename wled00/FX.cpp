@@ -6524,9 +6524,7 @@ void mode_2Dscrollingtext(void) {
     SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
-  // Clear to background color (SEGCOLOR(1)) every frame — no accumulation.
-  // Trail/blur is applied AFTER drawing via blurRows (see end of function).
-  SEGMENT.fill(SEGCOLOR(1));
+  SEGMENT.fade_out(240);  // fade toward SEGCOLOR(1) — fixed rate for background gradient transitions — creates natural gradient background
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
 
