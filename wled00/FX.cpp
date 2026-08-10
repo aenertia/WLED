@@ -6524,7 +6524,16 @@ void mode_2Dscrollingtext(void) {
     SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
-  SEGMENT.fade_out(255 - (SEGMENT.custom1>>4));  // trail
+  // Trail: c1=0 crisp (fill black), c1>0 directional trail via moveX+fade_out.
+  // moveX shifts pixels in scroll direction, fade_out dims the shifted trail.
+  // Result: trail moves WITH the scroll, no ghosting between characters.
+  if (SEGMENT.custom1 == 0) {
+    SEGMENT.fill(BLACK);
+  } else {
+    int scrollDir = SEGMENT.check3 ? 1 : -1;  // reverse checkbox flips direction
+    SEGMENT.moveX(scrollDir, false);           // shift pixels, fill gap with black
+    SEGMENT.fade_out(map(SEGMENT.custom1, 1, 255, 200, 252));  // dim the trail
+  }
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
 

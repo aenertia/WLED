@@ -65,11 +65,12 @@ struct FontHeader {
   uint8_t height; // TODO: should we use the padding bytes and store a full copy of the header? might make copying the header easier?
   uint8_t width;
   uint8_t spacing;
-  uint8_t flags;
+  uint8_t flags;  // bit0=variable width, bits2-4=bpp (0=1bpp, 2=4bpp)
   uint8_t first;
   uint8_t last;
   uint8_t reserved; // should be 0x00
   uint32_t firstUnicode;
+  inline uint8_t bpp() const { uint8_t b = (flags >> 2) & 0x07; return (b == 0) ? 1 : (1 << b); } // 0->1, 2->4, 3->8
 };
 static_assert(sizeof(FontHeader) == FONT_HEADER_SIZE, "FontHeader size must be exactly FONT_HEADER_SIZE bytes");
 
