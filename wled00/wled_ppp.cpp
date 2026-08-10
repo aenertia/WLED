@@ -86,7 +86,7 @@ static void ppp_rx_task(void *arg)
 {
     uint8_t buf[PPP_RX_BUF_SIZE];
     for (;;) {
-        int len = uart_read_bytes(PPP_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
+        int len = uart_read_bytes(PPP_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(1));
         if (len > 0 && ppp_netif) {
             ppp_rx_bytes += len;
             ppp_rx_fed++;
