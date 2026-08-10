@@ -6524,18 +6524,7 @@ void mode_2Dscrollingtext(void) {
     SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
-  // Trail/fade linked to scroll speed:
-  // c1=0: crisp (fill black). c1>0: trail, full slider range works at any speed.
-  // Speed shifts the low end so fast+low c1 stays crisp, but high c1 always trails.
-  if (SEGMENT.custom1 == 0) {
-    SEGMENT.fill(BLACK);
-  } else {
-    uint16_t scrollMs = map(SEGMENT.speed, 0, 255, 250, 10);
-    uint16_t minFade = scrollMs / 8;  // fast=1, slow=31 — floor scales with speed
-    uint16_t fade = map(SEGMENT.custom1, 1, 255, minFade, 252);
-    if (fade < 16) SEGMENT.fill(BLACK);  // too low to look clean
-    else           SEGMENT.fade_out(fade);
-  }
+  SEGMENT.fade_out(255 - (SEGMENT.custom1>>4));  // trail
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
 
