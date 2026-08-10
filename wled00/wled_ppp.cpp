@@ -1,16 +1,19 @@
 #ifdef WLED_USE_PPP
 #include "wled.h"
 #include "wled_ppp.h"
+#include "netif/ppp/ppp.h"
 
 static const char *TAG = "WLED_PPP";
 
 esp_netif_t *ppp_netif = nullptr;
 volatile bool ppp_connected = false;
 
-// --- Diagnostic counters (visible on TFT via WLED info) ---
 static volatile uint32_t ppp_rx_bytes = 0;
 static volatile uint32_t ppp_tx_bytes = 0;
 static volatile uint32_t ppp_tx_calls = 0;
+static volatile uint32_t ppp_rx_fed = 0;
+static volatile uint32_t ppp_rx_errs = 0;
+static volatile uint32_t ppp_restarts = 0;
 
 // Transmit callback — lwIP PPP calls this to send HDLC frames out UART
 static esp_err_t ppp_transmit_cb(void *h, void *buffer, size_t len)
@@ -30,6 +33,25 @@ static esp_err_t ppp_driver_post_attach(esp_netif_t *netif, esp_netif_iodriver_h
     return esp_netif_set_driver_config(netif, &driver_cfg);
 }
 
+// Restart PPP on PHASE_DEAD. ESP-IDF's on_ppp_status_changed() returns early
+// for PPPERR_CONNECT, skipping NETIF_PPP_STATUS posting. Only phase events
+// (via on_ppp_notify_phase) reliably fire — use NETIF_PPP_PHASE_DEAD.
+static void ppp_status_handler(void *arg, esp_event_base_t base, int32_t event_id, void *data)
+{
+    if (event_id == NETIF_PPP_PHASE_DEAD) {
+        ppp_connected = false;
+        ppp_restarts++;
+        char diag[128];
+        snprintf(diag, sizeof(diag),
+                 "\r\n[PPP#%lu rx=%lu fed=%lu tx=%lu txc=%lu]\r\n",
+                 ppp_restarts, ppp_rx_bytes, ppp_rx_fed,
+                 ppp_tx_bytes, ppp_tx_calls);
+        uart_write_bytes(PPP_UART_NUM, diag, strlen(diag));
+        uart_wait_tx_done(PPP_UART_NUM, pdMS_TO_TICKS(200));
+        esp_netif_action_start(ppp_netif, 0, 0, NULL);
+    }
+}
+
 // IP event handler
 static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
@@ -42,11 +64,19 @@ static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id
             stopARGBPassthrough();
             #endif
         } else if (event_id == IP_EVENT_PPP_LOST_IP) {
-            ESP_LOGI(TAG, "PPP Lost IP");
             ppp_connected = false;
+            ppp_restarts++;
             #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
             startARGBPassthrough();
             #endif
+            char diag[128];
+            snprintf(diag, sizeof(diag),
+                     "\r\n[PPP#%lu rx=%lu fed=%lu tx=%lu txc=%lu]\r\n",
+                     ppp_restarts, ppp_rx_bytes, ppp_rx_fed,
+                     ppp_tx_bytes, ppp_tx_calls);
+            uart_write_bytes(PPP_UART_NUM, diag, strlen(diag));
+            uart_wait_tx_done(PPP_UART_NUM, pdMS_TO_TICKS(200));
+            esp_netif_action_start(ppp_netif, 0, 0, NULL);
         }
     }
 }
@@ -59,6 +89,7 @@ static void ppp_rx_task(void *arg)
         int len = uart_read_bytes(PPP_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
         if (len > 0 && ppp_netif) {
             ppp_rx_bytes += len;
+            ppp_rx_fed++;
             esp_netif_receive(ppp_netif, buf, len, NULL);
         }
     }
@@ -88,9 +119,10 @@ void initPPP()
     ESP_ERROR_CHECK(uart_driver_install(PPP_UART_NUM, PPP_RX_BUF_SIZE * 2,
                                          PPP_RX_BUF_SIZE * 2, 0, NULL, 0));
 
-    // Register IP event handler
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID,
                                                 &ppp_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(NETIF_PPP_STATUS, ESP_EVENT_ANY_ID,
+                                                &ppp_status_handler, NULL));
 
     // Create PPP netif with driver post-attach
     static esp_netif_driver_base_t driver_base = {};
@@ -120,20 +152,30 @@ void initPPP()
 #endif
     ESP_ERROR_CHECK(esp_netif_ppp_set_params(ppp_netif, &ppp_config));
 
-    // Brief settle for UART hardware — no flush. PPP's HDLC deframer
-    // naturally ignores garbage and syncs on the next 0x7E flag byte.
-    // The old 3s delay + uart_flush_input() was discarding valid LCP ConfReq
-    // from the host pppd, causing the "LCP Silent" bug.
     delay(500);
 
     // Start RX task BEFORE PPP — ppp_listen() is passive, needs RX ready
     xTaskCreatePinnedToCore(ppp_rx_task, "ppp_rx", 8192, NULL, 5, NULL, 0);
 
-    // Start PPP (ppp_listen: passive server, responds to host's LCP ConfReq)
     esp_netif_action_start(ppp_netif, 0, 0, NULL);
 
-    ESP_LOGI(TAG, "PPP listening on UART%d (rx=%lu tx=%lu)",
-             PPP_UART_NUM, ppp_rx_bytes, ppp_tx_bytes);
+    // Periodic diagnostic task — outputs counters every 30s while PPP is down.
+    // Runs independently of events (bypasses the ESP-IDF event delivery issue).
+    xTaskCreatePinnedToCore([](void *) {
+        for (;;) {
+            vTaskDelay(pdMS_TO_TICKS(30000));
+            if (!ppp_connected && ppp_netif) {
+                char d[128];
+                snprintf(d, sizeof(d),
+                         "\r\n[DIAG rx=%lu fed=%lu tx=%lu txc=%lu rst=%lu up=%lus]\r\n",
+                         ppp_rx_bytes, ppp_rx_fed, ppp_tx_bytes, ppp_tx_calls,
+                         ppp_restarts, millis() / 1000);
+                uart_write_bytes(PPP_UART_NUM, d, strlen(d));
+            }
+        }
+    }, "ppp_diag", 2048, NULL, 1, NULL, 0);
+
+    ESP_LOGI(TAG, "PPP listening on UART%d", PPP_UART_NUM);
 }
 
 #endif // WLED_USE_PPP
