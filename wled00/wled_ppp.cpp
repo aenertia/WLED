@@ -99,8 +99,11 @@ void initPPP()
 {
     ESP_LOGI(TAG, "Initializing PPP over UART%d at %d baud", PPP_UART_NUM, PPP_BAUD);
 
-    // Release Arduino Serial if it was initialized (no-op if begin() was never called)
-    Serial.end();
+    // Only release Arduino Serial when PPP uses UART0 (same pins as Serial)
+    // When PPP uses UART1+ (Pico variant), Serial/debug stays active
+    if (PPP_UART_NUM == UART_NUM_0) {
+        Serial.end();
+    }
 
     // Configure UART
     uart_config_t uart_config = {};

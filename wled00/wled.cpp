@@ -1,5 +1,8 @@
 #define WLED_DEFINE_GLOBAL_VARS //only in one source file, wled.cpp!
 #include "wled.h"
+#ifdef WLED_USE_PPP
+#include "wled_ppp.h"
+#endif
 #include "wled_ethernet.h"
 #ifdef ARDUINO_ARCH_ESP32
 #include "esp_efuse.h"
@@ -89,9 +92,6 @@ void WLED::loop()
   #endif
   handleImprovWifiScan();
   handleNotifications();
-  #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
-  handleARGBPassthrough();
-  #endif
   handleTransitions();
   #ifdef WLED_ENABLE_DMX
   handleDMXOutput();
@@ -552,12 +552,9 @@ void WLED::setup()
     handlePresets();  // handle presets again to give a chance for anything queued by the boot preset or playlist
   }
   
-#if !defined(WLED_USE_PPP) && !defined(WLED_USE_SLIP)
   if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) == 0 && !configBackupExists())
     showWelcomePage = true;
-#endif
 
-#if !defined(WLED_USE_PPP) && !defined(WLED_USE_SLIP)
   #ifndef ESP8266
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.persistent(true); // storing credentials in NVM fixes boot-up pause as connection is much faster, is disabled after first connection
@@ -579,33 +576,16 @@ void WLED::setup()
 #endif
 
   findWiFi(true);      // start scanning for available WiFi-s
-#elif defined(WLED_USE_SLIP)
-  // lwIP tcpip_init() is normally called by WiFi.mode() -> Network.begin() -> esp_netif_init().
-  // With WiFi disabled, we must initialize the TCP/IP stack explicitly before any socket operations.
-  ESP_ERROR_CHECK(esp_netif_init());
-  { esp_err_t e = esp_event_loop_create_default();
-    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
-  initSLIP();
-#else
-  // Same lwIP bootstrap needed for PPP — WiFi.mode() is skipped when WLED_USE_PPP is defined.
-  ESP_ERROR_CHECK(esp_netif_init());
-  { esp_err_t e = esp_event_loop_create_default();
-    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
+
+#ifdef WLED_USE_PPP
   initPPP();
-#endif
-#ifdef WLED_ENABLE_ARGB_PASSTHROUGH
-  initARGBPassthrough();
-  startARGBPassthrough();  // boot in passthrough mode
 #endif
 
   // all GPIOs are allocated at this point
-#ifdef WLED_USE_SLIP
-  // SLIP owns UART0 exclusively — block all other WLED serial access
-  serialCanRX = false;
-  serialCanTX = false;
-#else
   serialCanRX = !PinManager::isPinAllocated(hardwareRX); // Serial RX pin (GPIO 3 on ESP32 and ESP8266)
   serialCanTX = !PinManager::isPinAllocated(hardwareTX) || PinManager::getPinOwner(hardwareTX) == PinOwner::DebugOut; // Serial TX pin (GPIO 1 on ESP32 and ESP8266)
+#ifdef WLED_USE_PPP
+  if (PPP_UART_NUM == UART_NUM_0) { serialCanRX = false; serialCanTX = false; }
 #endif
 
   #ifdef WLED_ENABLE_ADALIGHT
@@ -953,10 +933,6 @@ void WLED::initInterfaces()
   if (aOtaEnabled) ArduinoOTA.begin();
 #endif
 
-#ifdef WLED_ENABLE_WEBSOCKETS
-  ws.onEvent(wsEvent);
-#endif
-
   // Set up mDNS responder:
   if (strlen(cmDNS) > 0) {
     // "end" must be called before "begin" is called a 2nd time
@@ -990,21 +966,10 @@ void WLED::initInterfaces()
 
 void WLED::handleConnection()
 {
-#if defined(WLED_USE_PPP) || defined(WLED_USE_SLIP)
-#ifdef WLED_USE_SLIP
-  if (slip_connected && !interfacesInited) {
-    initInterfaces();
-  }
-  return;
-#else
+#ifdef WLED_USE_PPP
   if (ppp_connected && !interfacesInited) {
     initInterfaces();
   }
-  if (!ppp_connected && interfacesInited) {
-    interfacesInited = false;
-  }
-  return;
-#endif
 #endif
   static bool scanDone = true;
   static byte stacO = 0;
