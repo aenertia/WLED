@@ -11,6 +11,7 @@
 | Branch | Description | Status |
 |--------|-------------|--------|
 | `noWLED-ppp` | Full no-WLED fork (WiFi deliberately dropped, all features) | Active — 91 commits on upstream/main |
+| `dev/ppp-wifi` | PPP+WiFi combined, TFT DMA, DDP compression, heap optimization | Active — multi-strip DMA, lazy FX reclaim, Content-Length JSON |
 | `main` | Original pre-rebase branch | Frozen |
 
 ### PR Topic Branches (each rebased on upstream/main HEAD)
@@ -21,6 +22,7 @@
 |--------|-------|-------|----------------|--------|--------|
 | [`pr/effects-fade-snap`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/effects-fade-snap) | 2 | +68 | [#4976](https://github.com/wled/WLED/issues/4976) (open, `keep`) | Ready | Snap-to-target fix for interrupted transitions |
 | [`pr/text-drop-shadow`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/text-drop-shadow) | 3 | +71 | None — create issue first | Ready | Drop shadow with angle/distance/intensity |
+| [`pr/chunked-json-fix`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/chunked-json-fix) | 1 | +38 | None — create issue first | Ready | Content-Length for /json/fxdata to fix truncation on slow links |
 
 #### Phase 2 — Independent Features (submit in parallel)
 
@@ -74,6 +76,8 @@ Before submitting PRs to upstream, create these feature request issues on github
 3. **TFT Matrix Bus** — Issue. Reference #2197 (Framebuffer::GFX proposal).
 4. **Text AA Fonts** — Issue. Reference PR #5372 (custom fonts).
 5. **Text Drop Shadow** — Issue. Can bundle with AA fonts issue.
+
+6. **JSON fxdata truncation** — Issue. sendChunked truncates /json/fxdata on slow links (PPP, constrained Ethernet). Fix: Content-Length response.
 
 Issues NOT needed (existing match):
 - `pr/effects-fade-snap` → links to [#4976](https://github.com/wled/WLED/issues/4976) directly
