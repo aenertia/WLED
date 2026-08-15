@@ -97,10 +97,12 @@ static void ppp_rx_task(void *arg)
 
 void initPPP()
 {
+    ESP_ERROR_CHECK(esp_netif_init());
+    { esp_err_t e = esp_event_loop_create_default();
+      if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
+
     ESP_LOGI(TAG, "Initializing PPP over UART%d at %d baud", PPP_UART_NUM, PPP_BAUD);
 
-    // Only release Arduino Serial when PPP uses UART0 (same pins as Serial)
-    // When PPP uses UART1+ (Pico variant), Serial/debug stays active
     if (PPP_UART_NUM == UART_NUM_0) {
         Serial.end();
     }
