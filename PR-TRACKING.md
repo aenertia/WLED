@@ -1,125 +1,103 @@
 # PR Tracking — WLED Upstream Contributions
 
 **Fork**: [aenertia/wled](https://git.awa.3d.ae.net.nz/aenertia/wled)
-**Upstream**: [wled/WLED](https://github.com/wled/WLED)
-**Base**: upstream/main (`d9b9a846`)
+**Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
+**Active branch**: `dev/ppp-wifi`
+**Last updated**: Session 17 (August 2026)
 
-## Branches
+## Status summary
 
-### Full Fork
+| Metric | Value |
+|--------|-------|
+| PR branches | 17 |
+| Forgejo issues | #5–#21 |
+| Device soak test | 250min+ continuous, reset=1 (POWERON) |
+| Upstream submissions | None yet — all Ready or INCOMPLETE |
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `noWLED-ppp` | Full no-WLED fork (WiFi deliberately dropped, all features) | Active — 91 commits on upstream/main |
-| `dev/ppp-wifi` | PPP+WiFi combined, TFT DMA, DDP compression, heap optimization | Active — multi-strip DMA, lazy FX reclaim, Content-Length JSON |
-| `main` | Original pre-rebase branch | Frozen |
+## PR Topic Branches
 
-### PR Topic Branches (each rebased on upstream/main HEAD)
+All branches rebased on `forgejo/main`. Each has a DRAFT_PR.md with
+code-grounded content, cherry-pick SHAs, GitHub issue cross-refs, and
+upstream submission notes.
 
-#### Phase 1 — Quick Wins (build contributor credibility)
+### Phase 1 — Bug fixes (submit first, build credibility)
 
-| Branch | Files | Lines | Upstream Issue | Status | Review |
-|--------|-------|-------|----------------|--------|--------|
-| [`pr/effects-fade-snap`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/effects-fade-snap) | 2 | +68 | [#4976](https://github.com/wled/WLED/issues/4976) (open, `keep`) | Ready | Snap-to-target fix for interrupted transitions |
-| [`pr/text-drop-shadow`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/text-drop-shadow) | 3 | +71 | None — create issue first | Ready | Drop shadow with angle/distance/intensity |
-| [`pr/chunked-json-fix`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/chunked-json-fix) | 1 | +38 | None — create issue first | Ready | Content-Length for /json/fxdata to fix truncation on slow links |
+| Branch | Forgejo | Cherry-pick | Description |
+|--------|---------|-------------|-------------|
+| `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | IS the PR | mDNS NULL netif crash under PPP+WiFi+DDP flood |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | IS the PR | Content-Length for /json/fxdata prevents truncation on slow links |
+| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | IS the PR | Skip i2s_set_clk() for PDM mode on IDF 5.x |
 
-#### Phase 2 — Independent Features (submit in parallel)
+### Phase 2 — DDP compression (submit in order)
 
-| Branch | Files | Lines | Upstream Issue | Status | Review |
-|--------|-------|-------|----------------|--------|--------|
-| [`pr/ddp-rle-codec`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/ddp-rle-codec) | 2 | +182 | None — create issue first | Ready | Standalone delta+RLE compression codec |
-| [`pr/argb-passthrough`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/argb-passthrough) | 3 | +193 | [#2675](https://github.com/wled/WLED/issues/2675), [#1116](https://github.com/wled/WLED/issues/1116) (adjacent) | Ready | RMT RX→TX motherboard ARGB signal relay |
-| [`pr/tft-bus-matrix`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/tft-bus-matrix) | 5 | +200 | None — create issue first | Ready | TFT display as WLED pixel matrix output bus |
+| Branch | Forgejo | Cherry-pick | Description |
+|--------|---------|-------------|-------------|
+| `pr/ddp-rle-codec` | [#6](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/6) | `a66f745e` | Header-only RLE codec (ddp_compress.h) |
+| `pr/ddp-compressed-receiver` | [#7](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/7) | `c9d827fa` | Compressed DDP decode in handleDDPPacket() — depends on #6 |
+| `pr/ddp-compressed` | [#16](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/16) | IS the PR | Full stack: codec + receiver + tools + spec |
 
-#### Phase 3 — DDP Receiver (depends on Phase 2)
+### Phase 3 — Effects / performance
 
-| Branch | Files | Lines | Upstream Issue | Depends On | Review |
-|--------|-------|-------|----------------|------------|--------|
-| [`pr/ddp-compressed-receiver`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/ddp-compressed-receiver) | 4 | +266 | Same as ddp-rle-codec | `pr/ddp-rle-codec` merged | Compressed DDP decode in handleDDPPacket() |
+| Branch | Forgejo | Cherry-pick | Description |
+|--------|---------|-------------|-------------|
+| `pr/effects-fade-snap` | [#9](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/9) | `6e25fb7f` | Snap-to-target in fade_out/fadeToBlackBy — upstream issue #4976 |
+| `pr/effects-deferred-fade` | [#10](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/10) | n/a | **INCOMPLETE** — V2 removed (broke scrolling text) |
 
-#### Phase 4 — PPP Transport (flagship)
+### Phase 4 — Text effects
 
-| Branch | Files | Lines | Upstream Issue | Status | Review |
-|--------|-------|-------|----------------|--------|--------|
-| [`pr/ppp-transport`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/ppp-transport) | 9 | +408 | None — create Discussion first | Ready | PPP-over-serial: full WLED over USB/UART |
+| Branch | Forgejo | Cherry-pick | Description |
+|--------|---------|-------------|-------------|
+| `pr/text-aa-fonts` | [#11](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/11) | `11d99490` | DejaVu Bold 18px + 40px fonts for scrolling text |
+| `pr/text-drop-shadow` | [#12](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/12) | `304007a8`+`46096ac7` | Drop shadow with angle/distance/intensity |
 
-#### Phase 5 — Follow-ups
+### Phase 5 — Hardware / transport
 
-| Branch | Files | Lines | Upstream Issue | Depends On | Review |
-|--------|-------|-------|----------------|------------|--------|
-| [`pr/effects-deferred-fade`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/effects-deferred-fade) | 3 | +82 | Related to [#4976](https://github.com/wled/WLED/issues/4976) | `pr/effects-fade-snap` merged | Compositor-level deferred fade accumulator |
-| [`pr/text-aa-fonts`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/text-aa-fonts) | 3 | +3352 | None — create issue first | None | 4bpp anti-aliased DejaVu Bold 18px + 40px |
-| [`pr/slip-transport`](https://git.awa.3d.ae.net.nz/aenertia/wled/compare/main...pr/slip-transport) | 3 | +184 | None | None | SLIP serial transport + compressed DDP bridge |
+| Branch | Forgejo | Cherry-pick | Upstream? | Description |
+|--------|---------|-------------|-----------|-------------|
+| `pr/argb-passthrough` | [#13](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/13) | `26e0cbac` | Yes (ESP32) | ARGB motherboard header passthrough via RMT |
+| `pr/tft-bus-matrix` | [#14](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/14) | `42ef49e5` | M5StickC | TFT display as WLED pixel matrix output bus |
+| `pr/ppp-transport` | [#15](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/15) | IS the PR | Yes | PPP-over-serial network transport (WLED_USE_PPP) |
+| `pr/slip-transport` | [#8](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/8) | `99a565f0`+`d1a8d610` | Low priority | SLIP transport — ESP-IDF v5.1 removed from esp_netif |
 
-## Dependency Graph
 
-```
-Phase 1:  pr/effects-fade-snap ──────────────► pr/effects-deferred-fade (Phase 5)
-          pr/text-drop-shadow ───────────────► pr/text-aa-fonts (Phase 5)
+### Phase 6 — Upstream component fixes (arduino-esp32 / esp-idf)
 
-Phase 2:  pr/ddp-rle-codec ──────────────────► pr/ddp-compressed-receiver (Phase 3)
-          pr/argb-passthrough                  (independent)
-          pr/tft-bus-matrix                    (independent)
+These branches target **third-party upstreams**, not Aircoookie/WLED.
+Each DRAFT_PR.md contains the full diff and submission notes for the respective repo.
 
-Phase 4:  pr/ppp-transport                     (after Discussion + credibility)
+| Branch | Forgejo | Target repo | Description |
+|--------|---------|-------------|-------------|
+| `pr/arduino-esp32-mdns-guard` | [#19](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/19) | espressif/arduino-esp32 | ESPmDNS::end() NULL deref crash when begin() never called |
+| `pr/arduino-esp32-netif-lazy-init` | [#20](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/20) | espressif/arduino-esp32 | PPP/ETH silent fail when esp_netif_init() not called before netif creation |
+| `pr/esp-idf-lcp-echo-docs` | [#21](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/21) | espressif/esp-idf | LWIP_ENABLE_LCP_ECHO Kconfig help text — warns about link termination under load |
 
-Phase 5:  pr/slip-transport + DDP compression  → libwled-serial (app driver)
-```
+## Zero-code-diff branches
 
-## Upstream Issues to Create
+These 9 branches have no code diff vs `forgejo/main` — feature code is
+already in dev/ppp-wifi. When opening upstream GitHub PRs, use the
+cherry-pick SHAs above to apply only the feature commits.
 
-Before submitting PRs to upstream, create these feature request issues on github.com/wled/WLED:
+Branches with code diff vs forgejo/main (IS the PR):
+- `pr/mdns-ppp-crash-fix` (53 lines)
+- `pr/chunked-json-fix` (81 lines)
+- `pr/audioreactive-pdm-fix` (30 lines)
+- `pr/tft-bus-matrix` (127 lines)
+- `pr/ppp-transport` (150 lines)
+- `pr/ddp-compressed` (235 lines)
 
-1. **PPP Transport** — Post as GitHub Discussion first, not issue. Reference #4990, #1382, #5697.
-2. **DDP Compression** — Issue. Reference #5755 (WS fragmentation), #4320 (DDP bandwidth).
-3. **TFT Matrix Bus** — Issue. Reference #2197 (Framebuffer::GFX proposal).
-4. **Text AA Fonts** — Issue. Reference PR #5372 (custom fonts).
-5. **Text Drop Shadow** — Issue. Can bundle with AA fonts issue.
+## Recommended submit order
 
-6. **JSON fxdata truncation** — Issue. sendChunked truncates /json/fxdata on slow links (PPP, constrained Ethernet). Fix: Content-Length response.
-
-Issues NOT needed (existing match):
-- `pr/effects-fade-snap` → links to [#4976](https://github.com/wled/WLED/issues/4976) directly
-- `pr/argb-passthrough` → comment on [#2675](https://github.com/wled/WLED/issues/2675) / [#1116](https://github.com/wled/WLED/issues/1116)
-
-## Key Upstream PRs to Coordinate With
-
-| PR | Title | Status | Impact |
-|----|-------|--------|--------|
-| [#5650](https://github.com/wled/WLED/pull/5650) | Independent Ethernet/WiFi IP + primary netif selection | Open (v17.0) | PPP transport should align with this netif pattern |
-| [#5697](https://github.com/wled/WLED/pull/5697) | ESP32-P4 ethernet-only build | Closed | Template for WiFi-less build mode |
-| [#5774](https://github.com/wled/WLED/pull/5774) | Split udp.cpp into per-protocol files | Open | DDP receiver changes coordinate with this refactor |
-
-## SLIP + DDP Compression Strategy (libwled-serial)
-
-SLIP transport + transparent DDP compression = USB pixel streaming driver for app integration.
-
-```
-OpenRGB/CoolerCtrl ──DDP──► libwled-serial ──compress──► SLIP serial ──► ESP32 ──► LEDs
-```
-
-Ship as embeddable library for CoolerControl, LiquidCtl, OpenRGB. No IP stack needed on host.
-Host-side bridge handles compression; ESP32 side is SLIP + compressed DDP receiver.
-
-## Each Branch Has
-
-- `PR_REFERENCE.md` — upstream issues, adjacent discussions, suggested issue templates
-- Feature code rebased on upstream/main HEAD
-- Integration glue files where needed (Network.cpp, wled.cpp, bus_manager.cpp)
-
-## Review Commands
-
-```bash
-# Compare any branch to upstream
-git diff upstream/main pr/ppp-transport
-
-# Read the reference doc
-git show pr/ppp-transport:PR_REFERENCE.md
-
-# Check what files changed
-git diff --stat upstream/main pr/effects-fade-snap
-
-# See commit messages
-git log --oneline pr/ddp-rle-codec --not upstream/main
-```
+1. `pr/mdns-ppp-crash-fix` — companion to ppp-transport, submit first
+2. `pr/chunked-json-fix` — minimal, no deps
+3. `pr/audioreactive-pdm-fix` — to AudioReactive usermod
+4. `pr/ddp-rle-codec` — codec only
+5. `pr/ddp-compressed-receiver` — depends on #4
+6. `pr/effects-fade-snap` — 10 lines, no deps
+7. `pr/text-aa-fonts` — no deps
+8. `pr/text-drop-shadow` — after #7
+9. `pr/argb-passthrough` — note wled_ppp.cpp hunk is fork-specific
+10. `pr/ppp-transport` — with pr/mdns-ppp-crash-fix companion
+11. `pr/tft-bus-matrix` — M5StickC-specific, factor out AXP192
+12. `pr/ddp-compressed` — full bundle, after #4 and #5
+13. `pr/effects-deferred-fade` — after V3 resolves text/gradient interaction
+14. `pr/slip-transport` — low priority
