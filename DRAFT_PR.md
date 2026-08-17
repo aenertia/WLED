@@ -76,3 +76,35 @@ Documenting a few non-obvious behaviors discovered during implementation:
 - `ppp_listen()` without `ppp_set_silent()` actively sends LCP ConfReq (same behavior as `ppp_connect()`)
 - `uart_read_bytes()` blocks for full timeout when buffer > available data — use 1ms timeout, not 100ms
 - PPP HDLC deframer handles garbage bytes — no `uart_flush_input()` needed before PPP start
+
+## Session 15-16 production hardening
+
+Two critical bugs found and fixed under sustained DDP load (LedFx at 25-60fps):
+
+### mDNS crash (reset=4 PANIC) — see pr/mdns-ppp-crash-fix
+
+Under DDP flood, WiFi STA disconnect events clear `interfacesInited`, causing
+`initInterfaces()` to call `MDNS.end()` on a half-torn-down stack.
+Fixed in companion PR pr/mdns-ppp-crash-fix.
+
+### LCP echo starvation (pppd disconnect)
+
+Device-side LCP echo (interval=3s, maxfail=3) sends keepalives that the
+host-side pppd cannot reply to when the link is saturated by DDP traffic.
+After 3 missed echoes, the device sends LCP terminate → "Modem hangup".
+
+Fix: `CONFIG_LWIP_ENABLE_LCP_ECHO=n` in build sdkconfig. Physical UART is
+reliable; keepalives are unnecessary and harmful under realtime pixel streaming.
+
+### Throughput characterisation
+
+| Metric | Value |
+|--------|-------|
+| PPP link speed | 1.5Mbps |
+| Raw bytes per frame (4480px) | 13,440 |
+| DDP overhead (10 packets/frame) | ~100 bytes |
+| Theoretical max fps (raw) | 13.8fps |
+| Observed delivered fps | 13-15fps |
+| With DDP compression (IFS) | ~120fps effective |
+| Drop rate under 60fps sender | ~9% (rate limiter) |
+| Soak test | 10min LedFx 60fps, reset=1 (POWERON) |
