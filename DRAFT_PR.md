@@ -1,6 +1,6 @@
 # feat: PPP-over-serial network transport (`WLED_USE_PPP`)
 
-Fixes #NNN (link to the feature request issue)
+Fixes #15
 
 ## Background
 
