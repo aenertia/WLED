@@ -9,8 +9,8 @@
 
 | Metric | Value |
 |--------|-------|
-| PR branches | 17 |
-| Forgejo issues | #5–#21 |
+| PR branches | 18 |
+| Forgejo issues | #5–#22 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
 | Upstream submissions | None yet — all Ready or INCOMPLETE |
 
@@ -70,6 +70,15 @@ Each DRAFT_PR.md contains the full diff and submission notes for the respective 
 | `pr/arduino-esp32-mdns-guard` | [#19](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/19) | espressif/arduino-esp32 | ESPmDNS::end() NULL deref crash when begin() never called |
 | `pr/arduino-esp32-netif-lazy-init` | [#20](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/20) | espressif/arduino-esp32 | PPP/ETH silent fail when esp_netif_init() not called before netif creation |
 | `pr/esp-idf-lcp-echo-docs` | [#21](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/21) | espressif/esp-idf | LWIP_ENABLE_LCP_ECHO Kconfig help text — warns about link termination under load |
+
+
+### Phase 7 — Bus skip-show + DDP realtime fast path
+
+| Branch | Forgejo | Description |
+|--------|---------|-------------|
+| `pr/bus-skip-show` | [#22](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/22) | Skip show() for idle slow buses (TFT/Hub75/Network) + showFrozenSegs() DDP fast path |
+
+**Results**: DDP 45fps->119fps (+2.7x), IFS 52fps->86-93fps, TFT loopLag 23ms->0ms
 
 ## Zero-code-diff branches
 
