@@ -13,8 +13,11 @@
 #include "src/font/font_tom_thumb_6px.h"
 #include "src/font/font_TinyUnicode_8px.h"
 #include "src/font/font_5x12.h"
+#include "src/font/font_montserrat_11px.h"
 #include "src/font/console_font_6x8.h"
 #include "src/font/c64esque_9px.h"
+#include "src/font/font_dejavu_18px.h"
+#include "src/font/font_dejavu_40px.h"
 
 // get metadata pointer
 SegmentFontMetadata* FontManager::getMetadata() {
@@ -202,7 +205,9 @@ void FontManager::rebuildCache(const char* text) {
     case 1: flashFont = font_TinyUnicode_8px;  break;
     case 2: flashFont = console_font_6x8;      break;
     case 3: flashFont = c64esque_9px;          break;
-    case 4: flashFont = font_5x12;             break;
+    case 4: flashFont = font_montserrat_11px;   break;
+    case 5: flashFont = font_dejavu_18px;       break;
+    case 6: flashFont = font_dejavu_40px;       break;
   }
 
   // read wbf font header
@@ -240,8 +245,9 @@ void FontManager::rebuildCache(const char* text) {
   for (uint8_t k = 0; k < neededCount; k++) {
     uint8_t code = neededCodes[k];
     if (code < numGlyphs) {
-      uint16_t bits = widthTable[code] * hdr.height;
-      ramFontSize += (bits + 7) / 8; // add bitmap size for each needed glyph
+      uint16_t pixels = widthTable[code] * hdr.height;
+      uint8_t fontBpp = hdr.bpp();
+      ramFontSize += (fontBpp == 4) ? (pixels + 1) / 2 : (pixels + 7) / 8;
     }
   }
 
@@ -276,13 +282,14 @@ void FontManager::rebuildCache(const char* text) {
   uint32_t dataStart = FONT_HEADER_SIZE + ((hdr.flags & 0x01) ? numGlyphs : 0); // bitmap data in wbf font starts after header and width table (if used)
   for (uint8_t k = 0; k < neededCount; k++) {
     uint8_t glyphIdx = neededCodes[k]; // neededCodes contais index of the glyph in the font, not the raw unicode value
-    uint16_t bits = widthTable[glyphIdx] * hdr.height;
-    uint16_t bytes = (bits + 7) / 8;
+    uint16_t pixels = widthTable[glyphIdx] * hdr.height;
+    uint8_t fontBpp = hdr.bpp();
+    uint16_t bytes = (fontBpp == 4) ? (pixels + 1) / 2 : (pixels + 7) / 8;
     // calculate file offset
     uint32_t offset = dataStart;
     for (uint8_t j = 0; j < glyphIdx; j++) {
       uint16_t b = widthTable[j] * hdr.height;
-      offset += (b + 7) / 8;
+      offset += (fontBpp == 4) ? (b + 1) / 2 : (b + 7) / 8;
     }
     // read from file or flash
     if (file) {
@@ -342,8 +349,9 @@ uint8_t* FontManager::getGlyphBitmap(uint32_t unicode, uint8_t& outWidth, uint8_
       return _fontBase + FONT_HEADER_SIZE + bitmapOffset;
     }
     // Accumulate offset to next glyph
-    uint16_t bits = registry[k].width * registry[k].height;
-    bitmapOffset += (bits + 7) / 8;
+    uint16_t px = registry[k].width * registry[k].height;
+    FontHeader* hdr = reinterpret_cast<FontHeader*>(_fontBase);
+    bitmapOffset += (hdr->bpp() == 4) ? (px + 1) / 2 : (px + 7) / 8;
   }
   return nullptr; // Glyph not found in cache
 }
@@ -391,25 +399,48 @@ void FontManager::drawCharacter(uint32_t unicode, int16_t x, int16_t y, uint32_t
   const uint8_t* bitmap = getGlyphBitmap(unicode, w, h);
   if (!bitmap || w == 0) return;
   CRGBPalette16 grad = col2 ? CRGBPalette16(CRGB(color), CRGB(col2)) : SEGPALETTE;
-  uint16_t bitIndex = 0;
+
+  // Determine bits-per-pixel from cached font header
+  FontHeader* hdr = reinterpret_cast<FontHeader*>(_fontBase);
+  const uint8_t fontBpp = hdr->bpp();  // 1 or 4
+
+  unsigned pixIdx = 0;  // pixel counter (interpretation depends on bpp)
   for (int row = 0; row < h; row++) {
     CRGBW c = ColorFromPalette(grad, (row + 1) * 255 / h, 255, LINEARBLEND_NOWRAP);
     for (int col = 0; col < w; col++) {
-      uint16_t bytePos = bitIndex >> 3;
-      uint8_t bitPos = 7 - (bitIndex & 7);
-      uint8_t byteVal = bitmap[bytePos];
-      if ((byteVal >> bitPos) & 1) {
-        int x0, y0;
-        switch (rotate) {
-          case -1: x0 = x + row;         y0 = y + col;         break; // 90° CW
-          case  1: x0 = x + (h-1) - row; y0 = y + (w-1) - col; break; // 90° CCW
-          case -2:
-          case  2: x0 = x + (w-1) - col; y0 = y + (h-1) - row; break;
-          default: x0 = x + col;         y0 = y + row;         break;
-        }
-        _segment->setPixelColorXY(x0, y0, c.color32); // bounds checking is done in setPixelColorXY
+      uint8_t alpha;
+      if (fontBpp == 4) {
+        // 4bpp: each pixel is a nibble, high nibble first
+        unsigned nibbleIdx = pixIdx;
+        uint8_t byteVal = bitmap[nibbleIdx >> 1];
+        alpha = (nibbleIdx & 1) ? (byteVal & 0x0F) : (byteVal >> 4);
+        alpha = alpha * 17;  // 0-15 -> 0-255
+      } else {
+        // 1bpp: each pixel is a single bit, MSB first
+        uint16_t bytePos = pixIdx >> 3;
+        uint8_t bitPos = 7 - (pixIdx & 7);
+        alpha = (bitmap[bytePos] >> bitPos) & 1 ? 255 : 0;
       }
-      bitIndex++;
+      pixIdx++;
+
+      if (alpha == 0) continue;  // fully transparent, skip
+
+      int x0, y0;
+      switch (rotate) {
+        case -1: x0 = x + row;         y0 = y + col;         break;
+        case  1: x0 = x + (h-1) - row; y0 = y + (w-1) - col; break;
+        case -2:
+        case  2: x0 = x + (w-1) - col; y0 = y + (h-1) - row; break;
+        default: x0 = x + col;         y0 = y + row;         break;
+      }
+
+      if (alpha == 255) {
+        _segment->setPixelColorXY(x0, y0, c.color32);
+      } else {
+        // Anti-aliased: blend foreground over background
+        uint32_t bg = _segment->getPixelColorXY(x0, y0);
+        _segment->setPixelColorXY(x0, y0, color_blend(bg, c.color32, alpha));
+      }
     }
   }
 }
