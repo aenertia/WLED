@@ -1,5 +1,7 @@
 # perf(ws): skip serializeInfo() on broadcast updates to save heap
 
+**Forgejo**: Fixes #23
+
 ## Summary
 
 WebSocket broadcast updates currently serialize both `state` and `info` JSON blocks to every connected client on every state change. The `info` block is ~4-6KB of mostly-static data (version string, MAC address, WiFi details, filesystem stats) that clients only need on initial connect. Subsequent updates are state-only — this matches what the WLED app actually consumes.
