@@ -1,5 +1,7 @@
 ## fix(ESPmDNS): guard end() against NULL _mdns_server
 
+**Forgejo**: Fixes #19
+
 **Target repo**: espressif/arduino-esp32
 **WLED workaround**: wled00/network.cpp — mdnsStarted flag prevents calling MDNS.end() when begin() was never called
 
