@@ -1117,7 +1117,7 @@ void Segment::fade_out(uint8_t rate) const {
       uint8_t c1 = (color>>i);      // get foreground channel
       // we can't use bitshift since we are using int
       int delta = (c2 - c1) * mappedRate / 256;
-      // if fade isn't complete, make sure delta is at least 1 (fixes rounding issues)
+      // if integer scaling yields no progress, snap channel directly to target
       if (delta == 0) c1 = c2;
       // stuff new value back into color
       color &= ~(0xFF<<i);
@@ -1139,12 +1139,7 @@ void Segment::fadeToBlackBy(uint8_t fadeBy) const {
   if (!isActive() || fadeBy == 0) return;
   const size_t rlength = rawLength();
   const uint8_t scale = 255 - fadeBy;
-  for (unsigned i = 0; i < rlength; i++) {
-    uint32_t c = getPixelColorRaw(i);
-    uint32_t scaled = fast_color_scale(c, scale);
-    if (scaled == c && c != 0) scaled = 0;
-    setPixelColorRaw(i, scaled);
-  }
+  for (unsigned i = 0; i < rlength; i++) setPixelColorRaw(i, fast_color_scale(getPixelColorRaw(i), scale));
 }
 
 /*
