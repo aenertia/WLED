@@ -1,7 +1,7 @@
 # DDP Protocol Reference — Specification, Compression Extension, and Validation Suite
 
-**Version**: 1.0 (2026-08-12)
-**Status**: Implementation complete, adversarial review passed
+**Version**: 2.0 (2026-08-18)
+**Status**: Ground-truth update from sessions 8–17 hardware validation
 **Audience**: Any codebase implementing DDP — sender, receiver, or both
 
 This document is a standalone reference for implementing the Distributed Display Protocol (DDP) with optional compression extensions for bandwidth-constrained transports. It covers the base protocol specification, comparison with E1.31/Art-Net, the compression wire format, reference implementations in C and Python, a complete validation suite, and known pitfalls.
@@ -761,20 +761,30 @@ With 10-frame keyframe interval at 30fps: maximum desync duration = 333ms. At 60
 
 ### 12.2 PPP over Serial (low-bitrate)
 
-- MTU: Negotiable via LCP (can be raised to 4096+)
+- **MTU: 1500 bytes** (fixed — see note below)
 - Effective bandwidth: ~172 KB/s at 1.5Mbps UART
 - Packet ordering: guaranteed (serial is FIFO) — no debounce needed
 - Show timing: immediate on push (bypass debounce)
 
-**PPP byte-stuffing warning**: PPP HDLC framing escapes bytes `0x7D` and `0x7E`. RLE-encoded data spans the full byte range, so some bytes will be escaped. Worst case: payload size doubles. Mitigations:
-1. UART RX buffer must be ≥ 2× MTU (e.g., 8192 for MTU 4096)
-2. Cap compressed payload at 2048 bytes (safe margin for byte-stuffing)
-3. Use ACCM negotiation to minimize the escape character set
-4. `noaccomp` and `nopcomp` save 4 bytes/frame but do NOT affect byte-stuffing
+**Why MTU is 1500, not 4096**: The Tasmota Arduino Core ships a pre-compiled
+`liblwip.a` with `PPP_MRU` hardcoded to 1500. Build-flag overrides
+(`-D PPP_MRU=4096`) have no effect on the pre-built library. This was
+discovered empirically in session 13 when DDP PANIC crashes were traced to
+UART RX buffer overruns at higher packet rates — the root cause was the MTU
+mismatch between the pppd command (`mru 1500`) and the firmware expectation.
 
-**PPP MRU/MTU negotiation**: Set both sides to 4096:
-- Host: `pppd ... mtu 4096 mru 4096`
-- ESP32: Override lwIP defaults: `-D PPP_MRU=4096 -D PPP_DEFMRU=4096 -D PPP_MAXMRU=4096`
+**PPP byte-stuffing**: PPP HDLC framing escapes bytes `0x7D` and `0x7E`.
+Worst case: payload doubles. At MTU=1500, worst-case byte-stuffed frame is
+~3000 bytes. The UART RX buffer is fixed at 8192 bytes (5.5× MTU) — adequate
+for ~2.7 frames of buffering. Two-tier flow control in the PPP RX task yields
+to the lwIP tcpip_thread when the buffer exceeds 50% capacity.
+
+**Host pppd command** (use exactly these values):
+```bash
+sudo pppd /dev/ttyUSB0 1500000 noauth nodetach local nocrtscts \
+  novj nodeflate nobsdcomp noaccomp nopcomp lcp-echo-interval 0 \
+  mru 1500 mtu 1500 169.254.7.2:169.254.7.1
+```
 
 ### 12.3 Bandwidth Budgets
 
@@ -798,6 +808,51 @@ PPP 1.5Mbps UART:
     20×40 matrix (800px):  raw=71fps, delta95%=1433fps
     160×80 TFT (12800px): raw=4.5fps, delta95%=89fps, RLE50%=9fps
 ```
+
+### 12.4 Receiver-Side Flow Control and Flood Survival
+
+The WLED DDP receiver implements multiple layers of protection against DDP
+flood conditions (uncapped sender, network burst, or slow consumer):
+
+**Layer 1 — Heap guard** (e131.cpp): Drop all DDP packets when free heap
+falls below 20KB. Prevents OOM crashes under sustained flood. Counter:
+`ddpHeapGuardDrops` (atomic, visible in `/diag`).
+
+**Layer 2 — Rate limiter** (e131.cpp): `ddpMaxFps` cap (default: 40fps when
+TFT bus is active, 60fps otherwise). Micros-based gate using `ddpLastFrameUs`.
+Excess frames dropped silently. Counter: `ddpRateLimitDrops` (atomic, visible
+in `/diag`). Rationale: TFT SPI DMA takes ~24ms per frame at 40×80 virtual
+pixels — accepting DDP faster than the display can render wastes CPU and
+starves the main loop.
+
+**Layer 3 — Main loop starvation detector** (e131.cpp): When the main loop
+hasn't run for >100ms (detected via `lastLoopMs` atomic), the PPP RX task
+boosts the loop task priority to 19 via `vTaskPrioritySet(loopTaskHandle, 19)`.
+The main loop restores priority to 1 on its next iteration. This prevents
+TFT SPI DMA from being starved by sustained DDP flood. Implemented in session
+14 (Wave 7) after observing loop starvation under uncapped DDP at 670+ fps.
+
+**Layer 4 — Finite realtime timeout** (udp.cpp): `realtimeLock()` for DDP
+uses a 2500ms timeout (`realtimeLock(2500, REALTIME_MODE_DDP)`) rather than
+the configurable `realtimeTimeoutMs`. This ensures the device recovers from
+DDP streams that stop without sending a final packet. The FPS=0 lockup bug
+(session 16) was caused by the timeout check running after `strip.show()`
+which blocks for 24ms on TFT SPI DMA — fixed by moving the timeout check
+before the show block.
+
+**Layer 5 — UART flow control** (wled_ppp.cpp): Two-tier flow control in the
+PPP RX task. Tier 1 (>50% UART RX buffer): yield to let tcpip_thread drain.
+Tier 2 (>75% buffer): drop the current DDP frame. Prevents UART ISR ring
+buffer overrun under sustained high-rate DDP.
+
+**Diagnostics** (`/diag` endpoint):
+- `ddpRateLimitDrops`: frames dropped by rate limiter
+- `ddpHeapGuardDrops`: frames dropped by heap guard
+- `realtimeTimeout`, `now`, `diff`: realtime lock state (positive diff = expired)
+- `frozen`: `rtFrozenSegs` bitmask of segments frozen by realtime
+- RTC crash snapshot: `crashHeap`, `crashMinHeap`, `crashDmaHeap`, `crashUptime`
+  (preserved across resets via RTC memory, useful for post-crash diagnosis)
+
 
 ---
 
@@ -897,17 +952,16 @@ def test_cross_impl(iterations=1000):
 
 ### 13.4 Diagnostic Endpoint Enhancements
 
-For automated testing, the receiver should expose:
-
-```
-GET /diag?px=0-99       — dump arbitrary pixel range as hex
-GET /diag               — standard diagnostic output including:
-  ddp_frames_rx: N      — total DDP frames received
-  ddp_comp_type: 0x10   — last compression type used
-  ddp_seq_last: 7       — last sequence number
-  ddp_decode_errors: 0  — RLE decode error count
-  ddp_prevframe_crc: ABCD1234  — CRC32 of prevFrame (for delta verification)
-```
+The `/diag` endpoint (HTTP GET) exposes:
+- `ddpRateLimitDrops`: frames dropped by the rate limiter (atomic counter)
+- `ddpHeapGuardDrops`: frames dropped by the heap guard (atomic counter)
+- `realtimeMode`: current realtime mode (0=none, 8=DDP, etc.)
+- `realtimeTimeout`: absolute millis() when realtime lock expires
+- `now`: current millis()
+- `diff`: `now - realtimeTimeout` (positive = expired, negative = time remaining)
+- `frozen`: `rtFrozenSegs` bitmask (hex) of segments frozen by realtime
+- RTC crash snapshot (if magic matches): `crashHeap`, `crashMinHeap`, `crashDmaHeap`, `crashUptime`
+- Reset reason, heap breakdown (free/min/DMA)
 
 ---
 
@@ -917,12 +971,12 @@ GET /diag               — standard diagnostic output including:
 
 | # | Severity | Issue | Status |
 |---|----------|-------|--------|
-| C1 | CRITICAL | prevFrame allocates 3B/pixel — RGBW W channel lost in delta | Fix in progress |
-| C2 | CRITICAL | Transform reads live pixel buffer instead of prevFrame | Fix in progress |
-| C3 | CRITICAL | PPP show() has no isUpdating() guard → torn frames | Fix in progress |
-| C4 | CRITICAL | PPP byte-stuffing can overflow UART RX buffer | Fix in progress |
-| H1 | HIGH | Sequence counter wraps to 0 after 15 packets | Fix in progress |
-| H2 | HIGH | 1-second keyframe gap = garbage on desync | Fix in progress |
+| C1 | CRITICAL | prevFrame allocates 3B/pixel — RGBW W channel lost in delta | **Accepted** — prevFrame uses RGB565 (2B/pixel). W channel intentionally absent: heap trade-off on no-PSRAM devices (2B×800px=1.6KB vs 4B×800px=3.2KB). Delta decode reconstructs W=0, acceptable for WLED effects. |
+| C2 | CRITICAL | Transform reads live pixel buffer instead of prevFrame | **Fixed (session 10)** — Transform reads `ddpPrevFrame` via `DDP_PF_IDX()`. Partial: reads RGB565 (W=0 reconstructed), not RGBW32. |
+| C3 | CRITICAL | PPP show() has no isUpdating() guard → torn frames | **Fixed (session 8, architectural)** — DDP handler never calls `strip.show()` directly. Handler sets `e131NewData` atomic flag; show deferred to main loop. No isUpdating() guard needed. |
+| C4 | CRITICAL | PPP byte-stuffing can overflow UART RX buffer | **Mitigated (session 13)** — Two-tier UART flow control: yield at >50% buffer fill. RX buffer 8192 bytes (5.5× MTU=1500). Not fully solved for MTU>1500, but MTU>1500 is not achievable with pre-built liblwip.a. |
+| H1 | HIGH | Sequence counter wraps to 0 after 15 packets | **Fixed (session 10)** — Sequence cycles 1→15→1 via `(ddpLastSeq % 15) + 1`. `ddpSeqGaps` counter tracks out-of-order packets. |
+| H2 | HIGH | 1-second keyframe gap = garbage on desync | **Not fixed** — Receiver does not zero prevFrame on sequence gap. Mitigated by: (1) sender keyframe interval (§11.1), (2) `ddpFreePrevFrame()` on `exitRealtime()`. Risk: visual glitches on packet loss until next keyframe. |
 
 ### 14.2 Design Decisions
 
@@ -930,7 +984,7 @@ GET /diag               — standard diagnostic output including:
 
 **No compression for Art-Net/E1.31**: These are industry standards. Proprietary compression breaks interoperability. DDP's niche ecosystem allows extension.
 
-**4-byte prevFrame always**: Even for RGB data, prevFrame uses 4 bytes/pixel (RGBW32 format). The extra byte per pixel costs 800 bytes for 800 LEDs (negligible) and avoids reallocation when switching between RGB and RGBW senders.
+**2-byte prevFrame (RGB565)**: prevFrame uses 2 bytes/pixel (RGB565 packed format) rather than 4 bytes/pixel (RGBW32). This is a deliberate heap trade-off for no-PSRAM devices (ESP32-PICO-D4, 520KB SRAM): 2B×800px=1.6KB vs 4B×800px=3.2KB. Trade-offs accepted: (1) W channel is absent — delta decode reconstructs W=0, acceptable since WLED effects rarely use the W channel in DDP streams; (2) R/G/B lose 3 bits of precision each due to 565 quantization — imperceptible at LED brightness levels. The RGB565 format was adopted in session 9 when heap pressure from DDP+TFT+WiFi left insufficient headroom for RGBW32 prevFrame on 800+ pixel configurations.
 
 **Transform compression is sender-side only**: The receiver decodes whatever the sender sends. The sender decides when to use transform vs delta+RLE based on content analysis. No negotiation protocol.
 
@@ -989,6 +1043,7 @@ def frame_budget(bandwidth_bytes_sec, target_fps):
 | RLE codec (streaming decoder) | C | `wled00/ddp_compress.h` | Production |
 | DDP sender (raw only) | C/C++ | `wled00/udp.cpp` (`realtimeBroadcast()`) | Production |
 | DDP encoder + benchmark | Python | `tools/ddp_bench.py` | Production |
+| Transform encoder | C/C++ | `wled00/e131.cpp` | Not implemented — decoder only. `rle_encode_adaptive()` in `ddp_compress.h` implements RLE and delta+RLE only. |
 | RLE codec (encode + decode) | Python | `tools/ddp_codec.py` | In progress |
 | Validation suite | Python/pytest | `tools/tests/test_rle.py` | In progress |
 
@@ -2175,3 +2230,4 @@ This implementation was reviewed by a 5-member adversarial team:
 |------|---------|---------|
 | 2026-08-12 | 1.0 | Initial release. DDP spec, compression extension, validation suite, RGBW handling, transport considerations, reference implementations. Based on adversarial review by 5 independent analysts. |
 | 2026-08-13 | 1.1 | Added complete standalone implementations (Python library, C header-only receiver, C POSIX sender). Added research citations. Added hexdump examples. |
+| 2026-08-18 | 2.0 | Ground-truth update: MTU=1500 (pre-built liblwip.a constraint), prevFrame=RGB565 (heap trade-off), all defect statuses updated to match implementation, new §12.4 Receiver-Side Flow Control, /diag fields corrected, Transform encoder marked not-implemented. Based on sessions 8–17 iterative development and hardware validation. |
