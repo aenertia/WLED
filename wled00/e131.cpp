@@ -1,5 +1,17 @@
 #include "wled.h"
 
+volatile uint32_t ddpIncomplete = 0;
+volatile uint32_t ddpPassedChecks = 0;
+volatile uint32_t ddpLastPktLen = 0;
+volatile uint16_t ddpLastClaimedLen = 0;
+volatile uint32_t ddpPktCount = 0;
+volatile uint32_t ddpPixWritten = 0;
+volatile uint32_t ddpHeapSkips = 0;
+volatile uint32_t ddpOverrideSkips = 0;
+volatile uint32_t ddpLastStart = 0;
+volatile uint32_t ddpLastDataLen = 0;
+volatile uint32_t ddpPushCount = 0;
+
 #define MAX_3_CH_LEDS_PER_UNIVERSE 170
 #define MAX_4_CH_LEDS_PER_UNIVERSE 128
 #define MAX_CHANNELS_PER_UNIVERSE 512
@@ -23,30 +35,26 @@ static uint16_t pollReplyCount = 0;                                // count numb
 //DDP protocol support, called by handleE131Packet
 //handles RGB data only
 static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
-  static bool ddpSeenPush = false;  // have we seen a push yet?
+  static bool ddpSeenPush = false;
+  ddpPktCount++;
+  static uint8_t ddpLastSeq = 0;
+  static uint32_t ddpSeqGaps = 0;
   int lastPushSeq = e131LastSequenceNumber[0];
 
-  if (packetLen < DDP_HEADER_LEN) return; // too short to safely read any DDP header fields
+  if (packetLen < DDP_HEADER_LEN) return;
 
-  // reject unsupported color data types (only RGB and RGBW are supported)
-  //uint8_t maskedType = p->dataType & 0x3F; // mask out custom and reserved flags, only type bits are relevant
-  //if (maskedType != DDP_TYPE_RGB24 && maskedType != DDP_TYPE_RGBW32) return;
-
-  // note: for maximum compatibility we do not reject unknonw or malformed data types but simply default to RGB24 and check there is enough data available in the packet to do so
-  //       also we assume 8bit per channel and currently do not support other bit depths
-
-  // reject control, status and config packets (not implemented)
   if (p->destination == DDP_ID_CONTROL || p->destination == DDP_ID_STATUS || p->destination == DDP_ID_CONFIG) return;
-
-  // reject query and response packets (not implemented)
   if (p->flags & (DDP_FLAGS_QUERY | DDP_FLAGS_REPLY)) return;
 
-  bool push = p->flags & DDP_FLAGS_PUSH; // push flag means "render now"
-  if (!push && (p->flags & DDP_FLAGS_STORAGE)) return; // reject "from storage" flag but still let the push flag pass if set along with it
+  bool push = p->flags & DDP_FLAGS_PUSH;
+  if (!push && (p->flags & DDP_FLAGS_STORAGE)) return;
 
-  //reject late packets belonging to previous frame (assuming 4 packets max. before push, if more are used and packets are very late, they are still accepted)
+  if (!receiveDirect) return;
+
+  if (!realtimeOverride || (realtimeMode && rtFrozenSegs)) realtimeIP = e131.remoteIP();
+
   if (e131SkipOutOfSequence && lastPushSeq) {
-    int sn = p->sequenceNum & 0xF; // sequence number is 4 bits, 1-15, 0 means unused
+    int sn = p->sequenceNum & 0xF;
     if (sn) {
       if (lastPushSeq > 5) {
         if (sn > (lastPushSeq -5) && sn < lastPushSeq) return;
@@ -56,47 +64,100 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
-  unsigned ddpChannelsPerLed = 3; // default to RGB
-  if ((p->dataType & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4; // RGBW data type (see DDP protocol definition)
+  unsigned ddpChannelsPerLed = 3;
+  if ((p->dataType & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4;
 
   uint32_t start =  htonl(p->channelOffset) / ddpChannelsPerLed;
   start += DMXAddress / ddpChannelsPerLed;
   uint16_t dataLen = htons(p->dataLen);
-  unsigned stop = start + dataLen / ddpChannelsPerLed;
   uint8_t* data = p->data;
   unsigned c = 0;
-  if (p->flags & DDP_FLAGS_TIME) c = 4; //packet has timecode flag, we do not support it, but data starts 4 bytes later
+  if (p->flags & DDP_FLAGS_TIME) c = 4;
 
-  // ensure the received packet is at least as long as the header claims
   if (packetLen < DDP_HEADER_LEN + c + dataLen) {
+    ddpLastPktLen = packetLen; ddpLastClaimedLen = dataLen; ddpIncomplete++;
     DEBUG_PRINTLN(F("DDP packet incomplete"));
     return;
   }
 
-  unsigned numLeds = stop - start; // stop >= start is guaranteed
-  unsigned maxDataIndex = numLeds * ddpChannelsPerLed; // validate bounds before accessing data array
-  if (maxDataIndex > dataLen) {
-    DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
-    return;
-  }
+  ddpPassedChecks++; ddpLastPktLen = packetLen; ddpLastClaimedLen = dataLen;
+  if (realtimeMode != REALTIME_MODE_DDP) ddpSeenPush = false;
 
-  if (realtimeMode != REALTIME_MODE_DDP) ddpSeenPush = false; // just starting, no push yet
-  realtimeLock(realtimeTimeoutMs, REALTIME_MODE_DDP);
+  {
+    uint8_t dest = p->destination;
+    if (dest >= 1 && dest <= 32 && (dest - 1) < strip.getSegmentsNum()) {
+      freezeSegForRealtime(dest - 1);
+    } else if (ddpSlotCount > 0 && dest < 1) {
+      freezeEligibleSegs();
+    }
+  }
+  realtimeLock(2500, REALTIME_MODE_DDP);
 
   if (!realtimeOverride) {
-    for (unsigned i = start; i < stop; i++, c += ddpChannelsPerLed) {
-      setRealtimePixel(i, data[c], data[c+1], data[c+2], ddpChannelsPerLed >3 ? data[c+3] : 0);
+    ddpLastStart = start; ddpLastDataLen = dataLen;
+    unsigned stop = start + dataLen / ddpChannelsPerLed;
+    unsigned numLeds = stop - start;
+    unsigned maxDataIndex = numLeds * ddpChannelsPerLed;
+    if (maxDataIndex > dataLen) {
+      DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
+      return;
+    }
+    uint8_t dest = p->destination;
+
+    if (dest >= 1 && dest <= 32 && (dest - 1) < strip.getSegmentsNum()) {
+      // Mode A: explicit segment targeting via DDP destination byte
+      uint8_t segId = dest - 1;
+      Segment &seg = strip.getSegment(segId);
+      if (seg.isActive()) {
+        freezeSegForRealtime(segId);
+        unsigned segLen = seg.length();
+        for (unsigned i = start; i < stop && i < segLen; i++, c += ddpChannelsPerLed) {
+          ddpPixWritten++;
+          uint32_t col = RGBW32(data[c], data[c+1], data[c+2], ddpChannelsPerLed > 3 ? data[c+3] : 0);
+          seg.setRawPixelColor(i, col);
+        }
+      }
+
+    } else if (ddpSlotCount > 0 && dest < 1) {
+      // Mode B: concatenated stream across DDP-eligible segments
+      freezeEligibleSegs();
+      for (uint8_t s = 0; s < ddpSlotCount; s++) {
+        DdpSegSlot &slot = ddpSlots[s];
+        if (start >= slot.globalStart + slot.length) continue;
+        if (stop <= slot.globalStart) break;
+        unsigned oStart = (start > slot.globalStart) ? start : slot.globalStart;
+        unsigned oEnd = (stop < (unsigned)(slot.globalStart + slot.length)) ? stop : (slot.globalStart + slot.length);
+        Segment &seg = strip.getSegment(slot.segId);
+        unsigned di = c + (oStart - start) * ddpChannelsPerLed;
+        for (unsigned g = oStart; g < oEnd; g++, di += ddpChannelsPerLed) {
+          ddpPixWritten++;
+          unsigned local = g - slot.globalStart;
+          uint32_t col = RGBW32(data[di], data[di+1], data[di+2], ddpChannelsPerLed > 3 ? data[di+3] : 0);
+          seg.setRawPixelColor(local, col);
+        }
+      }
+
+    } else {
+      // Legacy: full-strip absolute pixel indexing (backwards compatible)
+      for (unsigned i = start; i < stop; i++, c += ddpChannelsPerLed) {
+        ddpPixWritten++;
+        setRealtimePixel(i, data[c], data[c+1], data[c+2], ddpChannelsPerLed > 3 ? data[c+3] : 0);
+      }
     }
   }
 
   ddpSeenPush |= push;
-  if (!ddpSeenPush || push) { // if we've never seen a push, or this is one, render display
-    e131NewData = true;
+  if (!ddpSeenPush || push) {
+    ddpPushCount++;
     int sn = p->sequenceNum & 0xF;
-    if (sn) e131LastSequenceNumber[0] = sn;
+    if (sn && ddpLastSeq) {
+      int expected = (ddpLastSeq % 15) + 1;
+      if (sn != expected) ddpSeqGaps++;
+    }
+    if (sn) { ddpLastSeq = sn; e131LastSequenceNumber[0] = sn; }
+    e131NewData.store(true, std::memory_order_release);
   }
 }
-
 //E1.31 and Art-Net protocol support
 void handleE131Packet(e131_packet_t* p, IPAddress clientIP, byte protocol, size_t packetLen){
 
@@ -380,7 +441,7 @@ void handleDMXData(uint16_t uni, uint16_t dmxChannels, uint8_t* e131_data, uint8
       break;
   }
 
-  e131NewData = true;
+  e131NewData.store(true, std::memory_order_release);
 }
 
 static void handleArtnetPollReply(IPAddress ipAddress) {

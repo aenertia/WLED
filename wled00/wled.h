@@ -70,6 +70,7 @@
 //This is generally a terrible idea, but improves boot success on boards with a 3.3v regulator + cap setup that can't provide 400mA peaks
 //#define WLED_DISABLE_BROWNOUT_DET
 
+#include <atomic>
 #include <cstddef>
 #include <vector>
 
@@ -720,13 +721,29 @@ WLED_GLOBAL byte presetCycCurr _INIT(0);
 
 // realtime
 WLED_GLOBAL byte realtimeMode _INIT(REALTIME_MODE_INACTIVE);
+WLED_GLOBAL unsigned long realtimeExitedAt _INIT(0);
 WLED_GLOBAL byte realtimeOverride _INIT(REALTIME_OVERRIDE_NONE);
 WLED_GLOBAL IPAddress realtimeIP _INIT_N(((0, 0, 0, 0)));
 WLED_GLOBAL unsigned long realtimeTimeout _INIT(0);
 WLED_GLOBAL uint8_t tpmPacketCount _INIT(0);
 WLED_GLOBAL uint16_t tpmPayloadFrameSize _INIT(0);
-WLED_GLOBAL bool useMainSegmentOnly _INIT(false);
-WLED_GLOBAL bool realtimeRespectLedMaps _INIT(true);                     // Respect LED maps when receiving realtime data
+WLED_GLOBAL uint32_t ddpEligibleMask _INIT(0);
+WLED_GLOBAL uint32_t rtFrozenSegs    _INIT(0);
+
+struct DdpSegSlot {
+  uint8_t  segId;
+  uint16_t globalStart;
+  uint16_t length;
+};
+WLED_GLOBAL DdpSegSlot ddpSlots[32];
+WLED_GLOBAL uint8_t    ddpSlotCount _INIT(0);
+WLED_GLOBAL uint16_t   ddpTotalEligible _INIT(0);
+
+void rebuildDdpSlots();
+void freezeSegForRealtime(uint8_t segId);
+void freezeEligibleSegs();
+
+WLED_GLOBAL bool realtimeRespectLedMaps _INIT(true);
 
 WLED_GLOBAL unsigned long lastInterfaceUpdate _INIT(0);
 WLED_GLOBAL byte interfaceUpdateCallMode _INIT(CALL_MODE_INIT);
@@ -798,7 +815,11 @@ WLED_GLOBAL WiFiUDP notifierUdp, rgbUdp, notifier2Udp;
 WLED_GLOBAL WiFiUDP ntpUdp;
 WLED_GLOBAL ESPAsyncE131 e131 _INIT_N(((handleE131Packet)));
 WLED_GLOBAL ESPAsyncE131 ddp  _INIT_N(((handleE131Packet)));
-WLED_GLOBAL bool e131NewData _INIT(false);
+#ifdef WLED_DEFINE_GLOBAL_VARS
+  std::atomic<bool> e131NewData{false};
+#else
+  extern std::atomic<bool> e131NewData;
+#endif
 
 // led fx library object
 WLED_GLOBAL WS2812FX   strip         _INIT(WS2812FX());

@@ -894,6 +894,7 @@ class WS2812FX {
       setupEffectData(),                          // add default effects to the list; defined in FX.cpp
       waitForIt();                                // wait until frame is over (service() has finished or time for 1 frame has passed)
 
+    void showFrozenSegs();
     void setRealtimePixelColor(unsigned i, uint32_t c);
     inline void setPixelColor(unsigned n, uint32_t c) const   { if (n < getLengthTotal()) _pixels[n] = c; }  // paints absolute strip pixel with index n and color c
     inline void resetTimebase()                               { timebase = 0UL - millis(); }

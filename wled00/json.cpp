@@ -390,8 +390,10 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
     for (size_t s=0; s < strip.getSegmentsNum(); s++) {
       strip.getSegment(s).freeze = false;
     }
-    if (realtimeMode && !realtimeOverride && useMainSegmentOnly) { // keep live segment frozen if live
-      strip.getMainSegment().freeze = true;
+    if (realtimeMode && !realtimeOverride && rtFrozenSegs) {
+      for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
+        if (rtFrozenSegs & (1UL << i)) strip.getSegment(i).freeze = true;
+      }
     }
   }
 
@@ -443,9 +445,11 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
 
   realtimeOverride = root[F("lor")] | realtimeOverride;
   if (realtimeOverride > 2) realtimeOverride = REALTIME_OVERRIDE_ALWAYS;
-  if (realtimeMode && useMainSegmentOnly) {
-    strip.getMainSegment().freeze = !realtimeOverride;
-    realtimeOverride = REALTIME_OVERRIDE_NONE;  // ignore request for override if using main segment only
+  if (realtimeMode && rtFrozenSegs) {
+    for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
+      if (rtFrozenSegs & (1UL << i)) strip.getSegment(i).freeze = !realtimeOverride;
+    }
+    realtimeOverride = REALTIME_OVERRIDE_NONE;
   }
 
   if (root.containsKey("live")) {
@@ -769,7 +773,7 @@ void serializeInfo(JsonObject root)
   root[F("udpport")] = udpPort;
   root[F("simplifiedui")] = simplifiedUI;
   root["live"] = (bool)realtimeMode;
-  root[F("liveseg")] = useMainSegmentOnly ? strip.getMainSegmentId() : -1;  // if using main segment only for live
+  root[F("liveseg")] = rtFrozenSegs ? (int)__builtin_ctz(rtFrozenSegs) : -1;
 
   switch (realtimeMode) {
     case REALTIME_MODE_INACTIVE: root["lm"] = ""; break;
