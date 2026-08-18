@@ -1,5 +1,7 @@
 ## fix(audioreactive): skip i2s_set_clk() for PDM microphones on IDF 5.x
 
+**Forgejo**: Fixes #17
+
 ### Problem
 
 The audioreactive usermod calls `i2s_set_clk()` after `i2s_driver_install()`
