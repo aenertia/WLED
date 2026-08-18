@@ -1,6 +1,8 @@
 # PR Tracking — WLED Upstream Contributions
 
 **Fork**: [aenertia/WLED](https://github.com/aenertia/WLED)
+**GitHub fork**: https://github.com/aenertia/WLED
+**Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
 **Active branch**: `dev/ppp-wifi`
 **Last updated**: Session 18 (August 2026)
@@ -16,71 +18,71 @@
 
 ## Phase 1 — Bug fixes (submit first)
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/mdns-ppp-crash-fix` | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | Content-Length for /json/fxdata — prevents truncation on slow links | Ready |
-| `pr/audioreactive-pdm-fix` | Skip i2s_set_clk() for PDM mode on IDF 5.x | Ready |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/mdns-ppp-crash-fix` | [branch](https://github.com/aenertia/WLED/tree/pr/mdns-ppp-crash-fix) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
+| `pr/chunked-json-fix` | [branch](https://github.com/aenertia/WLED/tree/pr/chunked-json-fix) | Content-Length for /json/fxdata — prevents truncation on slow links | Ready |
+| `pr/audioreactive-pdm-fix` | [branch](https://github.com/aenertia/WLED/tree/pr/audioreactive-pdm-fix) | Skip i2s_set_clk() for PDM mode on IDF 5.x | Ready |
 
 ## Phase 2 — Small upstream fixes (high viability)
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/ws-state-only-broadcast` | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | Ready |
-| `pr/segment-name-race-fix` | alloc-fill-swap-free in Segment::setName() — dual-core race fix | Ready |
-| `pr/watchdog-idf5-compat` | esp_task_wdt_config_t struct API for IDF 5.x | Ready |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/ws-state-only-broadcast` | [branch](https://github.com/aenertia/WLED/tree/pr/ws-state-only-broadcast) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | Ready |
+| `pr/segment-name-race-fix` | [branch](https://github.com/aenertia/WLED/tree/pr/segment-name-race-fix) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | Ready |
+| `pr/watchdog-idf5-compat` | [branch](https://github.com/aenertia/WLED/tree/pr/watchdog-idf5-compat) | esp_task_wdt_config_t struct API for IDF 5.x | Ready |
 
 ## Phase 3 — DDP compression
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/ddp-rle-codec` | Header-only RLE codec (ddp_compress.h) | Ready |
-| `pr/ddp-compressed-receiver` | Compressed DDP decode in handleDDPPacket() — depends on ddp-rle-codec | Ready |
-| `pr/ddp-compressed` | Full stack: codec + receiver + tools + spec | Ready |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/ddp-rle-codec` | [branch](https://github.com/aenertia/WLED/tree/pr/ddp-rle-codec) | Header-only RLE codec (ddp_compress.h) | Ready |
+| `pr/ddp-compressed-receiver` | [branch](https://github.com/aenertia/WLED/tree/pr/ddp-compressed-receiver) | Compressed DDP decode in handleDDPPacket() — depends on ddp-rle-codec | Ready |
+| `pr/ddp-compressed` | [branch](https://github.com/aenertia/WLED/tree/pr/ddp-compressed) | Full stack: codec + receiver + tools + spec | Ready |
 
 ## Phase 4 — Effects
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/effects-fade-snap` | Snap-to-target in fade_out/fadeToBlackBy | Ready |
-| `pr/effects-deferred-fade` | Deferred fade accumulator | **INCOMPLETE** — V2 broke scrolling text |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/effects-fade-snap` | [branch](https://github.com/aenertia/WLED/tree/pr/effects-fade-snap) | Snap-to-target in fade_out/fadeToBlackBy | Ready |
+| `pr/effects-deferred-fade` | [branch](https://github.com/aenertia/WLED/tree/pr/effects-deferred-fade) | Deferred fade accumulator | **INCOMPLETE** — V2 broke scrolling text |
 
 ## Phase 5 — Text
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/text-aa-fonts` | DejaVu Bold 18px + 40px 4bpp anti-aliased fonts | Ready |
-| `pr/text-drop-shadow` | Drop shadow with angle/distance/intensity | Stub — implementation pending |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/text-aa-fonts` | [branch](https://github.com/aenertia/WLED/tree/pr/text-aa-fonts) | DejaVu Bold 18px + 40px 4bpp anti-aliased fonts | Ready |
+| `pr/text-drop-shadow` | [branch](https://github.com/aenertia/WLED/tree/pr/text-drop-shadow) | Drop shadow with angle/distance/intensity | Stub — implementation pending |
 
 ## Phase 6 — Hardware / transport
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/argb-passthrough` | ARGB motherboard header passthrough via RMT | Ready |
-| `pr/tft-bus-matrix` | TFT display as WLED pixel matrix output bus | Ready |
-| `pr/ppp-transport` | PPP-over-serial network transport (WLED_USE_PPP) | Ready |
-| `pr/slip-transport` | SLIP transport — low priority | Ready |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/argb-passthrough` | [branch](https://github.com/aenertia/WLED/tree/pr/argb-passthrough) | ARGB motherboard header passthrough via RMT | Ready |
+| `pr/tft-bus-matrix` | [branch](https://github.com/aenertia/WLED/tree/pr/tft-bus-matrix) | TFT display as WLED pixel matrix output bus | Ready |
+| `pr/ppp-transport` | [branch](https://github.com/aenertia/WLED/tree/pr/ppp-transport) | PPP-over-serial network transport (WLED_USE_PPP) | Ready |
+| `pr/slip-transport` | [branch](https://github.com/aenertia/WLED/tree/pr/slip-transport) | SLIP transport — low priority | Ready |
 
 ## Phase 7 — Performance
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| `pr/ddp-per-segment` | Dual-mode DDP routing (Mode A destination byte, Mode B eligibility mask) | Ready |
+| Branch | GitHub | Description | Status |
+|--------|--------|-------------|--------|
+| `pr/ddp-per-segment` | [branch](https://github.com/aenertia/WLED/tree/pr/ddp-per-segment) | Dual-mode DDP routing (Mode A destination byte, Mode B eligibility mask) | Ready |
 
 ## Phase 8 — Upstream component fixes (target: arduino-esp32 / esp-idf)
 
-| Branch | Target repo | Description | Status |
-|--------|-------------|-------------|--------|
-| `pr/arduino-esp32-mdns-guard` | espressif/arduino-esp32 | ESPmDNS::end() NULL deref guard | Ready |
-| `pr/arduino-esp32-netif-lazy-init` | espressif/arduino-esp32 | esp_netif_init() before netif creation | Ready |
-| `pr/esp-idf-lcp-echo-docs` | espressif/esp-idf | LWIP_ENABLE_LCP_ECHO Kconfig warning | Ready |
+| Branch | GitHub | Target repo | Description | Status |
+|--------|--------|-------------|-------------|--------|
+| `pr/arduino-esp32-mdns-guard` | [branch](https://github.com/aenertia/WLED/tree/pr/arduino-esp32-mdns-guard) | espressif/arduino-esp32 | ESPmDNS::end() NULL deref guard | Ready |
+| `pr/arduino-esp32-netif-lazy-init` | [branch](https://github.com/aenertia/WLED/tree/pr/arduino-esp32-netif-lazy-init) | espressif/arduino-esp32 | esp_netif_init() before netif creation | Ready |
+| `pr/esp-idf-lcp-echo-docs` | [branch](https://github.com/aenertia/WLED/tree/pr/esp-idf-lcp-echo-docs) | espressif/esp-idf | LWIP_ENABLE_LCP_ECHO Kconfig warning | Ready |
 
 ## Deferred
 
-| Branch | Description | Reason |
-|--------|-------------|--------|
-| `pr/bus-skip-show` | Skip show() for idle buses + showFrozenSegs() DDP fast path | Depends on pr/ddp-per-segment landing first; code interleaved at function level |
-| `pr/ddp-flood-hardening` | Heap guard + rate limiter + starvation detector | Interleaved with ddp-per-segment in e131.cpp; defer until ddp-per-segment lands |
+| Branch | GitHub | Description | Reason |
+|--------|--------|-------------|--------|
+| `pr/bus-skip-show` | [branch](https://github.com/aenertia/WLED/tree/pr/bus-skip-show) | Skip show() for idle buses + showFrozenSegs() DDP fast path | Depends on pr/ddp-per-segment landing first; code interleaved at function level |
+| `pr/ddp-flood-hardening` | [branch](https://github.com/aenertia/WLED/tree/pr/ddp-flood-hardening) | Heap guard + rate limiter + starvation detector | Interleaved with ddp-per-segment in e131.cpp; defer until ddp-per-segment lands |
 
 ## Recommended submit order
 
