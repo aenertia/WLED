@@ -43,3 +43,9 @@ Capture ARGB signals from motherboard software (ASUS Aura, MSI Mystic Light, etc
 
 - Build flag is opt-in; no impact on standard WLED builds
 - No dependencies on other fork features (PPP, TFT, etc.)
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#2675](https://github.com/wled/WLED/issues/2675) | Aircoookie/WLED | Gen2 ARGB multi-layer mode (open, backburner) | Long-standing request for ARGB signal relay/passthrough |
+| [#1116](https://github.com/wled/WLED/issues/1116) | Aircoookie/WLED | MSI Mystic Light support (open, 6+ years) | Oldest open request for PC ARGB integration — this PR addresses it |

@@ -1,9 +1,9 @@
 #pragma once
 /*
- * WS2812B signal capture — decode types and algorithm.
+ * WS2812B signal capture  -- decode types and algorithm.
  *
  * Decode algorithm adapted from FastLED (MIT License).
- * Copyright (c) 2013 FastLED — https://github.com/FastLED/FastLED
+ * Copyright (c) 2013 FastLED  -- https://github.com/FastLED/FastLED
  *
  * Adapted for WLED ARGB passthrough: stripped FastLED dependencies,
  * uses plain C types, operates on ESP-IDF rmt_symbol_word_t input.
@@ -45,8 +45,8 @@ typedef struct {
 #define ARGB_DECODE_HIGH_ERROR_RATE 3
 
 /*
- * Default WS2812B timing with ±150ns tolerance.
- * Nominal: T0H=400ns T0L=850ns T1H=800ns T1L=450ns Reset≥50us
+ * Default WS2812B timing with +/-150ns tolerance.
+ * Nominal: T0H=400ns T0L=850ns T1H=800ns T1L=450ns Reset>=50us
  */
 static inline argb_timing_t argb_timing_ws2812b(void) {
     argb_timing_t t;
@@ -60,7 +60,7 @@ static inline argb_timing_t argb_timing_ws2812b(void) {
 
 /*
  * Decode edge pairs into bytes using 4-phase timing windows.
- * Adapted from FastLED decodeWs2812Edges() — MIT licensed.
+ * Adapted from FastLED decodeWs2812Edges()  -- MIT licensed.
  *
  * edges:     array of edge timestamps (HIGH/LOW pairs)
  * edge_count: number of edges
