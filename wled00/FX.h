@@ -102,6 +102,10 @@ extern byte realtimeMode;           // used in getMappedPixelIndex()
   assuming each segment uses the same amount of data. 256 for ESP8266, 640 for ESP32. */
 #define FAIR_DATA_PER_SEG (MAX_SEGMENT_DATA / MAX_NUM_SEGMENTS)
 
+#ifndef WLED_MAX_SEGMENT_BUFFER
+  #define WLED_MAX_SEGMENT_BUFFER 8192
+#endif
+
 #define MIN_SHOW_DELAY   (_frametime < 16 ? 8 : 15)
 
 #define NUM_COLORS       3 /* number of colors per segment */
@@ -539,6 +543,7 @@ class Segment {
     inline uint32_t getPixelColorXYRaw(unsigned x, unsigned y) const              { auto XY = [](unsigned X, unsigned Y){ return X + Y*Segment::vWidth(); }; return pixels[XY(x,y)]; };
   #endif
     void resetIfRequired();         // sets all SEGENV variables to 0 and clears data buffer
+    size_t reclaimData();           // free effect data under heap pressure, returns bytes freed
     void loadPalette(CRGBPalette16 &tgt, uint8_t pal);
 
     // transition functions
@@ -890,6 +895,7 @@ class WS2812FX {
       fixInvalidSegments(),                       // fixes incorrect segment configuration
       blendSegment(const Segment &topSegment) const,    // blends topSegment into pixels
       show(),                                     // initiates LED output
+      showFrozenSegs(),                           // fast-path show for DDP realtime: bypasses full _pixels[] pipeline when rtFrozenSegs is set
       setTargetFps(unsigned fps),
       setupEffectData(),                          // add default effects to the list; defined in FX.cpp
       waitForIt();                                // wait until frame is over (service() has finished or time for 1 frame has passed)
@@ -933,6 +939,7 @@ class WS2812FX {
 
     inline uint8_t getBrightness() const    { return _brightness; }       // returns current strip brightness
     inline static constexpr unsigned getMaxSegments() { return MAX_NUM_SEGMENTS; }  // returns maximum number of supported segments (fixed value)
+    size_t reclaimSegmentData(size_t needed = 0);  // free effect data from segments under heap pressure
     inline uint8_t getSegmentsNum() const   { return _segments.size(); }  // returns currently present segments
     inline uint8_t getCurrSegmentId() const { return _segment_index; }    // returns current segment index (only valid while strip.isServicing())
     inline uint8_t getMainSegmentId() const { return _mainSegment; }      // returns main segment index
@@ -955,6 +962,7 @@ class WS2812FX {
     unsigned long now, timebase;
     inline uint32_t getPixelColor(unsigned n) const { return (getMappedPixelIndex(n) < getLengthTotal()) ? _pixels[n] : 0; } // returns color of pixel n, black if out of (mapped) bounds
     inline uint32_t getPixelColorNoMap(unsigned n) const { return (n < getLengthTotal()) ? _pixels[n] : 0; } // ignores mapping table
+    inline const uint32_t *getPixelsRaw() const { return _pixels; } // direct pointer for fast memcpy snapshot
     inline uint32_t getLastShow() const             { return _lastShow; }                 // returns millis() timestamp of last strip.show() call
 
     const char *getModeData(unsigned id = 0) const  { return (id && id < _modeCount) ? _modeData[id] : PSTR("Solid"); }

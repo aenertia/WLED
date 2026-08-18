@@ -1,4 +1,7 @@
 #include "wled.h"
+#ifdef ARDUINO_ARCH_ESP32
+#include "esp_system.h"
+#endif
 
 #define JSON_PATH_STATE      1
 #define JSON_PATH_INFO       2
@@ -390,8 +393,10 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
     for (size_t s=0; s < strip.getSegmentsNum(); s++) {
       strip.getSegment(s).freeze = false;
     }
-    if (realtimeMode && !realtimeOverride && useMainSegmentOnly) { // keep live segment frozen if live
-      strip.getMainSegment().freeze = true;
+    if (realtimeMode && !realtimeOverride && rtFrozenSegs) { // keep frozen segments frozen if live
+      for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
+        if (rtFrozenSegs & (1UL << i)) strip.getSegment(i).freeze = true;
+      }
     }
   }
 
@@ -443,9 +448,11 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
 
   realtimeOverride = root[F("lor")] | realtimeOverride;
   if (realtimeOverride > 2) realtimeOverride = REALTIME_OVERRIDE_ALWAYS;
-  if (realtimeMode && useMainSegmentOnly) {
-    strip.getMainSegment().freeze = !realtimeOverride;
-    realtimeOverride = REALTIME_OVERRIDE_NONE;  // ignore request for override if using main segment only
+  if (realtimeMode && rtFrozenSegs) {
+    for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
+      if (rtFrozenSegs & (1UL << i)) strip.getSegment(i).freeze = !realtimeOverride;
+    }
+    realtimeOverride = REALTIME_OVERRIDE_NONE;
   }
 
   if (root.containsKey("live")) {
@@ -769,7 +776,7 @@ void serializeInfo(JsonObject root)
   root[F("udpport")] = udpPort;
   root[F("simplifiedui")] = simplifiedUI;
   root["live"] = (bool)realtimeMode;
-  root[F("liveseg")] = useMainSegmentOnly ? strip.getMainSegmentId() : -1;  // if using main segment only for live
+  root[F("liveseg")] = rtFrozenSegs ? (int)__builtin_ctz(rtFrozenSegs) : -1;  // first frozen segment, or -1 if none
 
   switch (realtimeMode) {
     case REALTIME_MODE_INACTIVE: root["lm"] = ""; break;
@@ -879,6 +886,17 @@ void serializeInfo(JsonObject root)
 #endif
 
   root[F("freeheap")] = getFreeHeapSize();
+#ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+  JsonObject argb = root.createNestedObject(F("argb"));
+  argb[F("on")] = isARGBPassthroughActive();
+  argb[F("mode")] = (uint8_t)getARGBCaptureMode();
+  argb[F("leds")] = getARGBCapturedLedCount();
+  argb[F("segs")] = getARGBSegmentCount();
+#endif
+  #ifdef ARDUINO_ARCH_ESP32
+  root[F("resetReason")] = (int)esp_reset_reason();
+  root[F("minheap")] = ESP.getMinFreeHeap();
+  #endif
   #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
   // Report PSRAM information
   // Free PSRAM in bytes (backward compatibility)
@@ -1287,38 +1305,110 @@ static size_t writeJSONStringElement(uint8_t* dest, size_t maxLen, const char* s
   return 1 + n;
 }
 
+// Measure bytes that writeJSONStringElement would produce, without writing.
+// Used for Content-Length pre-computation to avoid chunked transfer truncation
+// on slow links (PPP/serial) where Connection:close races with final chunk.
+static size_t measureJSONStringElement(const char* src) {
+  size_t len = 1; // leading comma
+  len += 1; // opening quote
+  for (const char* p = src; *p; ++p) {
+    char esc = ARDUINOJSON_NAMESPACE::EscapeSequence::escapeChar(*p);
+    len += esc ? 2 : 1;
+  }
+  len += 1; // closing quote
+  return len;
+}
+
 // Generate a streamed JSON response for the mode data
 // This uses sendChunked to send the reply in blocks based on how much fit in the outbound
 // packet buffer, minimizing the required state (ie. just the next index to send).  This
 // allows us to send an arbitrarily large response without using any significant amount of
 // memory (so no worries about buffer limits).
 void respondModeData(AsyncWebServerRequest* request) {
+  // Two-pass: measure then send with Content-Length. Avoids chunked transfer
+  // truncation on slow links (PPP/serial) where Connection:close + TCP FIN
+  // races with final chunk delivery. Content-Length tells TCP the exact
+  // payload size, ensuring complete delivery before connection teardown.
+  char lineBuffer[256];
+  size_t totalLen = 1; // ']' only — first element's comma becomes '['
+  for (size_t i = 0; i < strip.getModeCount(); i++) {
+    strncpy_P(lineBuffer, strip.getModeData(i), sizeof(lineBuffer)-1);
+    lineBuffer[sizeof(lineBuffer)-1] = '\0';
+    if (lineBuffer[0] != 0) {
+      const char* dp = strchr(lineBuffer, '@');
+      totalLen += measureJSONStringElement(dp ? dp + 1 : "");
+    }
+  }
   size_t fx_index = 0;
-  request->sendChunked(FPSTR(CONTENT_TYPE_JSON),
-    [fx_index](uint8_t* data, size_t len, size_t) mutable {
+  request->send(FPSTR(CONTENT_TYPE_JSON), totalLen,
+    [fx_index](uint8_t* data, size_t len, size_t) mutable -> size_t {
       size_t bytes_written = 0;
       char lineBuffer[256];
       while (fx_index < strip.getModeCount()) {
-        strncpy_P(lineBuffer, strip.getModeData(fx_index), sizeof(lineBuffer)-1); // Copy to stack buffer for strchr
+        strncpy_P(lineBuffer, strip.getModeData(fx_index), sizeof(lineBuffer)-1);
         if (lineBuffer[0] != 0) {
-          lineBuffer[sizeof(lineBuffer)-1] = '\0'; // terminate string (only needed if strncpy filled the buffer)
-          const char* dataPtr = strchr(lineBuffer,'@'); // Find '@', if there is one
-          size_t mode_bytes = writeJSONStringElement(data, len, dataPtr ? dataPtr + 1 : "");
-          if (mode_bytes == 0) break;  // didn't fit; break loop and try again next packet
+          lineBuffer[sizeof(lineBuffer)-1] = '\0';
+          const char* dp = strchr(lineBuffer, '@');
+          size_t mode_bytes = writeJSONStringElement(data, len, dp ? dp + 1 : "");
+          if (mode_bytes == 0) break;
           if (fx_index == 0) *data = '[';
           data += mode_bytes;
           len -= mode_bytes;
           bytes_written += mode_bytes;
         }
-        ++fx_index;        
+        ++fx_index;
       }
-
-      if ((fx_index == strip.getModeCount()) && (len >= 1)) {
+      if (fx_index >= strip.getModeCount() && len >= 1) {
         *data = ']';
         ++bytes_written;
-        ++fx_index; // we're really done
+        ++fx_index;
       }
+      return bytes_written;
+  });
+}
 
+// Stream effect names as JSON array without holding the JSON buffer lock.
+// Eliminates the deadlock between /json/effects HTTP response (LockedJsonResponse
+// holds lock during async TCP send) and WebSocket state push (sendDataWs needs lock).
+// Pattern mirrors respondModeData() — zero heap allocation for response body.
+void respondModeNames(AsyncWebServerRequest* request) {
+  // Two-pass: measure then send with Content-Length (same as respondModeData).
+  char lineBuffer[256];
+  size_t totalLen = 1; // ']' only — first element's comma becomes '['
+  for (size_t i = 0; i < strip.getModeCount(); i++) {
+    strncpy_P(lineBuffer, strip.getModeData(i), sizeof(lineBuffer)-1);
+    lineBuffer[sizeof(lineBuffer)-1] = '\0';
+    if (lineBuffer[0] != 0) {
+      char* dp = strchr(lineBuffer, '@');
+      if (dp) *dp = 0;
+      totalLen += measureJSONStringElement(lineBuffer);
+    }
+  }
+  size_t fx_index = 0;
+  request->send(FPSTR(CONTENT_TYPE_JSON), totalLen,
+    [fx_index](uint8_t* data, size_t len, size_t) mutable -> size_t {
+      size_t bytes_written = 0;
+      char lineBuffer[256];
+      while (fx_index < strip.getModeCount()) {
+        strncpy_P(lineBuffer, strip.getModeData(fx_index), sizeof(lineBuffer)-1);
+        lineBuffer[sizeof(lineBuffer)-1] = '\0';
+        if (lineBuffer[0] != 0) {
+          char* dp = strchr(lineBuffer, '@');
+          if (dp) *dp = 0;
+          size_t mode_bytes = writeJSONStringElement(data, len, lineBuffer);
+          if (mode_bytes == 0) break;
+          if (fx_index == 0) *data = '[';
+          data += mode_bytes;
+          len -= mode_bytes;
+          bytes_written += mode_bytes;
+        }
+        ++fx_index;
+      }
+      if (fx_index >= strip.getModeCount() && len >= 1) {
+        *data = ']';
+        ++bytes_written;
+        ++fx_index;
+      }
       return bytes_written;
   });
 }
@@ -1359,7 +1449,7 @@ void serveJson(AsyncWebServerRequest* request)
   else if (url.indexOf("info")     > 0) subJson = json_target::info;
   else if (url.indexOf("si")       > 0) subJson = json_target::state_info;
   else if (url.indexOf(F("nodes")) > 0) subJson = json_target::nodes;
-  else if (url.indexOf(F("eff"))   > 0) subJson = json_target::effects;
+  else if (url.indexOf(F("eff"))   > 0) { respondModeNames(request); return; }
   else if (url.indexOf(F("palx"))  > 0) subJson = json_target::palettes;
   else if (url.indexOf(F("fxda"))  > 0) { respondModeData(request); return; }
   else if (url.indexOf(F("net"))   > 0) subJson = json_target::networks;
@@ -1386,6 +1476,12 @@ void serveJson(AsyncWebServerRequest* request)
   }
   // releaseJSONBufferLock() will be called when "response" is destroyed (from AsyncWebServer)
   // make sure you delete "response" if no "request->send(response);" is made
+  // Reclaim effect data if heap is tight — effects will re-init on next frame.
+  // This prevents JSON truncation when effect working RAM crowds out the
+  // web server's response buffer allocation.
+  if (ESP.getFreeHeap() < JSON_BUFFER_SIZE + 2048) {
+    strip.reclaimSegmentData(JSON_BUFFER_SIZE);
+  }
   LockedJsonResponse *response = new LockedJsonResponse(pDoc, subJson==json_target::effects); // will clear and convert JsonDocument into JsonArray if necessary
 
   JsonVariant lDoc = response->getRoot();

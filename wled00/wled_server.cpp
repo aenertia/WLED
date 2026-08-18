@@ -414,7 +414,145 @@ void initServer()
     serveSettings(request, true);
   });
 
-  const static char _json[] PROGMEM = "/json";
+  // Diagnostic endpoint — bus layout, mapping, pixel state.
+  // Uses chunked response to avoid large buffer allocation.
+  server.on("/diag", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncResponseStream *response = request->beginResponseStream("text/plain");
+
+    #ifdef ARDUINO_ARCH_ESP32
+    // Reset reason decode
+    static const char* const rstNames[] = {
+      "UNKNOWN","POWERON","EXT","SW","PANIC","INT_WDT","TASK_WDT",
+      "WDT","DEEPSLEEP","BROWNOUT","SDIO","USB","JTAG","EFUSE",
+      "PWR_GLITCH","CPU_LOCKUP"
+    };
+    esp_reset_reason_t rstCode = esp_reset_reason();
+    const char* rstName = (rstCode < (int)(sizeof(rstNames)/sizeof(rstNames[0])))
+      ? rstNames[rstCode] : "?";
+    response->printf("reset=%d (%s) heap=%u contig=%u minheap=%u up=%lus fps=%d segs=%u\n",
+      (int)rstCode, rstName, (unsigned)getFreeHeapSize(),
+      (unsigned)getContiguousFreeHeap(),
+      (unsigned)esp_get_minimum_free_heap_size(),
+      millis() / 1000,
+      (int)strip.getFps(), (unsigned)strip.getSegmentsNum());
+    response->printf("wifi=%d ap=%d\n", (int)WiFi.status(), (int)apActive);
+    #ifdef WLED_USE_PPP
+    response->printf("ppp=%d\n", (int)ppp_connected);
+    #endif
+    // Heap breakdown
+    response->printf("dma_heap=%u 8bit_heap=%u\n",
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    // RTC crash snapshot — persists across soft resets
+    extern uint32_t rtcCrashHeap, rtcCrashMinHeap, rtcCrashDmaHeap, rtcCrashUptime;
+    extern uint32_t rtcCrashMagic;
+    if ((rstCode == ESP_RST_PANIC || rstCode == ESP_RST_INT_WDT || rstCode == ESP_RST_TASK_WDT)
+        && rtcCrashMagic == 0xDEADBEEF) {
+      response->printf("crash_snapshot: heap=%u minheap=%u dma=%u uptime=%us\n",
+        rtcCrashHeap, rtcCrashMinHeap, rtcCrashDmaHeap, rtcCrashUptime);
+      // Clear magic so RTC snapshot resumes updating (crash data has been read)
+      rtcCrashMagic = 0;
+    }
+    #else
+    response->printf("reset=? heap=%u up=%lus\n", (unsigned)getFreeHeapSize(), millis()/1000);
+    #endif
+
+    // Bus layout
+    response->printf("\n--- buses (%u) ---\n", (unsigned)BusManager::getNumBusses());
+    for (size_t b = 0; b < BusManager::getNumBusses(); b++) {
+      Bus *bus = BusManager::getBus(b);
+      if (!bus) continue;
+      response->printf("bus[%u]: type=%u start=%u len=%u tft=%d dig=%d\n",
+        (unsigned)b, bus->getType(), bus->getStart(), bus->getLength(),
+        Bus::isTFT(bus->getType()), bus->isDigital());
+#ifdef WLED_ENABLE_TFT_MATRIX
+      if (Bus::isTFT(bus->getType())) {
+        auto *tft = static_cast<BusTFTMatrix*>(bus);
+        response->printf("  tft: %ux%u scale=%ux%u dmaRows=%u stripBytes=%u\n",
+          tft->getPanelWidth(), tft->getPanelHeight(),
+          tft->getScaleX(), tft->getScaleY(),
+          tft->getDmaRows(), (unsigned)tft->getDmaStripBytes());
+      }
+#endif
+    }
+
+    // Matrix config
+    #ifndef WLED_DISABLE_2D
+    response->printf("\n--- matrix ---\n");
+    response->printf("isMatrix=%d maxW=%u maxH=%u panels=%u\n",
+      strip.isMatrix, (unsigned)Segment::maxWidth, (unsigned)Segment::maxHeight,
+      (unsigned)strip.panel.size());
+    for (size_t p = 0; p < strip.panel.size(); p++) {
+      const auto &pan = strip.panel[p];
+      response->printf("panel[%u]: %ux%u off=%u,%u serp=%d bot=%d right=%d vert=%d\n",
+        (unsigned)p, pan.width, pan.height, pan.xOffset, pan.yOffset,
+        pan.serpentine, pan.bottomStart, pan.rightStart, pan.vertical);
+    }
+    #endif
+
+    // Mapping check (sample via getMappedPixelIndex)
+    response->printf("\n--- mapping ---\n");
+    response->printf("respectLedMaps=%d totalLen=%u\n",
+      realtimeRespectLedMaps, strip.getLengthTotal());
+    bool isIdentity = true;
+    unsigned totalLen = strip.getLengthTotal();
+    for (unsigned i = 0; i < totalLen && i < 800; i++) {
+      if (strip.getMappedPixelIndex(i) != i) { isIdentity = false; break; }
+    }
+    response->printf("identity=%d\n", isIdentity);
+    if (!isIdentity) {
+      response->print("map[0..19]: ");
+      for (unsigned i = 0; i < min(20u, totalLen); i++) {
+        response->printf("%u ", strip.getMappedPixelIndex(i));
+      }
+      response->println();
+    }
+
+    // Realtime state
+    response->printf("\n--- realtime ---\n");
+    response->printf("mode=%u override=%u timeout=%lu now=%lu diff=%ld frozen=0x%08x\n",
+      realtimeMode, realtimeOverride,
+      (unsigned long)realtimeTimeout, (unsigned long)millis(),
+      (long)((int32_t)(millis() - realtimeTimeout)),
+      (unsigned)rtFrozenSegs);
+    extern volatile uint32_t ddpPktCount, ddpPixWritten, ddpHeapSkips, ddpOverrideSkips, ddpLastStart, ddpLastDataLen, ddpPushCount;
+    response->printf("ddp: pkts=%u pix=%u heapSkip=%u ovrSkip=%u lastStart=%u lastLen=%u push=%u\n",
+      (unsigned)ddpPktCount, (unsigned)ddpPixWritten, (unsigned)ddpHeapSkips,
+      (unsigned)ddpOverrideSkips, (unsigned)ddpLastStart, (unsigned)ddpLastDataLen, (unsigned)ddpPushCount);
+
+    extern volatile uint32_t ddpIncomplete, ddpPassedChecks, ddpLastPktLen;
+    extern volatile uint16_t ddpLastClaimedLen;
+    response->printf("ddp2: incomplete=%u passed=%u lastPktLen=%u lastClaimed=%u\n",
+      (unsigned)ddpIncomplete, (unsigned)ddpPassedChecks, (unsigned)ddpLastPktLen, (unsigned)ddpLastClaimedLen);
+    response->printf("ddpRate: drops=%u heapGuard=%u maxFps=%u loopLag=%ums\n",
+      (unsigned)ddpRateLimitDrops.load(std::memory_order_relaxed),
+      (unsigned)ddpHeapGuardDrops.load(std::memory_order_relaxed),
+      (unsigned)ddpMaxFps,
+      (unsigned)(millis() - lastLoopMs.load(std::memory_order_relaxed)));
+    // Pixel sample
+    response->printf("\n--- pixels ---\n");
+    if (totalLen > 0) {
+      response->print("px[0..4]: ");
+      for (unsigned i = 0; i < min(5u, totalLen); i++) {
+        uint32_t c = strip.getPixelColor(i);
+        response->printf("%06X ", c & 0xFFFFFF);
+      }
+      response->println();
+      if (totalLen > 10) {
+        unsigned mid = totalLen / 2;
+        response->printf("px[%u..%u]: ", mid, mid+4);
+        for (unsigned i = mid; i < min(mid+5, totalLen); i++) {
+          uint32_t c = strip.getPixelColor(i);
+          response->printf("%06X ", c & 0xFFFFFF);
+        }
+        response->println();
+      }
+    }
+
+    request->send(response);
+  });
+
+    const static char _json[] PROGMEM = "/json";
   server.on(FPSTR(_json), HTTP_GET, [](AsyncWebServerRequest *request){
     serveJson(request);
   });

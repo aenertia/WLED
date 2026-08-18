@@ -195,6 +195,7 @@ class Bus {
     static constexpr bool  isPWM(uint8_t type)        { return (type >= TYPE_ANALOG_MIN && type <= TYPE_ANALOG_MAX); }
     static constexpr bool  isVirtual(uint8_t type)    { return (type >= TYPE_VIRTUAL_MIN && type <= TYPE_VIRTUAL_MAX); }
     static constexpr bool  isHub75(uint8_t type)      { return (type >= TYPE_HUB75MATRIX_MIN && type <= TYPE_HUB75MATRIX_MAX); }
+    static constexpr bool  isTFT(uint8_t type)        { return (type >= TYPE_TFT_MATRIX_MIN && type <= TYPE_TFT_MATRIX_MAX); }
     static constexpr bool  is16bit(uint8_t type)      { return type == TYPE_UCS8903 || type == TYPE_UCS8904 || type == TYPE_SM16825; }
     static constexpr bool  mustRefresh(uint8_t type)  { return type == TYPE_TM1814; }
     static constexpr int   numPWMPins(uint8_t type)   { return (type - 40); }
@@ -228,6 +229,9 @@ class Bus {
       bool _hasWhite;//     : 1;
       bool _hasCCT;//       : 1;
     //} __attribute__ ((packed));
+  public:
+    bool _skipShow = false;  // set by BusManager::show() skip gate for slow buses
+  protected:
     static uint8_t _gAWM;
     // _cct has the following meanings (see calculateCCT() & BusManager::setSegmentCCT()):
     //    -1 means to extract approximate CCT value in K from RGB (in calcualteCCT())
@@ -449,6 +453,54 @@ class BusHub75Matrix : public Bus {
     static constexpr uint32_t IS_DARKGREY = 0x333333u;
     static constexpr int PIN_COUNT = 14;
 };
+#endif
+
+#ifdef WLED_ENABLE_TFT_MATRIX
+class BusTFTMatrix : public Bus {
+  public:
+    BusTFTMatrix(const BusConfig &bc);
+    ~BusTFTMatrix() { cleanup(); }
+    [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
+    [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
+    void show() override;
+    void setBrightness(uint8_t b) override;
+    size_t getPins(uint8_t* pinArray = nullptr) const override;
+    size_t getBusSize() const override { return sizeof(BusTFTMatrix) + (_buffersAllocated ? 2 * _dmaStripBytes + _len * sizeof(uint32_t) : 0); }
+    // Max SPI DMA transaction: 32767 pixels (65534 bytes) on all ESP32 variants.
+    // TFT_eSPI pushPixelsDMA falls back to blocking SPI above this on S3/C3/C6.
+    // We stay well under by computing optimal rows per strip at init time.
+    static constexpr uint32_t SPI_DMA_MAX_PIXELS = 32767;
+    void cleanup();
+    static std::vector<LEDType> getLEDTypes();
+    uint16_t getPanelWidth() const { return _panelWidth; }
+    uint16_t getPanelHeight() const { return _panelHeight; }
+    uint8_t  getScaleX() const { return _scaleX; }
+    uint8_t  getScaleY() const { return _scaleY; }
+    uint16_t getDmaRows() const { return _dmaRows; }
+    size_t   getDmaStripBytes() const { return _dmaStripBytes; }
+  private:
+    uint16_t _panelWidth;
+    uint16_t _panelHeight;
+    uint8_t  _scaleX;
+    uint8_t  _scaleY;
+    uint16_t *_dmaBuf[2];
+    uint32_t *_snapBuf;        // pixel snapshot — copy of _pixels[] taken once per show()
+    uint8_t   _activeBuf;
+    uint16_t  _dmaRows;        // virtual rows per DMA strip (computed at init)
+    size_t    _dmaStripBytes;  // bytes per DMA strip buffer
+    bool      _buffersAllocated = false; // Wave 3B: deferred DMA/snap allocation
+    uint16_t  _activeRowMin = 0;         // first virtual row with active segment (inclusive)
+    uint16_t  _activeRowMax = 0;         // last virtual row with active segment (exclusive), 0 = fully idle
+    uint16_t  _prevActiveRowMax = 0;     // previous range max — for blank-push on deactivation
+    bool allocateBuffers();              // lazy-allocate _dmaBuf + _snapBuf on first active show()
+    void deallocateBuffers();            // free _dmaBuf + _snapBuf when skip-show activates
+    void recalcActiveRowRange();         // recompute _activeRowMin/Max from segment coverage
+    static void axpWrite(uint8_t reg, uint8_t val);
+    static uint8_t axpRead(uint8_t reg);
+};
+// Early-boot AXP192 power rail init — call before beginStrip().
+// Idempotent; returns false if AXP192 not found on I2C.
+bool initAXP192();
 #endif
 
 //temporary struct for passing bus configuration to bus

@@ -59,8 +59,26 @@ typedef struct ip_addr ip4_addr_t;
 #define DDP_FLAGS_REPLY   0x04    // unsupported - response packet from another display
 #define DDP_FLAGS_STORAGE 0x08    // unsupported - show data from a storage unit instead of from packet data field. Data field defines storage unit (by name, number, URL or whatever mechanism wanted).
 #define DDP_FLAGS_TIME    0x10
+#define DDP_FLAGS_COMPRESSED 0x20   // bit 5: payload is compressed (reserved in spec, set to zero by unpatched senders)
 
-#define DDP_CHANNELS_PER_PACKET 1440 // 480 leds
+// Compression type in sequenceNum byte upper nibble (bits 7-4), used when DDP_FLAGS_COMPRESSED is set
+#define DDP_COMP_TYPE_NONE      0x00  // no compression (standard DDP)
+#define DDP_COMP_TYPE_DELTA_RLE 0x10  // XOR delta + byte-level RLE
+#define DDP_COMP_TYPE_RLE       0x20  // byte-level RLE only (no delta, used for keyframes)
+#define DDP_COMP_TYPE_TRANSFORM 0x30  // uniform transform + sparse explicit pixel writes
+
+#define DDP_TRANSFORM_SCALE_TOWARD  0x01  // blend each pixel toward target color by param/256
+#define DDP_TRANSFORM_SCALE_MULT    0x02  // multiply each pixel by param/256
+#define DDP_TRANSFORM_NOP           0x03  // no transform, only explicit pixel writes
+
+#ifdef DDP_PPP_CHANNELS_PER_PACKET
+#define DDP_CHANNELS_PER_PACKET DDP_PPP_CHANNELS_PER_PACKET
+#elif defined(WLED_USE_PPP) && defined(PPP_MRU)
+// Auto-derive from PPP MRU: MTU minus DDP header (10B), rounded down to channel boundary
+#define DDP_CHANNELS_PER_PACKET ((PPP_MRU - 10) / 3 * 3)
+#else
+#define DDP_CHANNELS_PER_PACKET 1440
+#endif
 
 #define DDP_TYPE_RGB24  0x0B // 00 001 011 (RGB , 8 bits per channel, 3 channels)
 #define DDP_TYPE_RGBW32 0x1B // 00 011 011 (RGBW, 8 bits per channel, 4 channels)
@@ -171,7 +189,7 @@ typedef union {
     uint8_t data[1];
   } __attribute__((packed));*/
 
-  uint8_t raw[1458];
+  uint8_t raw[4096];  // enlarged for PPP MTU 4096 DDP packets (was 1458, sized for Ethernet)
 } e131_packet_t;
 
 typedef union {

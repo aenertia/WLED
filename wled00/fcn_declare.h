@@ -187,6 +187,7 @@ void serializeSegment(const JsonObject& root, const Segment& seg, byte id, bool 
 void serializeState(JsonObject root, bool forPreset = false, bool includeBri = true, bool segmentBounds = true, bool selectedSegmentsOnly = false);
 void serializeInfo(JsonObject root);
 void serializeModeNames(JsonArray arr);
+void respondModeNames(AsyncWebServerRequest* request);
 void serializePins(JsonObject root);
 void serveJson(AsyncWebServerRequest* request);
 #ifdef WLED_ENABLE_JSONLIVE
@@ -304,6 +305,9 @@ void notify(byte callMode, bool followUp=false);
 uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, const uint8_t* buffer, uint8_t bri=255, bool isRGBW=false);
 void realtimeLock(uint32_t timeoutMs, byte md = REALTIME_MODE_GENERIC);
 void exitRealtime();
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+void ddpFreePrevFrame();
+#endif
 void handleNotifications();
 void setRealtimePixel(uint16_t i, byte r, byte g, byte b, byte w);
 void refreshNodeList();

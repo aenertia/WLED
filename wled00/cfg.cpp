@@ -219,6 +219,17 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
     // cannot call strip.deserializeLedmap()/strip.setUpMatrix() here due to already locked JSON buffer
     //if (!fromFS) doInit2D = true; // if called at boot (fromFS==true), WLED::beginStrip() will take care of setting up matrix
   }
+  #if defined(TFT_VIRTUAL_W) && defined(TFT_VIRTUAL_H)
+  else if (fromFS) {
+    strip.isMatrix = true;
+    strip.panel.clear();
+    WS2812FX::Panel p;
+    p.width = TFT_VIRTUAL_W;
+    p.height = TFT_VIRTUAL_H;
+    strip.panel.push_back(p);
+    needsSave = true;
+  }
+  #endif
   #endif
 
   DEBUG_PRINTF_P(PSTR("Heap before buses: %d\n"), getFreeHeapSize());
@@ -597,7 +608,14 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
 
   JsonObject if_live = interfaces["live"];
   CJSON(receiveDirect, if_live["en"]);  // UDP/Hyperion realtime
-  CJSON(useMainSegmentOnly, if_live[F("mso")]);
+  {
+    bool mso = false;
+    CJSON(mso, if_live[F("mso")]);
+    if (mso) ddpEligibleMask = (1UL << strip.getMainSegmentId()); // backwards compat
+  }
+  CJSON(ddpEligibleMask, if_live[F("ddpelig")]);
+  rebuildDdpSlots();
+  CJSON(ddpMaxFps, if_live[F("ddpfps")]);
   CJSON(realtimeRespectLedMaps, if_live[F("rlm")]);
   CJSON(e131Port, if_live["port"]); // 5568
   if (e131Port == DDP_DEFAULT_PORT) e131Port = E131_DEFAULT_PORT; // prevent double DDP port allocation
@@ -1135,7 +1153,9 @@ void serializeConfig(JsonObject root) {
 
   JsonObject if_live = interfaces.createNestedObject("live");
   if_live["en"] = receiveDirect; // UDP/Hyperion realtime
-  if_live[F("mso")] = useMainSegmentOnly;
+  if_live[F("mso")] = (ddpEligibleMask != 0); // backwards compat
+  if_live[F("ddpelig")] = ddpEligibleMask;
+  if_live[F("ddpfps")] = ddpMaxFps;
   if_live[F("rlm")] = realtimeRespectLedMaps;
   if_live["port"] = e131Port;
   if_live[F("mc")] = e131Multicast;

@@ -146,6 +146,7 @@ Segment& Segment::operator= (Segment &&orig) noexcept {
 // allocates effect data buffer on heap and initialises (erases) it
 bool Segment::allocateData(size_t len) {
   if (len == 0) return false;    // nothing to do
+  if (len > WLED_MAX_SEGMENT_BUFFER) return false; // segment too large for effect data
   if (data && _dataLen >= len) { // already allocated enough (reduce fragmentation)
     if (call == 0) {
       if (_dataLen < FAIR_DATA_PER_SEG) { // segment data is small
@@ -198,6 +199,23 @@ void Segment::deallocateData() {
   data = nullptr;
   Segment::addUsedSegmentData(_dataLen <= Segment::getUsedSegmentData() ? -_dataLen : -Segment::getUsedSegmentData());
   _dataLen = 0;
+}
+
+// Reclaim effect data under heap pressure. Frees the data buffer and
+// resets the effect state so it cleanly re-initializes on the next frame
+// (call==0 triggers the effect's init path in allocateData+memset).
+// Returns bytes freed. Safe to call from any context — the effect will
+// see call==0 on its next service() tick and re-allocate/re-init.
+size_t Segment::reclaimData() {
+  if (!data || _dataLen == 0) return 0;
+  size_t freed = _dataLen;
+  deallocateData();
+  // Reset effect state so it re-initializes cleanly
+  step = 0;
+  call = 0;
+  aux0 = 0;
+  aux1 = 0;
+  return freed;
 }
 
 /**
@@ -632,10 +650,19 @@ Segment &Segment::setName(const char *newName) {
   if (newName) {
     const int newLen = min(strlen(newName), (size_t)WLED_MAX_SEGNAME_LEN);
     if (newLen) {
-      if (name) p_free(name); // free old name
-      name = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
-      if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true); // if the name changes in scrolling text mode, we need to copy the segment for blending
-      if (name) strlcpy(name, newName, newLen+1);
+      // allocate and fill new name BEFORE freeing old to avoid race condition:
+      // the effect service loop (Core 1) may read SEGMENT.name while this runs (Core 0).
+      // Old code freed name first, leaving a window where name pointed to heap garbage.
+      char *newBuf = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
+      if (newBuf) {
+        strlcpy(newBuf, newName, newLen+1);
+        // start transition BEFORE swapping — the copy constructor deep-copies the current
+        // (still valid) name, so the old segment gets the correct previous text for blending.
+        if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true);
+        char *oldName = name;
+        name = newBuf;  // atomic pointer swap — effect now reads valid new name
+        if (oldName) p_free(oldName);
+      }
       return *this;
     }
   }
@@ -1055,13 +1082,22 @@ void Segment::fill(uint32_t c) const {
   for (unsigned i = 0; i < length(); i++) setPixelColorRaw(i,c); // always fill all pixels (blending will take care of grouping, spacing and clipping)
 }
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+static uint8_t _deferredFadeBlend[MAX_NUM_SEGMENTS] = {};
+static uint8_t _deferredFadeScale[MAX_NUM_SEGMENTS];
+
+static struct _InitDeferredFade {
+  _InitDeferredFade() { memset(_deferredFadeScale, 255, sizeof(_deferredFadeScale)); }
+} _initDeferredFade;
+#endif
+
 /*
  * fade out function, higher rate = quicker fade
  * fading is highly dependant on frame rate (higher frame rates, faster fading)
  * each frame will fade at max 9% or as little as 0.8%
  */
 void Segment::fade_out(uint8_t rate) const {
-  if (!isActive()) return; // not active
+  if (!isActive()) return;
   rate = (256-rate) >> 1;
   const int mappedRate = 256 / (rate + 1);
   const size_t rlength = rawLength();  // calculate only once
@@ -1074,7 +1110,7 @@ void Segment::fade_out(uint8_t rate) const {
       // we can't use bitshift since we are using int
       int delta = (c2 - c1) * mappedRate / 256;
       // if fade isn't complete, make sure delta is at least 1 (fixes rounding issues)
-      if (delta == 0) delta += (c2 == c1) ? 0 : (c2 > c1) ? 1 : -1;
+      if (delta == 0) c1 = c2;
       // stuff new value back into color
       color &= ~(0xFF<<i);
       color |= ((c1 + delta) & 0xFF) << i;
@@ -1085,16 +1121,22 @@ void Segment::fade_out(uint8_t rate) const {
 
 // fades all pixels to secondary color
 void Segment::fadeToSecondaryBy(uint8_t fadeBy) const {
-  if (!isActive() || fadeBy == 0) return;   // optimization - no scaling to apply
+  if (!isActive() || fadeBy == 0) return;
   const size_t rlength = rawLength();  // calculate only once
   for (unsigned i = 0; i < rlength; i++) setPixelColorRaw(i, color_blend(getPixelColorRaw(i), colors[1], fadeBy));
 }
 
 // fades all pixels to black using nscale8()
 void Segment::fadeToBlackBy(uint8_t fadeBy) const {
-  if (!isActive() || fadeBy == 0) return;   // optimization - no scaling to apply
-  const size_t rlength = rawLength();  // calculate only once
-  for (unsigned i = 0; i < rlength; i++) setPixelColorRaw(i, fast_color_scale(getPixelColorRaw(i), 255-fadeBy));
+  if (!isActive() || fadeBy == 0) return;
+  const size_t rlength = rawLength();
+  const uint8_t scale = 255 - fadeBy;
+  for (unsigned i = 0; i < rlength; i++) {
+    uint32_t c = getPixelColorRaw(i);
+    uint32_t scaled = fast_color_scale(c, scale);
+    if (scaled == c && c != 0) scaled = 0;
+    setPixelColorRaw(i, scaled);
+  }
 }
 
 /*
@@ -1741,7 +1783,7 @@ void WS2812FX::show() {
     _pixelCCT = static_cast<uint8_t*>(allocate_buffer(totalLen * sizeof(uint8_t), BFRALLOC_PREFER_PSRAM)); // allocate CCT buffer if necessary, prefer PSRAM
   if (_pixelCCT) memset(_pixelCCT, 127, totalLen); // set neutral (50:50) CCT
 
-  if (realtimeMode == REALTIME_MODE_INACTIVE || useMainSegmentOnly || realtimeOverride > REALTIME_OVERRIDE_NONE) {
+  if (realtimeMode == REALTIME_MODE_INACTIVE || rtFrozenSegs || realtimeOverride > REALTIME_OVERRIDE_NONE) {
     // clear frame buffer
     memset(_pixels, 0, sizeof(uint32_t) * totalLen);
     // blend all segments into (cleared) buffer
@@ -1749,6 +1791,9 @@ void WS2812FX::show() {
       blendSegment(seg);              // blend segment's buffer into frame buffer
     }
   }
+
+  // Deferred fade application removed — fade_out/fadeToBlackBy/fadeToSecondaryBy
+  // now always apply per-pixel to the segment buffer directly (Option C fix).
 
   // avoid race condition, capture _callback value
   show_callback callback = _callback;
@@ -1790,13 +1835,95 @@ void WS2812FX::show() {
   }
 }
 
-void WS2812FX::setRealtimePixelColor(unsigned i, uint32_t c) {
-  if (useMainSegmentOnly) {
-    const Segment &seg = getMainSegment();
-    if (seg.isActive() && i < seg.length()) seg.setPixelColorRaw(i, c);
-  } else {
-    setPixelColor(i, c);
+// showFrozenSegs() — fast-path show for DDP realtime.
+// Called from handleNotifications() when rtFrozenSegs != 0 (DDP Mode A/B active).
+// Bypasses the full _pixels[] pipeline (memset + blendSegment + 4480-pixel paint loop)
+// by walking segment pixel buffers directly into BusManager::setPixelColor().
+//
+// Cases:
+//   B: single frozen seg  — walk seg.pixels[] directly, O(segLen) not O(totalLen)
+//   C: multi-slot eligible — sparse paint via ddpSlots[], skip non-frozen ranges
+//   A: all segs frozen     — fall through to normal show() (full pipeline needed)
+//   D: mixed RT + effects  — fall through to normal show() (effect segs need pipeline)
+//   E: legacy (no frozen)  — never called (handleNotifications guards on rtFrozenSegs)
+void WS2812FX::showFrozenSegs() {
+  if (!_pixels || !rtFrozenSegs) { show(); return; }
+
+  // Compute mask of all active segments
+  uint32_t allActiveMask = 0;
+  for (unsigned i = 0; i < _segments.size(); i++)
+    if (_segments[i].isActive()) allActiveMask |= (1u << i);
+
+  // Case A: all active segments are frozen → full pipeline needed (DDP to whole strip)
+  if ((rtFrozenSegs & allActiveMask) == allActiveMask) { show(); return; }
+
+  // Case D: some segments are NOT frozen (running effects) → full pipeline needed
+  // Check: any active, non-frozen, on segment exists?
+  for (unsigned i = 0; i < _segments.size(); i++) {
+    if (!(allActiveMask & (1u << i))) continue;       // inactive
+    if (rtFrozenSegs & (1u << i)) continue;           // frozen by DDP — ok
+    if (_segments[i].on && !_segments[i].freeze) { show(); return; } // effect seg → full pipeline
   }
+
+  // Cases B and C: only frozen segments are active — fast path
+  unsigned long showNow = millis();
+  size_t diff = showNow - _lastShow;
+
+  // Gamma correction: same guard as show() — disabled in realtime when arlsDisableGammaCorrection
+  bool useGamma = gammaCorrectCol && !(realtimeMode && arlsDisableGammaCorrection && !realtimeOverride);
+
+  const bool is2D = (Segment::maxHeight > 1);
+  const uint16_t mw = Segment::maxWidth;
+
+  if (__builtin_popcount(rtFrozenSegs) == 1) {
+    // Case B: single frozen segment — walk seg.pixels[] directly
+    unsigned segIdx = __builtin_ctz(rtFrozenSegs);
+    if (segIdx < _segments.size()) {
+      const Segment &seg = _segments[segIdx];
+      if (seg.isActive() && seg.pixels) {
+        uint16_t segPixStart = is2D ? (uint16_t)seg.startY * mw + seg.start : seg.start;
+        unsigned segLen = seg.length();
+        for (unsigned i = 0; i < segLen; i++) {
+          uint32_t c = seg.pixels[i];
+          if (c && useGamma) c = gamma32(c);
+          BusManager::setPixelColor(getMappedPixelIndex(segPixStart + i), c);
+        }
+      }
+    }
+  } else {
+    // Case C: multiple frozen segments — sparse paint via ddpSlots[]
+    for (uint8_t s = 0; s < ddpSlotCount; s++) {
+      const DdpSegSlot &slot = ddpSlots[s];
+      if (!(rtFrozenSegs & (1u << slot.segId))) continue;
+      if (slot.segId >= _segments.size()) continue;
+      const Segment &seg = _segments[slot.segId];
+      if (!seg.isActive() || !seg.pixels) continue;
+      uint16_t segPixStart = is2D ? (uint16_t)seg.startY * mw + seg.start : seg.start;
+      for (unsigned i = 0; i < slot.length; i++) {
+        uint32_t c = seg.pixels[i];
+        if (c && useGamma) c = gamma32(c);
+        BusManager::setPixelColor(getMappedPixelIndex(segPixStart + i), c);
+      }
+    }
+  }
+
+  // Zero _pixels[] so slow buses (TFT/Hub75) that read from it via getPixelsRaw()
+  // see black rather than stale effect data from a previous service() run.
+  // The fast path only writes to bus buffers directly; _pixels[] is not updated.
+  // This memset is ~2us on ESP32 and is the correct fix for the stale-TFT bug.
+  if (_pixels) memset(_pixels, 0, sizeof(uint32_t) * getLengthTotal());
+
+  BusManager::show();
+
+  if (diff > 0) {
+    size_t fpsCurr = (1000 << FPS_CALC_SHIFT) / diff;
+    _cumulativeFps = (FPS_CALC_AVG * _cumulativeFps + fpsCurr + FPS_CALC_AVG / 2) / (FPS_CALC_AVG + 1);
+    _lastShow = showNow;
+  }
+}
+
+void WS2812FX::setRealtimePixelColor(unsigned i, uint32_t c) {
+  setPixelColor(i, c); // legacy path only — Mode A/B write directly to segment buffers
 }
 
 // reset all segments
@@ -1956,6 +2083,10 @@ void WS2812FX::resetSegments() {
   if (isServicing()) return;
   _segments.clear();          // destructs all Segment as part of clearing
   _segments.emplace_back(0, isMatrix ? Segment::maxWidth : _length, 0, isMatrix ? Segment::maxHeight : 1);
+  DEBUG_PRINTF_P(PSTR("resetSeg: isMx=%d mxW=%d mxH=%d len=%d s=%d e=%d sY=%d eY=%d w=%d h=%d 2D=%d\n"),
+    isMatrix, Segment::maxWidth, Segment::maxHeight, _length,
+    _segments[0].start, _segments[0].stop, _segments[0].startY, _segments[0].stopY,
+    _segments[0].width(), _segments[0].height(), _segments[0].is2D());
   if (getActiveSegmentsNum() == 0) {
     _segments.clear();        // free failed segment
     _segments.emplace_back(); // if out of heap, create a default 30 pixel segment
@@ -1984,6 +2115,8 @@ void WS2812FX::makeAutoSegments(bool forceReset) {
     for (size_t i = s; i < BusManager::getNumBusses(); i++) {
       const Bus *bus = BusManager::getBus(i);
       if (!bus) break;
+
+      if (Bus::isTFT(bus->getType()) && realtimeMode != REALTIME_MODE_INACTIVE) continue; // skip TFT when DDP active; allow segment when idle
 
       segStarts[s] = bus->getStart();
       segStops[s]  = segStarts[s] + bus->getLength();
@@ -2089,6 +2222,22 @@ bool WS2812FX::checkSegmentAlignment() const {
 void WS2812FX::setRange(uint16_t i, uint16_t i2, uint32_t col) {
   if (i2 < i) std::swap(i,i2);
   for (unsigned x = i; x <= i2; x++) setPixelColor(x, col);
+}
+
+// Reclaim effect data from segments to free heap under memory pressure.
+// Iterates segments largest-data-first, reclaiming until `needed` bytes
+// are freed or all segments are exhausted. If needed==0, reclaims all.
+// Returns total bytes freed.
+size_t WS2812FX::reclaimSegmentData(size_t needed) {
+  size_t totalFreed = 0;
+  for (auto &seg : _segments) {
+    if (needed > 0 && totalFreed >= needed) break;
+    totalFreed += seg.reclaimData();
+  }
+  if (totalFreed > 0) {
+    DEBUG_PRINTF_P(PSTR("Reclaimed %u bytes of effect data from segments\n"), (unsigned)totalFreed);
+  }
+  return totalFreed;
 }
 
 #ifdef WLED_DEBUG

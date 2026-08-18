@@ -70,6 +70,7 @@
 //This is generally a terrible idea, but improves boot success on boards with a 3.3v regulator + cap setup that can't provide 400mA peaks
 //#define WLED_DISABLE_BROWNOUT_DET
 
+#include <atomic>
 #include <cstddef>
 #include <vector>
 
@@ -120,6 +121,18 @@
 #include <SPI.h>
 
 #include "src/dependencies/network/Network.h"
+#ifdef WLED_USE_PPP
+#include "wled_ppp.h"
+#endif
+#ifdef WLED_USE_SLIP
+#include "wled_slip.h"
+#endif
+#ifdef WLED_ENABLE_TFT_MATRIX
+#include "bus_tft_matrix.h"
+#endif
+#ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+#include "wled_argb_passthrough.h"
+#endif
 
 #ifdef WLED_USE_MY_CONFIG
   #include "my_config.h"
@@ -580,6 +593,7 @@ WLED_GLOBAL byte apClients _INIT(0);
 WLED_GLOBAL bool forceReconnect _INIT(false);
 WLED_GLOBAL unsigned long lastReconnectAttempt _INIT(0);
 WLED_GLOBAL bool interfacesInited _INIT(false);
+WLED_GLOBAL bool mdnsStarted     _INIT(false);
 WLED_GLOBAL bool wasConnected _INIT(false);
 
 // color
@@ -720,12 +734,42 @@ WLED_GLOBAL byte presetCycCurr _INIT(0);
 
 // realtime
 WLED_GLOBAL byte realtimeMode _INIT(REALTIME_MODE_INACTIVE);
+WLED_GLOBAL unsigned long realtimeExitedAt _INIT(0);                     // millis() when exitRealtime() last fired
 WLED_GLOBAL byte realtimeOverride _INIT(REALTIME_OVERRIDE_NONE);
 WLED_GLOBAL IPAddress realtimeIP _INIT_N(((0, 0, 0, 0)));
 WLED_GLOBAL unsigned long realtimeTimeout _INIT(0);
 WLED_GLOBAL uint8_t tpmPacketCount _INIT(0);
 WLED_GLOBAL uint16_t tpmPayloadFrameSize _INIT(0);
-WLED_GLOBAL bool useMainSegmentOnly _INIT(false);
+// DDP per-segment targeting (replaces useMainSegmentOnly)
+WLED_GLOBAL uint32_t ddpEligibleMask _INIT(0);                           // Mode B: bitmask of segments accepting concatenated DDP
+WLED_GLOBAL uint32_t rtFrozenSegs    _INIT(0);                           // which segments are currently frozen by realtime
+
+struct DdpSegSlot {
+  uint8_t  segId;        // segment index
+  uint16_t globalStart;  // cumulative pixel offset in flat DDP stream
+  uint16_t length;       // seg.length() at build time
+};
+WLED_GLOBAL DdpSegSlot ddpSlots[32];                                     // pre-computed Mode B offset table
+WLED_GLOBAL uint8_t    ddpSlotCount _INIT(0);                            // valid entries in ddpSlots[]
+WLED_GLOBAL uint16_t   ddpTotalEligible _INIT(0);                        // sum of eligible segment lengths
+
+void rebuildDdpSlots();                                                  // rebuild offset table from ddpEligibleMask
+void freezeSegForRealtime(uint8_t segId);                                // freeze one segment for realtime
+void freezeEligibleSegs();                                               // freeze all eligible segments (Mode B)
+
+// DDP rate limiter (Issue #2: flood survival)
+#ifdef WLED_ENABLE_TFT_MATRIX
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // max accepted DDP frames/sec (0=unlimited). TFT SPI DMA ~24ms → 40fps ceiling
+#else
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(60);                                 // max accepted DDP frames/sec (0=unlimited)
+#endif
+// Cross-thread counters: written in tcpip_thread (DDP callback), read by main loop (/diag) and ppp_rx_task
+extern std::atomic<uint32_t> ddpRateLimitDrops;                          // packets dropped by rate limiter
+extern std::atomic<uint32_t> ddpHeapGuardDrops;                          // packets dropped by heap guard
+// Main loop starvation detector: written by loop task, read by tcpip_thread
+extern std::atomic<uint32_t> lastLoopMs;                                 // millis() of last main loop iteration
+extern std::atomic<bool> loopPriorityBoosted;                            // true when tcpip_thread boosted loop priority
+
 WLED_GLOBAL bool realtimeRespectLedMaps _INIT(true);                     // Respect LED maps when receiving realtime data
 
 WLED_GLOBAL unsigned long lastInterfaceUpdate _INIT(0);
@@ -798,7 +842,24 @@ WLED_GLOBAL WiFiUDP notifierUdp, rgbUdp, notifier2Udp;
 WLED_GLOBAL WiFiUDP ntpUdp;
 WLED_GLOBAL ESPAsyncE131 e131 _INIT_N(((handleE131Packet)));
 WLED_GLOBAL ESPAsyncE131 ddp  _INIT_N(((handleE131Packet)));
-WLED_GLOBAL bool e131NewData _INIT(false);
+// e131NewData: set by DDP callback on lwIP tcpip_thread (Core 0),
+// read by Arduino loop (Core 1). std::atomic with acquire/release
+// memory ordering ensures cross-core visibility.
+// Not WLED_GLOBAL — std::atomic is not trivially copyable.
+#ifdef WLED_DEFINE_GLOBAL_VARS
+  std::atomic<bool> e131NewData{false};
+#else
+  extern std::atomic<bool> e131NewData;
+#endif
+#ifdef WLED_USE_PPP
+WLED_GLOBAL volatile uint32_t _dbg_ddpSet    _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showA     _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showB     _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showASkip _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_px0_pre   _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_px0_post  _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showDiff  _INIT(0);
+#endif
 
 // led fx library object
 WLED_GLOBAL WS2812FX   strip         _INIT(WS2812FX());

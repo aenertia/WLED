@@ -1,5 +1,32 @@
 #include "wled.h"
+#include "ddp_compress.h"
 
+// DDP diagnostic counters (exposed via /diag)
+volatile uint32_t ddpIncomplete = 0;
+volatile uint32_t ddpPassedChecks = 0;
+volatile uint32_t ddpLastPktLen = 0;
+volatile uint16_t ddpLastClaimedLen = 0;
+volatile uint32_t ddpPktCount = 0;
+volatile uint32_t ddpPixWritten = 0;
+volatile uint32_t ddpHeapSkips = 0;
+volatile uint32_t ddpOverrideSkips = 0;
+volatile uint32_t ddpLastStart = 0;
+volatile uint32_t ddpLastDataLen = 0;
+volatile uint32_t ddpPushCount = 0;
+
+// DDP rate limiter state (Issue #2: flood survival)
+// Cross-thread: written here (tcpip_thread), read by main loop (/diag) and ppp_rx_task
+std::atomic<uint32_t> ddpRateLimitDrops{0};
+std::atomic<uint32_t> ddpHeapGuardDrops{0};
+std::atomic<uint32_t> lastLoopMs{0};
+std::atomic<bool> loopPriorityBoosted{false};
+// tcpip_thread-only state (no atomics needed — single writer/reader)
+static uint32_t ddpLastFrameUs = 0;
+static bool ddpDropCurrentFrame = false;
+
+#ifdef ARDUINO_ARCH_ESP32
+extern TaskHandle_t loopTaskHandle;
+#endif
 #define MAX_3_CH_LEDS_PER_UNIVERSE 170
 #define MAX_4_CH_LEDS_PER_UNIVERSE 128
 #define MAX_CHANNELS_PER_UNIVERSE 512
@@ -16,6 +43,28 @@ static E131Priority highPriority(3);                              // E1.31 highe
 static byte e131LastSequenceNumber[E131_MAX_UNIVERSE_COUNT];       // to detect packet loss
 static uint16_t pollReplyCount = 0;                                // count number of replies for ArtPoll node report
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+static uint16_t *ddpPrevFrame = nullptr;   // previous frame for delta decode, RGB565 packed (2B/pixel)
+static unsigned   ddpPrevFrameSize = 0;    // allocated size in pixels
+static uint8_t    ddpPrevFrameSegId = 0xFF; // 0xFF = whole-strip mode, else = segment-scoped
+static uint16_t   ddpPrevFrameSegStart = 0; // seg.start of scoped segment (valid when segId != 0xFF)
+
+// Convert strip-absolute pixel index to ddpPrevFrame-relative index.
+// In segment-scoped mode, subtracts the segment's start offset.
+// In whole-strip mode, passes through unchanged.
+#define DDP_PF_IDX(absIdx) ((ddpPrevFrameSegId != 0xFF) ? ((absIdx) - ddpPrevFrameSegStart) : (absIdx))
+
+// Free delta-compression frame buffer — called from exitRealtime() to reclaim
+// heap when DDP streaming stops. Lazy re-allocated on next compressed packet.
+void ddpFreePrevFrame() {
+  free(ddpPrevFrame);
+  ddpPrevFrame = nullptr;
+  ddpPrevFrameSize = 0;
+  ddpPrevFrameSegId = 0xFF;
+  ddpPrevFrameSegStart = 0;
+}
+#endif
+
 /*
  * E1.31 handler
  */
@@ -23,7 +72,27 @@ static uint16_t pollReplyCount = 0;                                // count numb
 //DDP protocol support, called by handleE131Packet
 //handles RGB data only
 static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
-  static bool ddpSeenPush = false;  // have we seen a push yet?
+  // Layer 0: heap guard — drop ALL DDP when heap critically low (Issue #2)
+  // Cheapest possible check, runs before any header parsing.
+  // esp_get_free_heap_size() is a lightweight FreeRTOS call (~1µs).
+  {
+    uint32_t freeHeap = esp_get_free_heap_size();
+    if (freeHeap < 20000) {  // 20KB threshold — below this, lwIP allocs start failing
+      ddpHeapGuardDrops.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+
+  static bool ddpSeenPush = false;
+  ddpPktCount++;
+  static uint8_t ddpLastSeq = 0;
+  static uint32_t ddpSeqGaps = 0;
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  #define PF_PACK565(r,g,b)    (uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | ((b) >> 3))
+  #define PF_R565(c)           (uint8_t)(((c) >> 8) & 0xF8)
+  #define PF_G565(c)           (uint8_t)(((c) >> 3) & 0xFC)
+  #define PF_B565(c)           (uint8_t)(((c) << 3) & 0xF8)
+#endif
   int lastPushSeq = e131LastSequenceNumber[0];
 
   if (packetLen < DDP_HEADER_LEN) return; // too short to safely read any DDP header fields
@@ -56,44 +125,337 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
+  // --- Global DDP rate limiter (all transports) ---
+  // Placed before any per-pixel work. Uses raw channelOffset (zero is zero
+  // regardless of channel count) to avoid dependency on ddpChannelsPerLed.
+  {
+    bool isFrameStart = (p->channelOffset == 0) || push;
+    if (isFrameStart) {
+      uint32_t nowUs = micros();
+      uint32_t elapsedUs = nowUs - ddpLastFrameUs;
+      uint32_t minIntervalUs = ddpMaxFps > 0 ? (1000000U / ddpMaxFps) : 0;
+      if (minIntervalUs > 0 && elapsedUs < minIntervalUs) {
+        ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
+        ddpDropCurrentFrame = true;
+        return;
+      }
+      ddpLastFrameUs = nowUs;
+      ddpDropCurrentFrame = false;
+    } else if (ddpDropCurrentFrame) {
+      ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+
+  // Layer 3: main loop starvation detector + priority boost (Issue #2, wave 7)
+  // When loop task hasn't run in 200ms, tcpip_thread is monopolizing CPU.
+  // Two actions: (a) drop 9/10 frames, (b) boost loop task priority above
+  // tcpip_thread so it gets scheduled as soon as it unblocks.
+  {
+    uint32_t loopAge = millis() - lastLoopMs.load(std::memory_order_relaxed);
+    if (loopAge > 200) {
+#ifdef ARDUINO_ARCH_ESP32
+      if (loopTaskHandle && !loopPriorityBoosted.load(std::memory_order_relaxed)) {
+        vTaskPrioritySet(loopTaskHandle, 19);
+        loopPriorityBoosted.store(true, std::memory_order_release);
+      }
+#endif
+      static uint8_t starvationSkip = 0;
+      if (++starvationSkip < 10) {
+        ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
+        return;
+      }
+      starvationSkip = 0;
+    }
+  }
+
   unsigned ddpChannelsPerLed = 3; // default to RGB
   if ((p->dataType & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4; // RGBW data type (see DDP protocol definition)
 
   uint32_t start =  htonl(p->channelOffset) / ddpChannelsPerLed;
   start += DMXAddress / ddpChannelsPerLed;
   uint16_t dataLen = htons(p->dataLen);
-  unsigned stop = start + dataLen / ddpChannelsPerLed;
   uint8_t* data = p->data;
   unsigned c = 0;
   if (p->flags & DDP_FLAGS_TIME) c = 4; //packet has timecode flag, we do not support it, but data starts 4 bytes later
 
   // ensure the received packet is at least as long as the header claims
   if (packetLen < DDP_HEADER_LEN + c + dataLen) {
+    ddpLastPktLen = packetLen; ddpLastClaimedLen = dataLen; ddpIncomplete++;
     DEBUG_PRINTLN(F("DDP packet incomplete"));
     return;
   }
 
-  unsigned numLeds = stop - start; // stop >= start is guaranteed
-  unsigned maxDataIndex = numLeds * ddpChannelsPerLed; // validate bounds before accessing data array
-  if (maxDataIndex > dataLen) {
-    DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
-    return;
+  ddpPassedChecks++; ddpLastPktLen = packetLen; ddpLastClaimedLen = dataLen;
+  if (realtimeMode != REALTIME_MODE_DDP) {
+    ddpSeenPush = false; // just starting, no push yet
+
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+    // Lazy allocation: ddpPrevFrame allocated on first compressed packet,
+    // not here. Just reset if already allocated (re-entering DDP mode).
+    if (ddpPrevFrame) {
+      memset(ddpPrevFrame, 0, ddpPrevFrameSize * sizeof(uint16_t));
+    }
+#endif
+  }
+  // Freeze target segment(s) BEFORE realtimeLock() so rtFrozenSegs is set
+  // when realtimeLock() checks whether to do legacy strip.fill(BLACK)
+  {
+    uint8_t dest = p->destination;
+    if (dest >= 1 && dest <= 32 && (dest - 1) < strip.getSegmentsNum()) {
+      freezeSegForRealtime(dest - 1);
+    } else if (ddpSlotCount > 0 && dest < 1) {
+      freezeEligibleSegs();
+    }
+  }
+  realtimeLock(2500, REALTIME_MODE_DDP);
+
+  // Heap guard: skip pixel writes if heap is critically low.
+  // Graceful degradation: skip pixel writes but still process push flag
+  // so show() fires on the next complete frame. Dropped frames are
+  // preferable to crashing.
+  #define DDP_MIN_HEAP (10*1024)
+  if (ESP.getFreeHeap() < DDP_MIN_HEAP) {
+    ddpHeapSkips++;
+    goto ddp_push;
   }
 
-  if (realtimeMode != REALTIME_MODE_DDP) ddpSeenPush = false; // just starting, no push yet
-  realtimeLock(realtimeTimeoutMs, REALTIME_MODE_DDP);
+  // Old PPP bandwidth rate limiter removed — subsumed by global rate limiter above (Issue #2)
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
+    auto ddpCompWritePixel = [&](unsigned absIdx, uint32_t col) {
+      uint8_t dest = p->destination;
+      uint8_t r = R(col), g = G(col), b = B(col), w = W(col);
+      if (dest >= 1 && dest <= 32 && (dest - 1) < strip.getSegmentsNum()) {
+        Segment &seg = strip.getSegment(dest - 1);
+        if (seg.isActive() && absIdx < seg.length()) {
+          seg.setRawPixelColor(absIdx, col);
+          ddpPixWritten++;
+          if (ddpPrevFrame && DDP_PF_IDX(seg.start + absIdx) < ddpPrevFrameSize)
+            ddpPrevFrame[DDP_PF_IDX(seg.start + absIdx)] = PF_PACK565(r, g, b);
+        }
+      } else if (ddpSlotCount > 0 && dest < 1) {
+        for (uint8_t s = 0; s < ddpSlotCount; s++) {
+          DdpSegSlot &slot = ddpSlots[s];
+          if (absIdx < slot.globalStart) break;
+          if (absIdx >= slot.globalStart + slot.length) continue;
+          unsigned local = absIdx - slot.globalStart;
+          Segment &seg = strip.getSegment(slot.segId);
+          seg.setRawPixelColor(local, col);
+          ddpPixWritten++;
+          if (ddpPrevFrame && DDP_PF_IDX(seg.start + local) < ddpPrevFrameSize)
+            ddpPrevFrame[DDP_PF_IDX(seg.start + local)] = PF_PACK565(r, g, b);
+          break;
+        }
+      } else {
+        setRealtimePixel(absIdx, r, g, b, w);
+        ddpPixWritten++;
+        if (ddpPrevFrame && DDP_PF_IDX(absIdx) < ddpPrevFrameSize)
+          ddpPrevFrame[DDP_PF_IDX(absIdx)] = PF_PACK565(r, g, b);
+      }
+    };
+    uint8_t compType = p->sequenceNum & 0xF0;
+    unsigned totalLen = strip.getLengthTotal();
+
+    // Lazy allocation: allocate ddpPrevFrame on first compressed packet.
+    // Wave 3A: when exactly one segment is DDP-frozen, allocate only for
+    // that segment's pixel count (~512B for 256px) instead of the full
+    // strip (~8960B for 4480px). Saves ~8.4KB heap in the common case.
+    if (totalLen <= 12800) {
+      unsigned wantSize = totalLen;
+      uint8_t  wantSegId = 0xFF;
+      uint16_t wantSegStart = 0;
+      if (__builtin_popcount(rtFrozenSegs) == 1) {
+        unsigned segIdx = __builtin_ctz(rtFrozenSegs);
+        if (segIdx < strip.getSegmentsNum()) {
+          const Segment &frozenSeg = strip.getSegment(segIdx);
+          wantSize = frozenSeg.length();
+          wantSegId = segIdx;
+          wantSegStart = frozenSeg.start;
+        }
+      }
+      // Reallocate if: (a) not yet allocated, or (b) scoping changed
+      if (!ddpPrevFrame || ddpPrevFrameSegId != wantSegId) {
+        free(ddpPrevFrame);
+        ddpPrevFrame = (uint16_t*)calloc(wantSize, sizeof(uint16_t));
+        ddpPrevFrameSize = ddpPrevFrame ? wantSize : 0;
+        ddpPrevFrameSegId = wantSegId;
+        ddpPrevFrameSegStart = wantSegStart;
+      }
+    }
+
+    if (compType == DDP_COMP_TYPE_DELTA_RLE || compType == DDP_COMP_TYPE_RLE) {
+      bool isDelta = (compType == DDP_COMP_TYPE_DELTA_RLE);
+      unsigned pixel = start;
+      unsigned ci = 0;
+      uint8_t ch[4];
+
+      if (!isDelta && start == 0 && ddpPrevFrame) {
+        memset(ddpPrevFrame, 0, ddpPrevFrameSize * sizeof(uint16_t));
+        // Note: scope vars (ddpPrevFrameSegId/Start) intentionally NOT reset here —
+        // RLE full-frame reset just clears the pixel data, not the allocation scope.
+      }
+
+      RLEDecoder rle;
+      rle.init(data + c, dataLen);
+
+      while (pixel < totalLen) {
+        uint8_t decoded;
+        if (!rle.next(&decoded)) break;
+        ch[ci++] = decoded;
+        if (ci >= ddpChannelsPerLed) {
+          uint8_t r = ch[0], g = ch[1], b = ch[2];
+          uint8_t w = (ddpChannelsPerLed > 3) ? ch[3] : 0;
+          if (isDelta && ddpPrevFrame && DDP_PF_IDX(pixel) < ddpPrevFrameSize) {
+            uint16_t prev565 = ddpPrevFrame[DDP_PF_IDX(pixel)];
+            r ^= PF_R565(prev565);
+            g ^= PF_G565(prev565);
+            b ^= PF_B565(prev565);
+          }
+          ddpCompWritePixel(pixel, RGBW32(r, g, b, w));
+          pixel++;
+          ci = 0;
+        }
+      }
+    } else if (compType == DDP_COMP_TYPE_TRANSFORM) {
+      const uint8_t *tdata = data + c;
+      size_t trem = dataLen;
+      if (trem < 2 + ddpChannelsPerLed + 2) goto ddp_push; // need op + param + target + explicit count
+      uint8_t tOp = tdata[0];
+      uint8_t tParam = tdata[1];
+      // read target color (3 or 4 bytes depending on ddpChannelsPerLed)
+      uint8_t tR = tdata[2], tG = tdata[3], tB = tdata[4];
+      uint8_t tW = (ddpChannelsPerLed > 3) ? tdata[5] : 0;
+      uint32_t tTarget = RGBW32(tR, tG, tB, tW);
+      size_t hdrLen = 2 + ddpChannelsPerLed;
+      uint16_t numExplicit = tdata[hdrLen] | (tdata[hdrLen + 1] << 8);
+      size_t explicitStart = hdrLen + 2;
+
+      // Step A: apply uniform transform to all pixels in range
+      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;
+      if (tOp == DDP_TRANSFORM_SCALE_TOWARD) {
+        for (unsigned px = start; px < transformEnd; px++) {
+          uint32_t prev = 0;
+          if (ddpPrevFrame && DDP_PF_IDX(px) < ddpPrevFrameSize) {
+            uint16_t p565 = ddpPrevFrame[DDP_PF_IDX(px)];
+            prev = RGBW32(PF_R565(p565), PF_G565(p565), PF_B565(p565), 0);
+          }
+          uint32_t blended = color_blend(prev, tTarget, tParam);
+          ddpCompWritePixel(px, blended);
+        }
+      } else if (tOp == DDP_TRANSFORM_SCALE_MULT) {
+        for (unsigned px = start; px < transformEnd; px++) {
+          uint32_t prev = 0;
+          if (ddpPrevFrame && DDP_PF_IDX(px) < ddpPrevFrameSize) {
+            uint16_t p565 = ddpPrevFrame[DDP_PF_IDX(px)];
+            prev = RGBW32(PF_R565(p565), PF_G565(p565), PF_B565(p565), 0);
+          }
+          uint32_t scaled = fast_color_scale(prev, tParam);
+          ddpCompWritePixel(px, scaled);
+        }
+      }
+      // tOp == DDP_TRANSFORM_NOP: skip transform, only apply explicit writes below
+
+      // Step B: apply explicit pixel writes
+      size_t bytesPerWrite = 2 + ddpChannelsPerLed; // 2B index + 3-4B color
+      for (uint16_t e = 0; e < numExplicit; e++) {
+        size_t off = explicitStart + e * bytesPerWrite;
+        if (off + bytesPerWrite > trem) break;
+        uint16_t pxIdx = tdata[off] | (tdata[off + 1] << 8);
+        if (pxIdx >= totalLen) continue;
+        uint8_t eR = tdata[off + 2], eG = tdata[off + 3], eB = tdata[off + 4];
+        uint8_t eW = ddpChannelsPerLed > 3 ? tdata[off + 5] : 0;
+        ddpCompWritePixel(pxIdx, RGBW32(eR, eG, eB, eW));
+      }
+    }
+  } else
+#endif
   if (!realtimeOverride) {
-    for (unsigned i = start; i < stop; i++, c += ddpChannelsPerLed) {
-      setRealtimePixel(i, data[c], data[c+1], data[c+2], ddpChannelsPerLed >3 ? data[c+3] : 0);
+    ddpLastStart = start; ddpLastDataLen = dataLen;
+    unsigned stop = start + dataLen / ddpChannelsPerLed;
+    unsigned numLeds = stop - start;
+    unsigned maxDataIndex = numLeds * ddpChannelsPerLed;
+    if (maxDataIndex > dataLen) {
+      DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
+      return;
+    }
+    uint8_t dest = p->destination;
+
+    if (dest >= 1 && dest <= 32 && (dest - 1) < strip.getSegmentsNum()) {
+      // Mode A: explicit segment targeting via DDP destination byte
+      uint8_t segId = dest - 1;
+      Segment &seg = strip.getSegment(segId);
+      if (seg.isActive()) {
+        freezeSegForRealtime(segId);
+        unsigned segLen = seg.length();
+        for (unsigned i = start; i < stop && i < segLen; i++, c += ddpChannelsPerLed) {
+          ddpPixWritten++;
+          uint32_t col = RGBW32(data[c], data[c+1], data[c+2], ddpChannelsPerLed > 3 ? data[c+3] : 0);
+          seg.setRawPixelColor(i, col);
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+          if (ddpPrevFrame && DDP_PF_IDX(seg.start + i) < ddpPrevFrameSize)
+            ddpPrevFrame[DDP_PF_IDX(seg.start + i)] = PF_PACK565(data[c], data[c+1], data[c+2]);
+#endif
+        }
+      }
+
+    } else if (ddpSlotCount > 0 && dest < 1) {
+      // Mode B: concatenated stream across DDP-eligible segments
+      freezeEligibleSegs();
+      for (uint8_t s = 0; s < ddpSlotCount; s++) {
+        DdpSegSlot &slot = ddpSlots[s];
+        if (start >= slot.globalStart + slot.length) continue;
+        if (stop <= slot.globalStart) break;
+        unsigned oStart = (start > slot.globalStart) ? start : slot.globalStart;
+        unsigned oEnd = (stop < (unsigned)(slot.globalStart + slot.length)) ? stop : (slot.globalStart + slot.length);
+        Segment &seg = strip.getSegment(slot.segId);
+        unsigned di = c + (oStart - start) * ddpChannelsPerLed;
+        for (unsigned g = oStart; g < oEnd; g++, di += ddpChannelsPerLed) {
+          ddpPixWritten++;
+          unsigned local = g - slot.globalStart;
+          uint32_t col = RGBW32(data[di], data[di+1], data[di+2], ddpChannelsPerLed > 3 ? data[di+3] : 0);
+          seg.setRawPixelColor(local, col);
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+          if (ddpPrevFrame && DDP_PF_IDX(seg.start + local) < ddpPrevFrameSize)
+            ddpPrevFrame[DDP_PF_IDX(seg.start + local)] = PF_PACK565(data[di], data[di+1], data[di+2]);
+#endif
+        }
+      }
+
+    } else {
+      // Legacy: full-strip absolute pixel indexing (backwards compatible)
+      for (unsigned i = start; i < stop; i++, c += ddpChannelsPerLed) {
+        ddpPixWritten++;
+        setRealtimePixel(i, data[c], data[c+1], data[c+2], ddpChannelsPerLed > 3 ? data[c+3] : 0);
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+        if (ddpPrevFrame && DDP_PF_IDX(i) < ddpPrevFrameSize)
+          ddpPrevFrame[DDP_PF_IDX(i)] = PF_PACK565(data[c], data[c+1], data[c+2]);
+#endif
+      }
     }
   }
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+ddp_push:
+#endif
   ddpSeenPush |= push;
-  if (!ddpSeenPush || push) { // if we've never seen a push, or this is one, render display
-    e131NewData = true;
+  if (!ddpSeenPush || push) {
+    ddpPushCount++;
     int sn = p->sequenceNum & 0xF;
-    if (sn) e131LastSequenceNumber[0] = sn;
+    if (sn && ddpLastSeq) {
+      int expected = (ddpLastSeq % 15) + 1;
+      if (sn != expected) ddpSeqGaps++;
+    }
+    if (sn) { ddpLastSeq = sn; e131LastSequenceNumber[0] = sn; }
+    // NOTE: strip.show() MUST NOT be called here — this callback runs in
+    // the lwIP tcpip_thread context (ESPAsyncE131 UDP handler). Calling
+    // show() blocks the network stack for 24ms+ (WS2812 DMA / TFT SPI),
+    // killing PPP and all network I/O. Use deferred show via e131NewData.
+    e131NewData.store(true, std::memory_order_release);
+#ifdef WLED_USE_PPP
+    _dbg_ddpSet++;
+#endif
   }
 }
 
@@ -380,7 +742,7 @@ void handleDMXData(uint16_t uni, uint16_t dmxChannels, uint8_t* e131_data, uint8
       break;
   }
 
-  e131NewData = true;
+  e131NewData.store(true, std::memory_order_release);
 }
 
 static void handleArtnetPollReply(IPAddress ipAddress) {
