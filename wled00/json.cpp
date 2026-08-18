@@ -879,6 +879,13 @@ void serializeInfo(JsonObject root)
 #endif
 
   root[F("freeheap")] = getFreeHeapSize();
+#ifdef WLED_ENABLE_ARGB_PASSTHROUGH
+  JsonObject argb = root.createNestedObject(F("argb"));
+  argb[F("on")] = isARGBPassthroughActive();
+  argb[F("mode")] = (uint8_t)getARGBCaptureMode();
+  argb[F("leds")] = getARGBCapturedLedCount();
+  argb[F("segs")] = getARGBSegmentCount();
+#endif
   #if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
   // Report PSRAM information
   // Free PSRAM in bytes (backward compatibility)
