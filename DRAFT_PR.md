@@ -1,5 +1,7 @@
 # fix(segment): alloc-fill-swap-free in setName() to prevent dual-core race
 
+**Forgejo**: Fixes #24
+
 ## Summary
 
 `Segment::setName()` frees the old name buffer before allocating and filling the new one. On ESP32 dual-core, the effects service loop (Core 1) reads `segment.name` while the main loop (Core 0) calls `setName()`. The free-then-alloc pattern leaves a window where `name` points to freed heap — a use-after-free that can crash the effects loop or produce garbled text in the scrolling text effect.
