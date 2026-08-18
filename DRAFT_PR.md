@@ -45,3 +45,11 @@ skip the blend for performance.
 The FX.cpp scrolling text effect font selector range (`map(..., 0, 4)` → `0, 6`)
 is in a separate branch (`pr/effects-deferred-fade`) and must be merged
 alongside this PR for the new fonts to be selectable via the UI.
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#4938](https://github.com/wled/WLED/issues/4938) | Aircoookie/WLED | H, M, W indistinguishable in scrolling text at small sizes | Anti-aliased fonts at 18px directly address this |
+| [#5101](https://github.com/wled/WLED/issues/5101) | Aircoookie/WLED | Cyrillic font support for scrolling text | AA font infrastructure enables non-Latin character sets |
+| [PR #5372](https://github.com/wled/WLED/pull/5372) | Aircoookie/WLED | Custom font infrastructure (merged) | **This PR builds on #5372** — the font loading mechanism is already in place |
+| [PR #4982](https://github.com/wled/WLED/pull/4982) | Aircoookie/WLED | PixelForge font improvements (merged) | Related font work |
