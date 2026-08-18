@@ -6462,10 +6462,10 @@ void mode_2Dscrollingtext(void) {
 
   // Font selection
   bool useCustomFont = SEGMENT.check2;
-  uint8_t fontNum = map(SEGMENT.custom2, 0, 255, 0, 4);
+  uint8_t fontNum = map(SEGMENT.custom2, 0, 255, 0, 6);
 
   // letters orientation: -2/+2 = upside down, -1 = 90° clockwise, 0 = normal, 1 = 90° counterclockwise
-  const int8_t rotate = map(SEGMENT.custom3, 0, 31, -2, 2);
+  const int8_t rotate = 0;  // rotation disabled — c3 used for shadow angle+distance
   const bool isRotated = (rotate == 1 || rotate == -1); // +/- 90° rotated, swap width and height for calculations
 
   // Load the font
@@ -6521,10 +6521,12 @@ void mode_2Dscrollingtext(void) {
       SEGENV.aux0 = (cols + totalTextWidth) / 2; // text fits, position it at the center
     }
     ++SEGENV.aux1 &= 0xFF; // color shift
-    SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 50);
+    SEGENV.step = strip.now + map(SEGMENT.speed, 0, 255, 250, 10);
   }
 
-  SEGMENT.fade_out(255 - (SEGMENT.custom1>>4));  // trail
+  // c1=0: crisp, no shadow. c1=1-127: crisp+shadow. c1=128-255: trail+shadow.
+  if (SEGMENT.custom1 < 128) SEGMENT.fill(SEGCOLOR(1));  // crisp background
+  else                       SEGMENT.fade_out(240);       // trail toward SEGCOLOR(1)
   uint32_t col1 = SEGMENT.color_from_palette(SEGENV.aux1, false, PALETTE_SOLID_WRAP, 0);
   uint32_t col2 = BLACK;
 
@@ -6560,11 +6562,29 @@ void mode_2Dscrollingtext(void) {
 
     int16_t drawY = yoffset + (rows - glyphHeight) / 2; // center glyph vertically
 
+    // Drop shadow: c1=intensity (0=off), c3=angle(bits0-2)+distance(bits3-4)
+    // c3 bits 0-2: 8 directions CW from right. bits 3-4: distance multiplier.
+    if (SEGMENT.custom1 > 0) {
+      static const int8_t sdx[] = {1, 1, 0, -1, -1, -1, 0, 1};
+      static const int8_t sdy[] = {0, 1, 1, 1, 0, -1, -1, -1};
+      uint8_t dir = SEGMENT.custom3 & 0x07;           // bits 0-2: angle (0-7)
+      uint8_t distMul = (SEGMENT.custom3 >> 3) & 0x03; // bits 3-4: distance (0-3)
+      static const uint8_t distBase[] = {1, 2, 3, 5};
+      int dist = distBase[distMul];  // direct distance: 2/3/4/6px
+      int shX = sdx[dir] * dist;
+      int shY = sdy[dir] * dist;
+      uint8_t shadowBri = map(SEGMENT.custom1, 1, 255, 15, 180);
+      uint32_t sc1 = color_fade(col1, shadowBri, true);
+      uint32_t sc2 = col2 == col1 ? sc1 : color_fade(col2, shadowBri, true);
+      fontManager.drawCharacter(unicode, drawX + shX, drawY + shY, sc1, sc2, rotate);
+    }
     fontManager.drawCharacter(unicode, drawX, drawY, col1, col2, rotate);
     currentXOffset += advance;
   }
+
+
 }
-static const char _data_FX_MODE_2DSCROLLTEXT[] PROGMEM = "Scrolling Text@!,Y Offset,Trail,Font size,Rotate,Gradient,Custom Font,Reverse;!,!,Gradient;!;2;ix=128,c1=0,rev=0,mi=0,rY=0,mY=0";
+static const char _data_FX_MODE_2DSCROLLTEXT[] PROGMEM = "Scrolling Text@!,Y Offset,Shadow,Font size,Sh Angle,Gradient,Custom Font,Reverse;!,!,Gradient;!;2;ix=128,c1=0,rev=0,mi=0,rY=0,mY=0";
 
 
 ////////////////////////////

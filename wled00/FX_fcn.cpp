@@ -1055,6 +1055,15 @@ void Segment::fill(uint32_t c) const {
   for (unsigned i = 0; i < length(); i++) setPixelColorRaw(i,c); // always fill all pixels (blending will take care of grouping, spacing and clipping)
 }
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+static uint8_t _deferredFadeBlend[MAX_NUM_SEGMENTS] = {};
+static uint8_t _deferredFadeScale[MAX_NUM_SEGMENTS];
+
+static struct _InitDeferredFade {
+  _InitDeferredFade() { memset(_deferredFadeScale, 255, sizeof(_deferredFadeScale)); }
+} _initDeferredFade;
+#endif
+
 /*
  * fade out function, higher rate = quicker fade
  * fading is highly dependant on frame rate (higher frame rates, faster fading)
@@ -1749,6 +1758,9 @@ void WS2812FX::show() {
       blendSegment(seg);              // blend segment's buffer into frame buffer
     }
   }
+
+  // Deferred fade application removed — fade_out/fadeToBlackBy/fadeToSecondaryBy
+  // now always apply per-pixel to the segment buffer directly (Option C fix).
 
   // avoid race condition, capture _callback value
   show_callback callback = _callback;
