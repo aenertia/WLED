@@ -1,5 +1,7 @@
 # ⚠️ INCOMPLETE — feat(effects): deferred fade accumulator
 
+**Forgejo**: Fixes #10
+
 **STATUS: INCOMPLETE — DO NOT MERGE**
 
 V2 broke scrolling text gradient interaction. V3 redesign needed.
