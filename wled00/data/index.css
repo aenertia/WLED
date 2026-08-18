@@ -80,27 +80,6 @@ body {
 	transition: opacity 2s;
 }
 
-#devBanner {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	height: var(--dbh);
-	line-height: var(--dbh);
-	background: repeating-linear-gradient(45deg, #a90, #a90 10px, #222 10px, #222 20px);
-	color: #fff;
-	font: bold 11px/var(--dbh) Helvetica, Verdana, sans-serif;
-	letter-spacing: .5px;
-	text-align: center;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	padding: 0 6px;
-	box-sizing: border-box;
-	z-index: 20000;
-	text-shadow: 0 1px 2px #000;
-}
-
 p {
 	margin: 10px 0 2px 0;
 }
