@@ -42,3 +42,10 @@ Compression type is signalled in the upper nibble of the DDP sequence number byt
 ## Dependencies
 
 - Requires: `pr/ddp-rle-codec` (`ddp_compress.h`)
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [PR #5774](https://github.com/wled/WLED/pull/5774) | Aircoookie/WLED | Split udp.cpp into per-protocol files (open) | Coordinate timing — this PR modifies the same file. Submit after #5774 merges or coordinate with author. |
+
+**Depends on**: `pr/ddp-rle-codec` (provides `ddp_compress.h` codec)
