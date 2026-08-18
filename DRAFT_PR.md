@@ -36,3 +36,14 @@ snap to zero. This eliminates the infinite tail where `fast_color_scale(1, 254) 
 ## Upstream Reference
 
 Related to #4976 (fade transitions)
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#4976](https://github.com/wled/WLED/issues/4976) | Aircoookie/WLED | Continuous transitions between effects | **Direct match** — this PR implements the snap-to-target that makes transitions crisp |
+| [#5620](https://github.com/wled/WLED/issues/5620) | Aircoookie/WLED | Fade transition leaves residual glow | Caused by the same integer rounding this PR fixes |
+| [#5731](https://github.com/wled/WLED/issues/5731) | Aircoookie/WLED | Effects don't fully fade to black | Same root cause |
+| [#5520](https://github.com/wled/WLED/issues/5520) | Aircoookie/WLED | Transition artifacts between presets | Related: snap-to-target eliminates the artifact window |
+| [PR #5601](https://github.com/wled/WLED/pull/5601) | Aircoookie/WLED | Fade improvements (merged, acknowledged incomplete by devs) | This PR completes what #5601 started |
+| [PR #4658](https://github.com/wled/WLED/pull/4658) | Aircoookie/WLED | Transition smoothing (merged) | Prior art |
+| [PR #5524](https://github.com/wled/WLED/pull/5524) | Aircoookie/WLED | Effect transition improvements (open draft) | Coordinate — overlapping scope |
