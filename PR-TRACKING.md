@@ -14,15 +14,15 @@
 | PR branches | 23 |
 | Forgejo issues | #1–#27 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | 3 open — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806) |
+| Upstream submissions | 6 open — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809) |
 
 ## Phase 1 — Bug fixes (submit first)
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/mdns-ppp-crash-fix/DRAFT_PR.md) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | Ready |
-| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | Ready |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) |
+| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) |
 
 ## Phase 2 — Small upstream fixes (high viability)
 
@@ -44,7 +44,7 @@
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
-| `pr/effects-fade-snap` | [#9](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/9) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/effects-fade-snap/DRAFT_PR.md) | Snap-to-target in fade_out/fadeToBlackBy | Ready |
+| `pr/effects-fade-snap` | [#9](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/9) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/effects-fade-snap/DRAFT_PR.md) | Snap-to-target in fade_out/fadeToBlackBy | **Submitted** — [wled/WLED#5809](https://github.com/wled/WLED/pull/5809) |
 | `pr/effects-deferred-fade` | [#10](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/10) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/effects-deferred-fade/DRAFT_PR.md) | Deferred fade accumulator | **INCOMPLETE** — V2 broke scrolling text |
 
 ## Phase 5 — Text
