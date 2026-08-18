@@ -56,7 +56,7 @@ struct SegmentFontMetadata {
 // [Bitmap data] - sequential, matches registry order
 
 static constexpr uint8_t MAX_CACHED_GLYPHS = 64;     // max segment string length is 64 chars so this is absolute worst case
-static constexpr uint8_t MAX_FONTS = 5;              // scrolli text supports font numbers 0-4
+static constexpr uint8_t MAX_FONTS = 7;              // scrolling text supports font numbers 0-6
 static constexpr size_t  FONT_NAME_BUFFER_SIZE = 64; // font names
 
 // font header, identical to wbf header, size must be FONT_HEADER_SIZE
@@ -65,11 +65,12 @@ struct FontHeader {
   uint8_t height; // TODO: should we use the padding bytes and store a full copy of the header? might make copying the header easier?
   uint8_t width;
   uint8_t spacing;
-  uint8_t flags;
+  uint8_t flags;  // bit0=variable width, bits2-4=bpp (0=1bpp, 2=4bpp)
   uint8_t first;
   uint8_t last;
   uint8_t reserved; // should be 0x00
   uint32_t firstUnicode;
+  inline uint8_t bpp() const { uint8_t b = (flags >> 2) & 0x07; return (b == 0) ? 1 : (1 << b); } // 0->1, 2->4, 3->8
 };
 static_assert(sizeof(FontHeader) == FONT_HEADER_SIZE, "FontHeader size must be exactly FONT_HEADER_SIZE bytes");
 
