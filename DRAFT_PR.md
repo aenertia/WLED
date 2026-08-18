@@ -1,5 +1,7 @@
 ## docs(lwip): warn that LWIP_ENABLE_LCP_ECHO causes PPP link termination under load
 
+**Forgejo**: Fixes #21
+
 **Target repo**: espressif/esp-idf
 **WLED workaround**: sdkconfig.defaults — CONFIG_LWIP_ENABLE_LCP_ECHO=n
 
