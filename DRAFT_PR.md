@@ -1,5 +1,7 @@
 # fix(watchdog): use esp_task_wdt_config_t struct API for IDF 5.x
 
+**Forgejo**: Fixes #25
+
 ## Summary
 
 `esp_task_wdt_init(timeout, panic)` was removed in ESP-IDF 5.x. The new API takes an `esp_task_wdt_config_t` struct. Without this fix, the watchdog silently fails to initialise on IDF 5.x builds — the device won't reset on a hung loop task, which is the entire point of having a watchdog.

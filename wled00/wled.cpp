@@ -365,7 +365,7 @@ void WLED::enableWatchdog() {
   // IDF v5: esp_task_wdt_init() takes a config struct, not (timeout, panic)
   esp_task_wdt_config_t wdt_cfg = {
     .timeout_ms = WLED_WATCHDOG_TIMEOUT * 1000,
-    .idle_core_mask = 0,       // don't subscribe idle tasks — only our loop task
+    .idle_core_mask = 0,       // don't subscribe idle tasks  -- only our loop task
     .trigger_panic = true,
   };
   esp_err_t watchdog = esp_task_wdt_init(&wdt_cfg);
