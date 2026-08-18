@@ -46,3 +46,13 @@ Note: `rle_encode_adaptive()` references `DDP_COMP_TYPE_*` constants defined in 
 Subsequent PRs build on this:
 1. `pr/ddp-compressed-receiver` — receiver-side decompression in `handleDDPPacket()`
 2. `pr/ddp-compressed` — full stack including tools and protocol spec
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#5755](https://github.com/wled/WLED/issues/5755) | Aircoookie/WLED | DDP-over-WebSocket fragmented packets | DDP bandwidth is a real constraint; compression directly addresses this |
+| [#5412](https://github.com/wled/WLED/issues/5412) | Aircoookie/WLED | DDP out-of-sequence packets on WiFi | Compression reduces packet count, reducing reorder probability |
+| [#4320](https://github.com/wled/WLED/issues/4320) | Aircoookie/WLED | UI unresponsive during DDP realtime | Compression reduces CPU load from packet processing |
+| [PR #5554](https://github.com/wled/WLED/pull/5554) | Aircoookie/WLED | DDP improvements (merged) | Prior art — this codec extends the approach |
+| [PR #5547](https://github.com/wled/WLED/pull/5547) | Aircoookie/WLED | DDP sequence handling (merged) | Sequence handling this codec builds on |
+| [PR #5774](https://github.com/wled/WLED/pull/5774) | Aircoookie/WLED | Split udp.cpp into per-protocol files (open) | Coordinate timing — this PR touches the same file |
