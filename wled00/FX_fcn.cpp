@@ -660,7 +660,15 @@ Segment &Segment::setName(const char *newName) {
         // (still valid) name, so the old segment gets the correct previous text for blending.
         if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true);
         char *oldName = name;
-        name = newBuf;  // atomic pointer swap — effect now reads valid new name
+        name = newBuf;  // atomic pointer store — no torn reads on Xtensa
+        // Note: callers hold strip.suspend()+waitForIt() (see deserializeState),
+        // but waitForIt() has a timeout (see #4779).  If it expires while the
+        // effect loop is mid-read (e.g. mode_2Dscrolltext iterating name[]),
+        // freeing oldName here is a use-after-free.  This is a pre-existing
+        // upstream issue; alloc-before-swap narrows the window vs the old code
+        // (which freed first, leaving a dangling `name` pointer for the entire
+        // allocation+copy duration).  A proper fix requires waitForIt() to
+        // guarantee quiescence — tracked upstream as #4779.
         if (oldName) p_free(oldName);
       }
       return *this;
