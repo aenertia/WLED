@@ -1,5 +1,7 @@
 # ARGB Motherboard Header Passthrough via RMT
 
+**Forgejo**: Fixes #13
+
 ## Summary
 
 Adds ARGB passthrough mode for PC motherboard 3-pin ARGB headers. The ESP32 RMT peripheral captures the incoming WS2812B signal and re-transmits it to the output pin, allowing the M5StickC to act as a transparent ARGB bridge.
