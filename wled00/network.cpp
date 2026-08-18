@@ -467,6 +467,7 @@ void WiFiEvent(WiFiEvent_t event)
           forceReconnect = true;
         }
         interfacesInited = false;
+        mdnsStarted = false;
       }
       break;
   #ifdef ARDUINO_ARCH_ESP32

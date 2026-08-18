@@ -580,6 +580,7 @@ WLED_GLOBAL byte apClients _INIT(0);
 WLED_GLOBAL bool forceReconnect _INIT(false);
 WLED_GLOBAL unsigned long lastReconnectAttempt _INIT(0);
 WLED_GLOBAL bool interfacesInited _INIT(false);
+WLED_GLOBAL bool mdnsStarted     _INIT(false);
 WLED_GLOBAL bool wasConnected _INIT(false);
 
 // color
