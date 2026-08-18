@@ -1,5 +1,7 @@
 ## fix(json): use Content-Length instead of chunked transfer for /json/fxdata and /json/effects
 
+**Forgejo**: Fixes #5
+
 ### Problem
 
 Two related issues on slow/serial transports (PPP at 1.5Mbaud):
