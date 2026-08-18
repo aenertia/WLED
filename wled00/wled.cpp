@@ -563,7 +563,7 @@ void WLED::setup()
 #endif
 
 #if defined(WLED_USE_PPP) && !defined(WLED_PPP_WIFI)
-  // PPP-exclusive mode (no WiFi) — manual TCP/IP bootstrap
+  // PPP-exclusive mode (no WiFi)  -- manual TCP/IP bootstrap
   ESP_ERROR_CHECK(esp_netif_init());
   { esp_err_t e = esp_event_loop_create_default();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
@@ -571,10 +571,10 @@ void WLED::setup()
   initPPP();
   #endif
 #else
-  // WiFi available — WiFi-only or WiFi+PPP coexistence
+  // WiFi available  -- WiFi-only or WiFi+PPP coexistence
 
   #ifdef WLED_PPP_WIFI
-  // PPP+WiFi: init PPP FIRST — before ANY WiFi API calls.
+  // PPP+WiFi: init PPP FIRST  -- before ANY WiFi API calls.
   #ifdef WLED_USE_PPP_UART
   initPPP();
   #endif
@@ -967,7 +967,7 @@ void WLED::initInterfaces()
 #endif
 
   // Set up mDNS responder:
-  // Skip mDNS under PPP+WiFi coexistence — PPP is point-to-point (no mDNS LAN),
+  // Skip mDNS under PPP+WiFi coexistence  -- PPP is point-to-point (no mDNS LAN),
   // and MDNS.end() crashes in igmp_leavegroup_netif when WiFi STA disconnects.
 #ifndef WLED_PPP_WIFI
   if (strlen(cmDNS) > 0) {
@@ -1002,7 +1002,7 @@ void WLED::initInterfaces()
 void WLED::handleConnection()
 {
 #if defined(WLED_USE_PPP) && !defined(WLED_PPP_WIFI)
-  // PPP-exclusive mode (no WiFi) — manage interface state ourselves
+  // PPP-exclusive mode (no WiFi)  -- manage interface state ourselves
   if (ppp_connected && !interfacesInited) {
     initInterfaces();
   }
@@ -1012,7 +1012,7 @@ void WLED::handleConnection()
   return;
 #endif
 #ifdef WLED_PPP_WIFI
-  // WiFi+PPP coexistence — init interfaces when PPP link comes up
+  // WiFi+PPP coexistence  -- init interfaces when PPP link comes up
   if (ppp_connected && !interfacesInited) {
     initInterfaces();
   }

@@ -56,3 +56,19 @@ sudo pppd /dev/ttyUSB0 1500000 noauth nodetach local nocrtscts \
 - Build flag is opt-in; no impact on standard WLED builds
 - PPP RX task pinned to Core 1 to avoid `lock_tcpip_core` priority inversion
 - `esp_netif_init()` called by `initPPP()` before WiFi to prevent lazy-init race
+## Related upstream issues
+
+These upstream issues demonstrate community demand for non-WiFi and serial transport options:
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#4990](https://github.com/wled/WLED/issues/4990) | Aircoookie/WLED | WiFi Toggle — disable WiFi entirely | PPP enables WiFi-free operation; addresses this use case |
+| [#5762](https://github.com/wled/WLED/issues/5762) | Aircoookie/WLED | AP still active when Ethernet connected | PPP follows the same dual-transport pattern as Ethernet |
+| [#5614](https://github.com/wled/WLED/issues/5614) | Aircoookie/WLED | WLED reboots when no WiFi available | PPP provides a stable transport independent of WiFi |
+| [#1382](https://github.com/wled/WLED/issues/1382) | Aircoookie/WLED | ESP32 Bluetooth — non-WiFi demand | Long-standing demand for non-WiFi transports |
+| [#5652](https://github.com/wled/WLED/issues/5652) | Aircoookie/WLED | Serial RX noise / Adalight truncation | PPP over serial is more robust than raw serial protocols |
+| [#4662](https://github.com/wled/WLED/issues/4662) | Aircoookie/WLED | USB_CDC UART conflict | PPP on UART0 avoids CDC conflicts |
+| [#5501](https://github.com/wled/WLED/issues/5501) | Aircoookie/WLED | Adalight fragile on slow links | PPP with proper framing is more reliable |
+| [PR #5650](https://github.com/wled/WLED/pull/5650) | Aircoookie/WLED | Ethernet/WiFi IP config (open v17.0) | PPP follows the same dual-transport architecture |
+| [PR #5697](https://github.com/wled/WLED/pull/5697) | Aircoookie/WLED | ESP32-P4 Ethernet-only (closed) | Prior art for non-WiFi transport integration |
+| [PR #5667](https://github.com/wled/WLED/pull/5667) | Aircoookie/WLED | RTL8201 Ethernet (open v16.1) | Coordinate: PPP and Ethernet share the same netif abstraction |

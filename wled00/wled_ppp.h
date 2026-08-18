@@ -47,13 +47,13 @@
   #define PPP_THEIR_IP  PPP_UART_THEIR_IP
 #endif
 
-// PPP DNS hostname — separate from WiFi mDNS (wled.local).
+// PPP DNS hostname  -- separate from WiFi mDNS (wled.local).
 // PPP responder answers this name; WiFi mDNS handled by ESP-IDF stack.
 #ifndef PPP_DNS_HOSTNAME
 #define PPP_DNS_HOSTNAME "wled-ppp.local"
 #endif
 
-// PPP MRU negotiation — desired MRU advertised in LCP Configure-Request.
+// PPP MRU negotiation  -- desired MRU advertised in LCP Configure-Request.
 // PPP_MRU is the compile-time lwIP define (set in lwipopts.h or build flags).
 // WLED_PPP_WANTED_MRU is the runtime value we set on the ppp_pcb before listen/connect.
 // Must differ from PPP_DEFMRU (1500) for lcp.c to include MRU in ConfReq.
@@ -81,7 +81,7 @@
 #endif
 
 // W2.1: Bandwidth budget in bytes/sec. 8N1 = 10 bits/byte, ~15% PPP overhead.
-// Used for diagnostics — warns when sustained throughput exceeds 80% of budget.
+// Used for diagnostics  -- warns when sustained throughput exceeds 80% of budget.
 #define PPP_BW_BUDGET_BYTES ((PPP_BAUD / 10) * 85 / 100)
 
 // Transport connection bitmask for WiFi STA control
@@ -95,7 +95,7 @@ void pppTransportDisconnected(uint8_t transport);
 #ifdef WLED_USE_PPP_UART
   extern esp_netif_t *ppp_netif_uart;
 #endif
-// Backward compat alias — points to primary netif
+// Backward compat alias  -- points to primary netif
 extern esp_netif_t *ppp_netif;
 extern volatile bool ppp_connected;
 
@@ -106,7 +106,7 @@ esp_netif_t* initPPPNetif(
     esp_err_t (*transmit_fn)(void *, void *, size_t),
     const char *our_ip,     // e.g. "169.254.7.1"
     const char *their_ip,   // e.g. "169.254.7.2"
-    const char *if_key      // e.g. "PPP_UART" or "PPP_BLE" — must be unique
+    const char *if_key      // e.g. "PPP_UART" or "PPP_BLE"  -- must be unique
 );
 void teardownPPPNetif(esp_netif_t **netif_ptr);
 
