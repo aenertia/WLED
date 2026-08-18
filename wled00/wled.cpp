@@ -1,7 +1,7 @@
 #define WLED_DEFINE_GLOBAL_VARS //only in one source file, wled.cpp!
 #include "wled.h"
 
-// RTC crash snapshot — persists across soft resets (PANIC, WDT).
+// RTC crash snapshot  -- persists across soft resets (PANIC, WDT).
 // Updated every 500ms; on crash, /diag shows last snapshot before panic.
 RTC_NOINIT_ATTR uint32_t rtcCrashMagic;
 RTC_NOINIT_ATTR uint32_t rtcCrashHeap;
@@ -182,7 +182,7 @@ void WLED::loop()
   if (stripMillis > maxStripMillis) maxStripMillis = stripMillis;
   #endif
 
-  // RTC crash snapshot — freeze after PANIC/WDT until /diag reads it
+  // RTC crash snapshot  -- freeze after PANIC/WDT until /diag reads it
   {
     static unsigned long lastCrashSnapshot = 0;
     static bool crashDataFrozen = (esp_reset_reason() == ESP_RST_PANIC

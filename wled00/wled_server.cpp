@@ -414,7 +414,7 @@ void initServer()
     serveSettings(request, true);
   });
 
-  // /diag endpoint — heap, DDP flood counters, RTC crash snapshot
+  // /diag endpoint  -- heap, DDP flood counters, RTC crash snapshot
   server.on("/diag", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("text/plain");
 

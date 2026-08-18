@@ -6,7 +6,7 @@ std::atomic<uint32_t> ddpRateLimitDrops{0};
 std::atomic<uint32_t> ddpHeapGuardDrops{0};
 std::atomic<uint32_t> lastLoopMs{0};
 std::atomic<bool> loopPriorityBoosted{false};
-// tcpip_thread-only state (no atomics needed — single writer/reader)
+// tcpip_thread-only state (no atomics needed  -- single writer/reader)
 static uint32_t ddpLastFrameUs = 0;
 static bool ddpDropCurrentFrame = false;
 
@@ -37,7 +37,7 @@ static uint16_t pollReplyCount = 0;                                // count numb
 //DDP protocol support, called by handleE131Packet
 //handles RGB data only
 static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
-  // Layer 0: heap guard — drop ALL DDP when heap critically low
+  // Layer 0: heap guard  -- drop ALL DDP when heap critically low
   {
     uint32_t freeHeap = esp_get_free_heap_size();
     if (freeHeap < 20000) {  // 20KB threshold

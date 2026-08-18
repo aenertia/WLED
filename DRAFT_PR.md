@@ -1,5 +1,7 @@
 ## feat(ddp): DDP flood survival — heap guard, rate limiter, starvation detector
 
+**Forgejo**: Fixes #27
+
 ### Problem
 
 An uncapped DDP sender (or network burst) can crash a constrained ESP32

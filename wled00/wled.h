@@ -730,7 +730,7 @@ WLED_GLOBAL bool useMainSegmentOnly _INIT(false);
 
 // DDP rate limiter (Issue #2: flood survival)
 #ifdef WLED_ENABLE_TFT_MATRIX
-WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // TFT SPI DMA ~24ms → 40fps ceiling
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // TFT SPI DMA ~24ms  -> 40fps ceiling
 #else
 WLED_GLOBAL uint8_t ddpMaxFps _INIT(60);
 #endif
