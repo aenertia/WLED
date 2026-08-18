@@ -1,5 +1,7 @@
 # PPP-over-Serial Network Transport (WLED_USE_PPP)
 
+**Forgejo**: Fixes #15
+
 ## Summary
 
 Adds PPP-over-serial as a network transport alongside WiFi. The ESP32 acts as a PPP server on UART at 1.5Mbaud; the host runs `pppd` and gets a link-local address (169.254.7.2). WLED responds on 169.254.7.1.
