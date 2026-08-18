@@ -1,5 +1,7 @@
 # perf(effects): snap fade_out/fadeToBlackBy to target on final step
 
+**Forgejo**: Fixes #9
+
 ## Problem
 
 `fade_out()` and `fadeToBlackBy()` use integer multiply-divide arithmetic
