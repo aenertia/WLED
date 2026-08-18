@@ -14,7 +14,7 @@
 | PR branches | 23 |
 | Forgejo issues | #1–#27 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | None yet — all Ready or INCOMPLETE |
+| Upstream submissions | 3 open — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806) |
 
 ## Phase 1 — Bug fixes (submit first)
 
@@ -28,9 +28,9 @@
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
-| `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | Ready |
-| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | Ready |
-| `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | Ready |
+| `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) |
+| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) |
+| `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) |
 
 ## Phase 3 — DDP compression
 
