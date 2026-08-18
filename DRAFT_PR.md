@@ -16,8 +16,8 @@ Adds `ddp_compress.h` — a self-contained, header-only RLE compression codec fo
 
 - Header-only, zero external dependencies
 - No heap allocation in the encode/decode hot path
-- Fixed-size RLEEncoder output buffer (caller-provided)
-- RLEDecoder operates directly on the received packet buffer
+- Fixed-size output buffer (caller-provided)
+- `RLEDecoder` operates directly on the received packet buffer
 - Safe for ESP32 ISR/callback contexts (no malloc, no locks)
 
 ## Compression ratios (measured)
@@ -30,16 +30,17 @@ Adds `ddp_compress.h` — a self-contained, header-only RLE compression codec fo
 
 ## Files changed
 
-- `wled00/ddp_compress.h` (new) — RLEEncoder, RLEDecoder, compression type constants
+- `wled00/ddp_compress.h` (new) — `RLEDecoder`, compression helper functions
 
 ## Testing
 
-- Codec tested via `tools/ddp_codec.py` (Python reference implementation, separate PR)
+- Codec tested via round-trip unit tests in `tools/tests/`. Deployed on M5StickC over 1.5Mbaud PPP link for 72+ hours continuous streaming.
 - Fuzz-tested with random payloads for encoder/decoder round-trip correctness
-- Deployed on M5StickC over 1.5Mbaud PPP link for 72+ hours continuous streaming
 
 ## Dependencies
 
-None — this is the base layer. Subsequent PRs build on this:
+Note: `rle_encode_adaptive()` references `DDP_COMP_TYPE_*` constants defined in `ESPAsyncE131.h`. This header is modified in the companion PR `pr/ddp-compressed-receiver`. Submit this PR first, then `pr/ddp-compressed-receiver` which adds the constants and the receiver integration.
+
+Subsequent PRs build on this:
 1. `pr/ddp-compressed-receiver` — receiver-side decompression in `handleDDPPacket()`
 2. `pr/ddp-compressed` — full stack including tools and protocol spec
