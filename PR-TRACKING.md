@@ -5,7 +5,7 @@
 **Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
 **Active branch**: `dev/ppp-wifi`
-**Last updated**: Session 19 (August 2026)
+**Last updated**: Session 20 (August 2026)
 
 ## Status summary
 
@@ -21,15 +21,15 @@
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/mdns-ppp-crash-fix/DRAFT_PR.md) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · CR feedback addressed |
 | `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) |
 
 ## Phase 2 — Small upstream fixes (high viability)
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
-| `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) |
-| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) |
+| `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) · CR feedback addressed |
+| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) · CR feedback addressed |
 | `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) |
 
 ## Phase 3 — DDP compression
@@ -45,7 +45,7 @@
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
-| `pr/effects-fade-snap` | [#9](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/9) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/effects-fade-snap/DRAFT_PR.md) | Snap-to-target in fade_out/fadeToBlackBy | **Submitted** — [wled/WLED#5809](https://github.com/wled/WLED/pull/5809) |
+| `pr/effects-fade-snap` | [#9](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/9) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/effects-fade-snap/DRAFT_PR.md) | Snap-to-target in fade_out/fadeToBlackBy | **Submitted** — [wled/WLED#5809](https://github.com/wled/WLED/pull/5809) · CR feedback addressed |
 | `pr/effects-deferred-fade` | [#10](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/10) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/effects-deferred-fade/DRAFT_PR.md) | Deferred fade accumulator | **INCOMPLETE** — V2 broke scrolling text |
 
 ## Phase 5 — Text
