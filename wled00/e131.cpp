@@ -1,4 +1,5 @@
 #include "wled.h"
+#include "ddp_compress.h"
 
 #define MAX_3_CH_LEDS_PER_UNIVERSE 170
 #define MAX_4_CH_LEDS_PER_UNIVERSE 128
@@ -15,6 +16,17 @@ static void sendArtnetPollReply(ArtPollReply *reply, IPAddress ipAddress, uint16
 static E131Priority highPriority(3);                              // E1.31 highest priority tracking, init = timeout in seconds
 static byte e131LastSequenceNumber[E131_MAX_UNIVERSE_COUNT];       // to detect packet loss
 static uint16_t pollReplyCount = 0;                                // count number of replies for ArtPoll node report
+
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+static uint16_t *ddpPrevFrame = nullptr;   // previous frame for delta decode, RGB565 packed (2B/pixel)
+static unsigned   ddpPrevFrameSize = 0;    // allocated size in pixels
+
+void ddpFreePrevFrame() {
+  free(ddpPrevFrame);
+  ddpPrevFrame = nullptr;
+  ddpPrevFrameSize = 0;
+}
+#endif
 
 /*
  * E1.31 handler
@@ -62,7 +74,6 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   uint32_t start =  htonl(p->channelOffset) / ddpChannelsPerLed;
   start += DMXAddress / ddpChannelsPerLed;
   uint16_t dataLen = htons(p->dataLen);
-  unsigned stop = start + dataLen / ddpChannelsPerLed;
   uint8_t* data = p->data;
   unsigned c = 0;
   if (p->flags & DDP_FLAGS_TIME) c = 4; //packet has timecode flag, we do not support it, but data starts 4 bytes later
@@ -73,24 +84,135 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     return;
   }
 
-  unsigned numLeds = stop - start; // stop >= start is guaranteed
-  unsigned maxDataIndex = numLeds * ddpChannelsPerLed; // validate bounds before accessing data array
-  if (maxDataIndex > dataLen) {
-    DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
-    return;
+  if (realtimeMode != REALTIME_MODE_DDP) {
+    ddpSeenPush = false;
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+    if (ddpPrevFrame) memset(ddpPrevFrame, 0, ddpPrevFrameSize * sizeof(uint16_t));
+#endif
   }
-
-  if (realtimeMode != REALTIME_MODE_DDP) ddpSeenPush = false; // just starting, no push yet
   realtimeLock(realtimeTimeoutMs, REALTIME_MODE_DDP);
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+  #define PF_PACK565(r,g,b)    (uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | ((b) >> 3))
+  #define PF_R565(c565)        (uint8_t)(((c565) >> 8) & 0xF8)
+  #define PF_G565(c565)        (uint8_t)(((c565) >> 3) & 0xFC)
+  #define PF_B565(c565)        (uint8_t)(((c565) << 3) & 0xF8)
+
+  if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
+    uint8_t compType = p->sequenceNum & 0xF0;
+    unsigned totalLen = strip.getLengthTotal();
+
+    if (totalLen <= 12800 && !ddpPrevFrame) {
+      ddpPrevFrame = (uint16_t*)calloc(totalLen, sizeof(uint16_t));
+      ddpPrevFrameSize = ddpPrevFrame ? totalLen : 0;
+    }
+
+    if (compType == DDP_COMP_TYPE_DELTA_RLE || compType == DDP_COMP_TYPE_RLE) {
+      bool isDelta = (compType == DDP_COMP_TYPE_DELTA_RLE);
+      unsigned pixel = start;
+      unsigned ci = 0;
+      uint8_t ch[4];
+
+      if (!isDelta && start == 0 && ddpPrevFrame) {
+        memset(ddpPrevFrame, 0, ddpPrevFrameSize * sizeof(uint16_t));
+      }
+
+      RLEDecoder rle;
+      rle.init(data + c, dataLen);
+
+      while (pixel < totalLen) {
+        uint8_t decoded;
+        if (!rle.next(&decoded)) break;
+        ch[ci++] = decoded;
+        if (ci >= ddpChannelsPerLed) {
+          uint8_t r = ch[0], g = ch[1], b = ch[2];
+          uint8_t w = (ddpChannelsPerLed > 3) ? ch[3] : 0;
+          if (isDelta && ddpPrevFrame && pixel < ddpPrevFrameSize) {
+            uint16_t prev565 = ddpPrevFrame[pixel];
+            r ^= PF_R565(prev565);
+            g ^= PF_G565(prev565);
+            b ^= PF_B565(prev565);
+          }
+          setRealtimePixel(pixel, r, g, b, w);
+          if (ddpPrevFrame && pixel < ddpPrevFrameSize)
+            ddpPrevFrame[pixel] = PF_PACK565(r, g, b);
+          pixel++;
+          ci = 0;
+        }
+      }
+    } else if (compType == DDP_COMP_TYPE_TRANSFORM) {
+      const uint8_t *tdata = data + c;
+      size_t trem = dataLen;
+      if (trem < 2 + ddpChannelsPerLed + 2) goto ddp_push;
+      uint8_t tOp = tdata[0];
+      uint8_t tParam = tdata[1];
+      uint8_t tR = tdata[2], tG = tdata[3], tB = tdata[4];
+      uint8_t tW = (ddpChannelsPerLed > 3) ? tdata[5] : 0;
+      uint32_t tTarget = RGBW32(tR, tG, tB, tW);
+      size_t hdrLen = 2 + ddpChannelsPerLed;
+      uint16_t numExplicit = tdata[hdrLen] | (tdata[hdrLen + 1] << 8);
+      size_t explicitStart = hdrLen + 2;
+
+      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;
+      if (tOp == DDP_TRANSFORM_SCALE_TOWARD) {
+        for (unsigned px = start; px < transformEnd; px++) {
+          uint32_t prev = 0;
+          if (ddpPrevFrame && px < ddpPrevFrameSize) {
+            uint16_t p565 = ddpPrevFrame[px];
+            prev = RGBW32(PF_R565(p565), PF_G565(p565), PF_B565(p565), 0);
+          }
+          uint32_t blended = color_blend(prev, tTarget, tParam);
+          setRealtimePixel(px, R(blended), G(blended), B(blended), W(blended));
+          if (ddpPrevFrame && px < ddpPrevFrameSize)
+            ddpPrevFrame[px] = PF_PACK565(R(blended), G(blended), B(blended));
+        }
+      } else if (tOp == DDP_TRANSFORM_SCALE_MULT) {
+        for (unsigned px = start; px < transformEnd; px++) {
+          uint32_t prev = 0;
+          if (ddpPrevFrame && px < ddpPrevFrameSize) {
+            uint16_t p565 = ddpPrevFrame[px];
+            prev = RGBW32(PF_R565(p565), PF_G565(p565), PF_B565(p565), 0);
+          }
+          uint32_t scaled = fast_color_scale(prev, tParam);
+          setRealtimePixel(px, R(scaled), G(scaled), B(scaled), W(scaled));
+          if (ddpPrevFrame && px < ddpPrevFrameSize)
+            ddpPrevFrame[px] = PF_PACK565(R(scaled), G(scaled), B(scaled));
+        }
+      }
+
+      size_t bytesPerWrite = 2 + ddpChannelsPerLed;
+      for (uint16_t e = 0; e < numExplicit; e++) {
+        size_t off = explicitStart + e * bytesPerWrite;
+        if (off + bytesPerWrite > trem) break;
+        uint16_t pxIdx = tdata[off] | (tdata[off + 1] << 8);
+        if (pxIdx >= totalLen) continue;
+        uint8_t eR = tdata[off + 2], eG = tdata[off + 3], eB = tdata[off + 4];
+        uint8_t eW = ddpChannelsPerLed > 3 ? tdata[off + 5] : 0;
+        setRealtimePixel(pxIdx, eR, eG, eB, eW);
+        if (ddpPrevFrame && pxIdx < ddpPrevFrameSize)
+          ddpPrevFrame[pxIdx] = PF_PACK565(eR, eG, eB);
+      }
+    }
+  } else
+#endif
   if (!realtimeOverride) {
+    unsigned stop = start + dataLen / ddpChannelsPerLed;
+    unsigned numLeds = stop - start;
+    unsigned maxDataIndex = numLeds * ddpChannelsPerLed;
+    if (maxDataIndex > dataLen) {
+      DEBUG_PRINTLN(F("DDP packet data bounds exceeded, rejecting."));
+      return;
+    }
     for (unsigned i = start; i < stop; i++, c += ddpChannelsPerLed) {
       setRealtimePixel(i, data[c], data[c+1], data[c+2], ddpChannelsPerLed >3 ? data[c+3] : 0);
     }
   }
 
+#ifdef WLED_ENABLE_DDP_COMPRESSION
+ddp_push:
+#endif
   ddpSeenPush |= push;
-  if (!ddpSeenPush || push) { // if we've never seen a push, or this is one, render display
+  if (!ddpSeenPush || push) {
     e131NewData = true;
     int sn = p->sequenceNum & 0xF;
     if (sn) e131LastSequenceNumber[0] = sn;
