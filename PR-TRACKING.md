@@ -14,7 +14,7 @@
 | PR branches | 23 |
 | Forgejo issues | #1–#27 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | 6 open — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809) |
+| Upstream submissions | 6 PRs open + 1 issue — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809); issue [#5810](https://github.com/wled/WLED/issues/5810) |
 
 ## Phase 1 — Bug fixes (submit first)
 
@@ -39,6 +39,7 @@
 | `pr/ddp-rle-codec` | [#6](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/6) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ddp-rle-codec/DRAFT_PR.md) | Header-only RLE codec (ddp_compress.h) | Ready |
 | `pr/ddp-compressed-receiver` | [#7](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/7) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ddp-compressed-receiver/DRAFT_PR.md) | Compressed DDP decode in handleDDPPacket() — depends on ddp-rle-codec | Ready |
 | `pr/ddp-compressed` | [#16](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/16) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ddp-compressed/DRAFT_PR.md) | Full stack: codec + receiver + tools + spec | Ready |
+| *(upstream issue)* | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/dev/ppp-wifi-internal/DDP-COMPRESSION-ISSUE.md) | DDP compression extension — gauging upstream interest | **Issue open** — [wled/WLED#5810](https://github.com/wled/WLED/issues/5810) |
 
 ## Phase 4 — Effects
 
