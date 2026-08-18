@@ -1,5 +1,7 @@
 ## fix(mdns): prevent NULL netif crash when WiFi STA disconnects under PPP
 
+**Forgejo**: Fixes #18
+
 ### Problem
 
 When running PPP-over-serial alongside WiFi STA, a WiFi disconnect tears
