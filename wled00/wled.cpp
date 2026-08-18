@@ -1,5 +1,8 @@
 #define WLED_DEFINE_GLOBAL_VARS //only in one source file, wled.cpp!
 #include "wled.h"
+#ifdef WLED_USE_PPP
+#include "wled_ppp.h"
+#endif
 #include "wled_ethernet.h"
 #ifdef ARDUINO_ARCH_ESP32
 #include "esp_efuse.h"
@@ -554,34 +557,69 @@ void WLED::setup()
     handlePresets();  // handle presets again to give a chance for anything queued by the boot preset or playlist
   }
   
+#if !defined(WLED_USE_PPP) || defined(WLED_PPP_WIFI)
   if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) == 0 && !configBackupExists())
     showWelcomePage = true;
+#endif
+
+#if defined(WLED_USE_PPP) && !defined(WLED_PPP_WIFI)
+  // PPP-exclusive mode (no WiFi) — manual TCP/IP bootstrap
+  ESP_ERROR_CHECK(esp_netif_init());
+  { esp_err_t e = esp_event_loop_create_default();
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
+  #ifdef WLED_USE_PPP_UART
+  initPPP();
+  #endif
+#else
+  // WiFi available — WiFi-only or WiFi+PPP coexistence
+
+  #ifdef WLED_PPP_WIFI
+  // PPP+WiFi: init PPP FIRST — before ANY WiFi API calls.
+  #ifdef WLED_USE_PPP_UART
+  initPPP();
+  #endif
+  #endif
 
   #ifndef ESP8266
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
-  WiFi.persistent(true); // storing credentials in NVM fixes boot-up pause as connection is much faster, is disabled after first connection
-  // ESP32 DNS name must be set before the first connection to the DHCP server; otherwise, the default ESP name (such as "esp32s3-267D0C") will be used.
+  WiFi.persistent(true);
   char hostname[64] = {'\0'};
-  getWLEDhostname(hostname, sizeof(hostname), true);   // create DNS name based on mDNS name if set, or fall back to standard WLED server name
+  getWLEDhostname(hostname, sizeof(hostname), true);
   WiFi.setHostname(hostname);
   #else
-  WiFi.persistent(false); // on ESP8266 using NVM for wifi config has no benefit of faster connection
+  WiFi.persistent(false);
   #endif
   WiFi.onEvent(WiFiEvent);
-  WiFi.mode(WIFI_STA); // enable scanning
 
-#if defined(ARDUINO_ARCH_ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2))
-  // WiFi.setBandMode(WIFI_BAND_MODE_AUTO) can also be used without SOC_WIFI_SUPPORT_5G
-  if (!WiFi.setBandMode(WIFI_BAND_MODE_AUTO)) {   // WIFI_BAND_MODE_AUTO = 5GHz+2.4GHz; WIFI_BAND_MODE_5G_ONLY, WIFI_BAND_MODE_2G_ONLY
+  #ifdef WLED_PPP_WIFI
+  if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) != 0) {
+    WiFi.mode(WIFI_STA);
+    #if defined(ARDUINO_ARCH_ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2))
+    if (!WiFi.setBandMode(WIFI_BAND_MODE_AUTO)) {
+      DEBUG_PRINTLN(F("setup(): Wifi band configuration failed!\n"));
+    }
+    #endif
+    findWiFi(true);
+  } else {
+    DEBUG_PRINTLN(F("PPP+WiFi: fresh NVS, skipping WiFi STA (PPP provides connectivity)"));
+  }
+  #else
+  WiFi.mode(WIFI_STA);
+  #if defined(ARDUINO_ARCH_ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2))
+  if (!WiFi.setBandMode(WIFI_BAND_MODE_AUTO)) {
     DEBUG_PRINTLN(F("setup(): Wifi band configuration failed!\n"));
   }
+  #endif
+  findWiFi(true);
+  #endif
 #endif
 
-  findWiFi(true);      // start scanning for available WiFi-s
-
   // all GPIOs are allocated at this point
-  serialCanRX = !PinManager::isPinAllocated(hardwareRX); // Serial RX pin (GPIO 3 on ESP32 and ESP8266)
-  serialCanTX = !PinManager::isPinAllocated(hardwareTX) || PinManager::getPinOwner(hardwareTX) == PinOwner::DebugOut; // Serial TX pin (GPIO 1 on ESP32 and ESP8266)
+  serialCanRX = !PinManager::isPinAllocated(hardwareRX);
+  serialCanTX = !PinManager::isPinAllocated(hardwareTX) || PinManager::getPinOwner(hardwareTX) == PinOwner::DebugOut;
+  #ifdef WLED_USE_PPP_UART
+  if (PPP_UART_NUM == UART_NUM_0) { serialCanRX = false; serialCanTX = false; }
+  #endif
 
   #ifdef WLED_ENABLE_ADALIGHT
   //Serial RX (Adalight, Improv, Serial JSON) only possible if GPIO3 unused
@@ -929,9 +967,10 @@ void WLED::initInterfaces()
 #endif
 
   // Set up mDNS responder:
+  // Skip mDNS under PPP+WiFi coexistence — PPP is point-to-point (no mDNS LAN),
+  // and MDNS.end() crashes in igmp_leavegroup_netif when WiFi STA disconnects.
+#ifndef WLED_PPP_WIFI
   if (strlen(cmDNS) > 0) {
-    // "end" must be called before "begin" is called a 2nd time
-    // see https://github.com/esp8266/Arduino/issues/7213
     MDNS.end();
     MDNS.begin(cmDNS);
 
@@ -940,6 +979,7 @@ void WLED::initInterfaces()
     MDNS.addService("wled", "tcp", 80);
     MDNS.addServiceTxt("wled", "tcp", "mac", escapedMac.c_str());
   }
+#endif
   server.begin();
 
   if (udpPort > 0 && udpPort != ntpLocalPort) {
@@ -961,6 +1001,28 @@ void WLED::initInterfaces()
 
 void WLED::handleConnection()
 {
+#if defined(WLED_USE_PPP) && !defined(WLED_PPP_WIFI)
+  // PPP-exclusive mode (no WiFi) — manage interface state ourselves
+  if (ppp_connected && !interfacesInited) {
+    initInterfaces();
+  }
+  if (!ppp_connected && interfacesInited) {
+    interfacesInited = false;
+  }
+  return;
+#endif
+#ifdef WLED_PPP_WIFI
+  // WiFi+PPP coexistence — init interfaces when PPP link comes up
+  if (ppp_connected && !interfacesInited) {
+    initInterfaces();
+  }
+  if (ppp_connected && !apActive && realtimeMode == REALTIME_MODE_INACTIVE) {
+    initAP();
+  }
+  if (ppp_connected && !isWiFiConfigured()) {
+    return;
+  }
+#endif
   static bool scanDone = true;
   static byte stacO = 0;
   const unsigned long now = millis();

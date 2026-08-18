@@ -120,6 +120,9 @@
 #include <SPI.h>
 
 #include "src/dependencies/network/Network.h"
+#ifdef WLED_USE_PPP
+#include "wled_ppp.h"
+#endif
 
 #ifdef WLED_USE_MY_CONFIG
   #include "my_config.h"
@@ -799,6 +802,15 @@ WLED_GLOBAL WiFiUDP ntpUdp;
 WLED_GLOBAL ESPAsyncE131 e131 _INIT_N(((handleE131Packet)));
 WLED_GLOBAL ESPAsyncE131 ddp  _INIT_N(((handleE131Packet)));
 WLED_GLOBAL bool e131NewData _INIT(false);
+#ifdef WLED_USE_PPP
+WLED_GLOBAL volatile uint32_t _dbg_ddpSet    _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showA     _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showB     _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showASkip _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_px0_pre   _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_px0_post  _INIT(0);
+WLED_GLOBAL volatile uint32_t _dbg_showDiff  _INIT(0);
+#endif
 
 // led fx library object
 WLED_GLOBAL WS2812FX   strip         _INIT(WS2812FX());
