@@ -1319,16 +1319,12 @@ static size_t measureJSONStringElement(const char* src) {
   return len;
 }
 
-// Generate a streamed JSON response for the mode data
-// This uses sendChunked to send the reply in blocks based on how much fit in the outbound
-// packet buffer, minimizing the required state (ie. just the next index to send).  This
-// allows us to send an arbitrarily large response without using any significant amount of
-// memory (so no worries about buffer limits).
+// Two-pass streamed JSON response for mode data: first measures total payload
+// size, then sends with Content-Length via request->send().  The content callback
+// fills each TCP buffer in turn, using writeJSONStringElement for each entry.
 void respondModeData(AsyncWebServerRequest* request) {
-  // Two-pass: measure then send with Content-Length. Avoids chunked transfer
-  // truncation on slow links (PPP/serial) where Connection:close + TCP FIN
-  // races with final chunk delivery. Content-Length tells TCP the exact
-  // payload size, ensuring complete delivery before connection teardown.
+  // Pass 1: measure total payload size so we can send with Content-Length.
+  // Pass 2: the content callback fills each TCP send buffer on demand.
   char lineBuffer[256];
   size_t totalLen = 1; // ']' only — first element's comma becomes '['
   for (size_t i = 0; i < strip.getModeCount(); i++) {
@@ -1340,8 +1336,9 @@ void respondModeData(AsyncWebServerRequest* request) {
     }
   }
   size_t fx_index = 0;
+  bool firstEmitted = false;
   request->send(FPSTR(CONTENT_TYPE_JSON), totalLen,
-    [fx_index](uint8_t* data, size_t len, size_t) mutable -> size_t {
+    [fx_index, firstEmitted](uint8_t* data, size_t len, size_t) mutable -> size_t {
       size_t bytes_written = 0;
       char lineBuffer[256];
       while (fx_index < strip.getModeCount()) {
@@ -1351,7 +1348,7 @@ void respondModeData(AsyncWebServerRequest* request) {
           const char* dp = strchr(lineBuffer, '@');
           size_t mode_bytes = writeJSONStringElement(data, len, dp ? dp + 1 : "");
           if (mode_bytes == 0) break;
-          if (fx_index == 0) *data = '[';
+          if (!firstEmitted) { *data = '['; firstEmitted = true; }
           data += mode_bytes;
           len -= mode_bytes;
           bytes_written += mode_bytes;
@@ -1385,8 +1382,9 @@ void respondModeNames(AsyncWebServerRequest* request) {
     }
   }
   size_t fx_index = 0;
+  bool firstEmitted = false;
   request->send(FPSTR(CONTENT_TYPE_JSON), totalLen,
-    [fx_index](uint8_t* data, size_t len, size_t) mutable -> size_t {
+    [fx_index, firstEmitted](uint8_t* data, size_t len, size_t) mutable -> size_t {
       size_t bytes_written = 0;
       char lineBuffer[256];
       while (fx_index < strip.getModeCount()) {
@@ -1397,7 +1395,7 @@ void respondModeNames(AsyncWebServerRequest* request) {
           if (dp) *dp = 0;
           size_t mode_bytes = writeJSONStringElement(data, len, lineBuffer);
           if (mode_bytes == 0) break;
-          if (fx_index == 0) *data = '[';
+          if (!firstEmitted) { *data = '['; firstEmitted = true; }
           data += mode_bytes;
           len -= mode_bytes;
           bytes_written += mode_bytes;
