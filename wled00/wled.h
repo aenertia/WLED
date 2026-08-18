@@ -70,6 +70,7 @@
 //This is generally a terrible idea, but improves boot success on boards with a 3.3v regulator + cap setup that can't provide 400mA peaks
 //#define WLED_DISABLE_BROWNOUT_DET
 
+#include <atomic>
 #include <cstddef>
 #include <vector>
 
@@ -726,6 +727,18 @@ WLED_GLOBAL unsigned long realtimeTimeout _INIT(0);
 WLED_GLOBAL uint8_t tpmPacketCount _INIT(0);
 WLED_GLOBAL uint16_t tpmPayloadFrameSize _INIT(0);
 WLED_GLOBAL bool useMainSegmentOnly _INIT(false);
+
+// DDP rate limiter (Issue #2: flood survival)
+#ifdef WLED_ENABLE_TFT_MATRIX
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // TFT SPI DMA ~24ms → 40fps ceiling
+#else
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(60);
+#endif
+extern std::atomic<uint32_t> ddpRateLimitDrops;
+extern std::atomic<uint32_t> ddpHeapGuardDrops;
+extern std::atomic<uint32_t> lastLoopMs;
+extern std::atomic<bool> loopPriorityBoosted;
+
 WLED_GLOBAL bool realtimeRespectLedMaps _INIT(true);                     // Respect LED maps when receiving realtime data
 
 WLED_GLOBAL unsigned long lastInterfaceUpdate _INIT(0);

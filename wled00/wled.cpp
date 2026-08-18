@@ -1,5 +1,14 @@
 #define WLED_DEFINE_GLOBAL_VARS //only in one source file, wled.cpp!
 #include "wled.h"
+
+// RTC crash snapshot — persists across soft resets (PANIC, WDT).
+// Updated every 500ms; on crash, /diag shows last snapshot before panic.
+RTC_NOINIT_ATTR uint32_t rtcCrashMagic;
+RTC_NOINIT_ATTR uint32_t rtcCrashHeap;
+RTC_NOINIT_ATTR uint32_t rtcCrashMinHeap;
+RTC_NOINIT_ATTR uint32_t rtcCrashDmaHeap;
+RTC_NOINIT_ATTR uint32_t rtcCrashUptime;
+
 #include "wled_ethernet.h"
 #ifdef ARDUINO_ARCH_ESP32
 #include "esp_efuse.h"
@@ -77,6 +86,17 @@ void WLED::loop()
   static unsigned long maxStripMillis = 0;
   static size_t        avgStripMillis = 0;
   unsigned long        stripMillis;
+#endif
+
+  lastLoopMs.store(millis(), std::memory_order_relaxed);
+
+#ifdef ARDUINO_ARCH_ESP32
+  if (loopPriorityBoosted.load(std::memory_order_acquire)) {
+    if (!realtimeMode) {
+      vTaskPrioritySet(NULL, 1);
+      loopPriorityBoosted.store(false, std::memory_order_relaxed);
+    }
+  }
 #endif
 
   handleTime();
@@ -161,6 +181,23 @@ void WLED::loop()
   avgStripMillis += stripMillis;
   if (stripMillis > maxStripMillis) maxStripMillis = stripMillis;
   #endif
+
+  // RTC crash snapshot — freeze after PANIC/WDT until /diag reads it
+  {
+    static unsigned long lastCrashSnapshot = 0;
+    static bool crashDataFrozen = (esp_reset_reason() == ESP_RST_PANIC
+                                || esp_reset_reason() == ESP_RST_INT_WDT
+                                || esp_reset_reason() == ESP_RST_TASK_WDT)
+                                && rtcCrashMagic == 0xDEADBEEF;
+    if (!crashDataFrozen && millis() - lastCrashSnapshot > 500) {
+      lastCrashSnapshot = millis();
+      rtcCrashMagic = 0xDEADBEEF;
+      rtcCrashHeap = ESP.getFreeHeap();
+      rtcCrashMinHeap = esp_get_minimum_free_heap_size();
+      rtcCrashDmaHeap = heap_caps_get_free_size(MALLOC_CAP_DMA);
+      rtcCrashUptime = millis() / 1000;
+    }
+  }
 
   yield();
 #ifdef ESP8266

@@ -414,6 +414,53 @@ void initServer()
     serveSettings(request, true);
   });
 
+  // /diag endpoint — heap, DDP flood counters, RTC crash snapshot
+  server.on("/diag", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncResponseStream *response = request->beginResponseStream("text/plain");
+
+    #ifdef ARDUINO_ARCH_ESP32
+    static const char* const rstNames[] = {
+      "UNKNOWN","POWERON","EXT","SW","PANIC","INT_WDT","TASK_WDT",
+      "WDT","DEEPSLEEP","BROWNOUT","SDIO","USB","JTAG","EFUSE",
+      "PWR_GLITCH","CPU_LOCKUP"
+    };
+    esp_reset_reason_t rstCode = esp_reset_reason();
+    const char* rstName = (rstCode < (int)(sizeof(rstNames)/sizeof(rstNames[0])))
+      ? rstNames[rstCode] : "?";
+    response->printf("reset=%d (%s) heap=%u minheap=%u up=%lus fps=%d\n",
+      (int)rstCode, rstName, (unsigned)getFreeHeapSize(),
+      (unsigned)esp_get_minimum_free_heap_size(),
+      millis() / 1000, (int)strip.getFps());
+    response->printf("dma_heap=%u 8bit_heap=%u\n",
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+
+    extern uint32_t rtcCrashHeap, rtcCrashMinHeap, rtcCrashDmaHeap, rtcCrashUptime;
+    extern uint32_t rtcCrashMagic;
+    if ((rstCode == ESP_RST_PANIC || rstCode == ESP_RST_INT_WDT || rstCode == ESP_RST_TASK_WDT)
+        && rtcCrashMagic == 0xDEADBEEF) {
+      response->printf("crash_snapshot: heap=%u minheap=%u dma=%u uptime=%us\n",
+        rtcCrashHeap, rtcCrashMinHeap, rtcCrashDmaHeap, rtcCrashUptime);
+      rtcCrashMagic = 0;
+    }
+    #else
+    response->printf("heap=%u up=%lus\n", (unsigned)getFreeHeapSize(), millis()/1000);
+    #endif
+
+    response->printf("\n--- realtime ---\n");
+    response->printf("mode=%u override=%u timeout=%lu now=%lu diff=%ld\n",
+      realtimeMode, realtimeOverride,
+      (unsigned long)realtimeTimeout, (unsigned long)millis(),
+      (long)((int32_t)(millis() - realtimeTimeout)));
+    response->printf("ddpRate: drops=%u heapGuard=%u maxFps=%u loopLag=%ums\n",
+      (unsigned)ddpRateLimitDrops.load(std::memory_order_relaxed),
+      (unsigned)ddpHeapGuardDrops.load(std::memory_order_relaxed),
+      (unsigned)ddpMaxFps,
+      (unsigned)(millis() - lastLoopMs.load(std::memory_order_relaxed)));
+
+    request->send(response);
+  });
+
   const static char _json[] PROGMEM = "/json";
   server.on(FPSTR(_json), HTTP_GET, [](AsyncWebServerRequest *request){
     serveJson(request);

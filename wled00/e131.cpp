@@ -1,5 +1,19 @@
 #include "wled.h"
 
+// DDP rate limiter state (Issue #2: flood survival)
+// Cross-thread: written here (tcpip_thread), read by main loop (/diag) and ppp_rx_task
+std::atomic<uint32_t> ddpRateLimitDrops{0};
+std::atomic<uint32_t> ddpHeapGuardDrops{0};
+std::atomic<uint32_t> lastLoopMs{0};
+std::atomic<bool> loopPriorityBoosted{false};
+// tcpip_thread-only state (no atomics needed — single writer/reader)
+static uint32_t ddpLastFrameUs = 0;
+static bool ddpDropCurrentFrame = false;
+
+#ifdef ARDUINO_ARCH_ESP32
+extern TaskHandle_t loopTaskHandle;
+#endif
+
 #define MAX_3_CH_LEDS_PER_UNIVERSE 170
 #define MAX_4_CH_LEDS_PER_UNIVERSE 128
 #define MAX_CHANNELS_PER_UNIVERSE 512
@@ -23,7 +37,16 @@ static uint16_t pollReplyCount = 0;                                // count numb
 //DDP protocol support, called by handleE131Packet
 //handles RGB data only
 static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
-  static bool ddpSeenPush = false;  // have we seen a push yet?
+  // Layer 0: heap guard — drop ALL DDP when heap critically low
+  {
+    uint32_t freeHeap = esp_get_free_heap_size();
+    if (freeHeap < 20000) {  // 20KB threshold
+      ddpHeapGuardDrops.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+
+  static bool ddpSeenPush = false;
   int lastPushSeq = e131LastSequenceNumber[0];
 
   if (packetLen < DDP_HEADER_LEN) return; // too short to safely read any DDP header fields
@@ -53,6 +76,46 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       } else {
         if (sn > (10 + lastPushSeq) || sn < lastPushSeq) return;
       }
+    }
+  }
+
+  // --- Global DDP rate limiter (all transports) ---
+  {
+    bool isFrameStart = (p->channelOffset == 0) || push;
+    if (isFrameStart) {
+      uint32_t nowUs = micros();
+      uint32_t elapsedUs = nowUs - ddpLastFrameUs;
+      uint32_t minIntervalUs = ddpMaxFps > 0 ? (1000000U / ddpMaxFps) : 0;
+      if (minIntervalUs > 0 && elapsedUs < minIntervalUs) {
+        ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
+        ddpDropCurrentFrame = true;
+        return;
+      }
+      ddpLastFrameUs = nowUs;
+      ddpDropCurrentFrame = false;
+    } else if (ddpDropCurrentFrame) {
+      ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+
+  // Layer 3: main loop starvation detector + priority boost
+  // When loop task hasn't run in 200ms, tcpip_thread is monopolizing CPU.
+  {
+    uint32_t loopAge = millis() - lastLoopMs.load(std::memory_order_relaxed);
+    if (loopAge > 200) {
+#ifdef ARDUINO_ARCH_ESP32
+      if (loopTaskHandle && !loopPriorityBoosted.load(std::memory_order_relaxed)) {
+        vTaskPrioritySet(loopTaskHandle, 19);
+        loopPriorityBoosted.store(true, std::memory_order_release);
+      }
+#endif
+      static uint8_t starvationSkip = 0;
+      if (++starvationSkip < 10) {
+        ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
+        return;
+      }
+      starvationSkip = 0;
     }
   }
 
