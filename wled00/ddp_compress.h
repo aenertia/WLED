@@ -5,8 +5,8 @@
 #include <stddef.h>
 
 // Byte-level RLE (PackBits-inspired)
-// Control byte bit 7 = 0: RUN  — next byte repeated (ctrl & 0x7F)+1 times (1-128)
-// Control byte bit 7 = 1: LITERAL — next (ctrl & 0x7F)+1 bytes copied verbatim (1-128)
+// Control byte bit 7 = 0: RUN   -- next byte repeated (ctrl & 0x7F)+1 times (1-128)
+// Control byte bit 7 = 1: LITERAL  -- next (ctrl & 0x7F)+1 bytes copied verbatim (1-128)
 
 // Worst-case expansion: rawLen + ceil(rawLen/128) bytes (< 0.8% overhead)
 inline size_t rle_max_encoded_size(size_t rawLen) {
@@ -62,7 +62,7 @@ inline bool rle_encode(const uint8_t *src, size_t srcLen,
   return true;
 }
 
-// Streaming RLE decoder state — decodes one byte at a time without buffering
+// Streaming RLE decoder state  -- decodes one byte at a time without buffering
 // the full decompressed output. Used by the ESP32 receiver for zero-copy decode.
 struct RLEDecoder {
   const uint8_t *src;
@@ -131,14 +131,14 @@ inline bool rle_encode_adaptive(const uint8_t *cur, const uint8_t *prev,
   size_t bestLen = rawLen;
   *outType = DDP_COMP_TYPE_NONE;
 
-  // Attempt 1: raw RLE of current frame → dst
+  // Attempt 1: raw RLE of current frame  -> dst
   size_t rawRleLen = 0;
   if (rle_encode(cur, rawLen, dst, &rawRleLen) && rawRleLen < bestLen) {
     bestLen = rawRleLen;
     *outType = DDP_COMP_TYPE_RLE;
   }
 
-  // Attempt 2: delta+RLE → workspace (only if previous frame available)
+  // Attempt 2: delta+RLE  -> workspace (only if previous frame available)
   if (prev) {
     for (size_t i = 0; i < rawLen; i++) workspace[i] = cur[i] ^ prev[i];
     size_t deltaRleLen = 0;

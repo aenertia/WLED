@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DDP over UART PPP throughput benchmark — raw vs compressed.
+"""DDP over UART PPP throughput benchmark  -- raw vs compressed.
 
 Usage:
   ddp_bench.py                              # full benchmark (800 LEDs)
@@ -51,7 +51,7 @@ _bench_width = 40
 _bench_height = 80
 _ddp_destination = 0xFF
 DDP_VER1 = 0x40; DDP_PUSH = 0x01; DDP_COMPRESSED = 0x20; DDP_RGB = 0x0B
-DDP_TYPE_RGBW32 = 0x1B  # 00 011 011 — RGBW, 8 bits per channel, 4 channels
+DDP_TYPE_RGBW32 = 0x1B  # 00 011 011  -- RGBW, 8 bits per channel, 4 channels
 COMP_NONE = 0x00; COMP_DELTA_RLE = 0x10; COMP_RLE = 0x20
 MAX_PAYLOAD = 1200  # sized for PPP MRU 1500: 1500-IP(20)-UDP(8)-DDP(10)=1462, use 1200 for safety
 
@@ -123,7 +123,7 @@ def sparse_twinkle(n, t, prev=None, density=0.02):
 
 # ── IFS 2D Fractal Renderer ──────────────────────────────────────────
 # Proper 2D attractor rendering mapped to (width x height) pixel grid.
-# Ported from tools/ifs_ddp.py — matches xscreensaver-style IFS output.
+# Ported from tools/ifs_ddp.py  -- matches xscreensaver-style IFS output.
 
 IFS_PRESETS = {
     "fern": {
@@ -305,7 +305,7 @@ def sparse_twinkle_rgbw(n, t, prev=None, density=0.02):
 
 # ── IFS 2D Fractal Renderer ──────────────────────────────────────────
 # Proper 2D attractor rendering mapped to (width x height) pixel grid.
-# Ported from tools/ifs_ddp.py — matches xscreensaver-style IFS output.
+# Ported from tools/ifs_ddp.py  -- matches xscreensaver-style IFS output.
 
 def diagnostic_pattern_rgbw(n, width):
     """Marker pixels at key positions with W channel set, rest dim blue+warm."""
@@ -437,7 +437,7 @@ def run_diagnostic(target, port, num_leds, width, rgbw=False, max_payload=MAX_PA
     bpp = 4 if rgbw else 3
     mode_str = "RGBW" if rgbw else "RGB"
     print("="*70)
-    print(f"DDP Diagnostic ({mode_str}) — {num_leds} LEDs ({width}x{num_leds//width if width else '?'})")
+    print(f"DDP Diagnostic ({mode_str})  -- {num_leds} LEDs ({width}x{num_leds//width if width else '?'})")
     print(f"Target: {target}:{port}")
     print("="*70)
 
@@ -446,12 +446,12 @@ def run_diagnostic(target, port, num_leds, width, rgbw=False, max_payload=MAX_PA
 
     print("Marker pixels:")
     w_note = " + W=64" if rgbw else ""
-    print(f"  px[0]        = RED     (255,0,0{',64' if rgbw else ''})   — top-left corner")
+    print(f"  px[0]        = RED     (255,0,0{',64' if rgbw else ''})    -- top-left corner")
     if width > 0:
-        print(f"  px[{width-1}]       = GREEN   (0,255,0{',64' if rgbw else ''})   — end of row 0")
-        print(f"  px[{width}]       = YELLOW  (255,255,0{',64' if rgbw else ''}) — start of row 1")
-    print(f"  px[{num_leds//2}]      = CYAN    (0,255,255{',128' if rgbw else ''}) — center")
-    print(f"  px[{num_leds-1}]      = WHITE   (255,255,255{',255' if rgbw else ''}) — last pixel")
+        print(f"  px[{width-1}]       = GREEN   (0,255,0{',64' if rgbw else ''})    -- end of row 0")
+        print(f"  px[{width}]       = YELLOW  (255,255,0{',64' if rgbw else ''})  -- start of row 1")
+    print(f"  px[{num_leds//2}]      = CYAN    (0,255,255{',128' if rgbw else ''})  -- center")
+    print(f"  px[{num_leds-1}]      = WHITE   (255,255,255{',255' if rgbw else ''})  -- last pixel")
     if width > 0:
         print(f"  every 5th row start = MAGENTA (255,0,255{',96' if rgbw else ''})")
     bg = "(0,0,20,10)" if rgbw else "(0,0,20)"
@@ -600,7 +600,7 @@ def main():
     mode_str = "RGBW" if args.rgbw else "RGB"
     offset_str = f", pixel offset {pixel_offset}" if pixel_offset else ""
     print("="*70)
-    print(f"DDP Benchmark ({mode_str}) — Raw vs Compressed (RLE + Delta+RLE)")
+    print(f"DDP Benchmark ({mode_str})  -- Raw vs Compressed (RLE + Delta+RLE)")
     print(f"Target: {target}:{port}, {num_leds} LEDs ({_bench_width}x{_bench_height}){offset_str}, {bpp} bytes/pixel")
     print("="*70)
     diag = get_diag(target)

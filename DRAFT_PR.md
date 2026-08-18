@@ -1,5 +1,7 @@
 # feat(ddp): compressed DDP — full stack (codec + receiver + tools + spec)
 
+**Forgejo**: Fixes #16
+
 ## Summary
 
 Complete implementation of compressed DDP for WLED — header-only RLE codec, receiver-side decompression in `handleDDPPacket()`, Python benchmark/codec tools, and protocol specification. Designed for bandwidth-constrained links (PPP serial, slow WiFi) where standard DDP saturates the transport.

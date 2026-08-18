@@ -1,8 +1,8 @@
-"""DDP codec — RLE encode/decode, delta-XOR, adaptive compression, packet framing.
+"""DDP codec  -- RLE encode/decode, delta-XOR, adaptive compression, packet framing.
 
 Byte-level RLE (PackBits-inspired):
-  Control byte bit 7 = 0: RUN     — next byte repeated (ctrl & 0x7F)+1 times (1–128)
-  Control byte bit 7 = 1: LITERAL — next (ctrl & 0x7F)+1 bytes copied verbatim (1–128)
+  Control byte bit 7 = 0: RUN      -- next byte repeated (ctrl & 0x7F)+1 times (1-128)
+  Control byte bit 7 = 1: LITERAL  -- next (ctrl & 0x7F)+1 bytes copied verbatim (1-128)
 """
 
 from __future__ import annotations
@@ -96,11 +96,11 @@ def rle_decode(src: bytes | bytearray) -> bytes:
         count = (ctrl & 0x7F) + 1
 
         if ctrl & 0x80:
-            # LITERAL — copy *count* bytes verbatim
+            # LITERAL  -- copy *count* bytes verbatim
             out.extend(src[pos : pos + count])
             pos += count
         else:
-            # RUN — repeat next byte *count* times
+            # RUN  -- repeat next byte *count* times
             if pos >= n:
                 break
             out.extend(bytes([src[pos]]) * count)
@@ -146,7 +146,7 @@ def make_packets(
     comp: int = COMP_NONE,
     max_payload: int = MAX_PAYLOAD,
 ) -> tuple[list[bytes], int]:
-    """Split *data* into DDP-framed UDP packets (≤ max_payload each).
+    """Split *data* into DDP-framed UDP packets (<= max_payload each).
 
     When comp != COMP_NONE, *data* must be raw (uncompressed) pixel bytes.
     Each packet chunk is compressed independently so the receiver can decode
