@@ -1,5 +1,7 @@
 ## fix(WiFi): call esp_netif_init() before netif creation in WiFiGeneric
 
+**Forgejo**: Fixes #20
+
 **Target repo**: espressif/arduino-esp32
 **WLED workaround**: wled00/wled_ppp.cpp — initPPP() calls esp_netif_init() itself
 
