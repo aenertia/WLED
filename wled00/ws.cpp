@@ -146,8 +146,14 @@ void sendDataWs(AsyncWebSocketClient * client)
 
   JsonObject state = pDoc->createNestedObject("state");
   serializeState(state);
-  JsonObject info  = pDoc->createNestedObject("info");
-  serializeInfo(info);
+  // Only include info block on initial client connect (client != nullptr).
+  // Info is ~4-6KB of mostly-static data (version, MAC, WiFi, FS stats).
+  // Broadcast updates (client == nullptr) send state-only (~3-4KB),
+  // saving critical heap on constrained devices (ESP32-PICO-D4 WiFi+PPP).
+  if (client) {
+    JsonObject info  = pDoc->createNestedObject("info");
+    serializeInfo(info);
+  }
 
   size_t len = measureJson(*pDoc);
   DEBUG_PRINTF_P(PSTR("JSON buffer size: %u for WS request (%u).\n"), pDoc->memoryUsage(), len);
