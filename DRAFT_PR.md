@@ -1,5 +1,7 @@
 # SLIP-over-Serial Transport (WLED_USE_SLIP)
 
+**Forgejo**: Fixes #8
+
 ## Summary
 
 Adds SLIP (Serial Line Internet Protocol) as an alternative serial network transport for WLED. SLIP is simpler than PPP — no negotiation, no authentication — but requires static IP configuration on both ends.
