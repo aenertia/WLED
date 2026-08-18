@@ -1,5 +1,7 @@
 # feat(text): drop shadow for scrolling text effect
 
+**Forgejo**: Fixes #12
+
 **STATUS: STUB — implementation pending in fontmanager**
 
 ## Summary
