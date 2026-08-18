@@ -1,5 +1,7 @@
 ## feat(ddp): per-segment targeting — dual-mode DDP routing
 
+**Forgejo**: Fixes #26
+
 ### Problem
 
 WLED's DDP implementation has a single boolean `useMainSegmentOnly` that
