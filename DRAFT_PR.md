@@ -1,5 +1,7 @@
 # feat(text): DejaVu Bold 18px + 40px anti-aliased fonts for scrolling text
 
+**Forgejo**: Fixes #11
+
 ## Summary
 
 Adds high-quality anti-aliased bitmap fonts for the scrolling text effect,
