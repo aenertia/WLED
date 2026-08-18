@@ -1,5 +1,7 @@
 # feat(ddp): header-only RLE codec for DDP pixel streaming
 
+**Forgejo**: Fixes #6
+
 ## Summary
 
 Adds `ddp_compress.h` — a self-contained, header-only RLE compression codec for DDP pixel data streams. Zero WLED core changes; this is a building block for compressed DDP support.
