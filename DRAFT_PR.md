@@ -1,5 +1,7 @@
 # feat(ddp): compressed DDP decode in handleDDPPacket()
 
+**Forgejo**: Fixes #7
+
 ## Summary
 
 Adds receiver-side support for compressed DDP streams using the RLE codec from `ddp_compress.h`. When the DDP compressed flag (bit 5) is set, the receiver decodes the compressed pixel stream and writes the reconstructed pixels to the LED strip. Backwards compatible — uncompressed DDP is unchanged.
