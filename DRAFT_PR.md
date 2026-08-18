@@ -29,3 +29,8 @@ for all transports.
 
 Tested on ESP32-PICO-D4 with PPP transport initialised before WiFi.begin().
 PPP netif creates successfully without the workaround when the fix is applied.
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#8796](https://github.com/espressif/arduino-esp32/issues/8796) | espressif/arduino-esp32 | WiFi.mode() before WiFi.begin() loses WIFI_EVENT_STA_START | **Confirmed related** — same lazy-init pattern; our fix ensures esp_netif_init() is called before any netif creation, addressing the root cause of both issues |
