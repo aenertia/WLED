@@ -1,0 +1,114 @@
+{
+  "_comment": "PC ARGB simulation layout — M5StickC TFT (40x80) + WS2812B 8x32 matrix",
+  "_layout": {
+    "TFT 40x80 virtual (bus0, y:0-80)": {
+      "y:2-22  ": "RAD1 | RAD2(rev) | RAD3  — 360mm radiator, 3x 120mm fans (13x20 each)",
+      "y:24-44 ": "CPU(20x20) | CASE1(9x20) | CASE2(9x20,rev)  — CPU block + 2 case fans",
+      "y:46-58 ": "STRIP1 (38x12)  — 1D addressable strip A (TFT visualiser only)",
+      "y:60-72 ": "STRIP2 (38x12, rev)  — 1D addressable strip B (TFT visualiser only)",
+      "y:72-80 ": "Preview (32x8)  — Copy Segment strip showing WS matrix overview"
+    },
+    "WS2812B 8x32 (bus1, y:80-112)": {
+      "y:80-88 ": "WS_A (8x8, 64 LEDs)  — zone A, rainbow fwd",
+      "y:88-96 ": "WS_B (8x8, 64 LEDs)  — zone B, rainbow rev",
+      "y:96-104": "WS_C (8x8, 64 LEDs)  — zone C, rainbow fwd",
+      "y:104-112":"WS_D (8x8, 64 LEDs)  — zone D, rainbow rev"
+    },
+    "Key findings": {
+      "WS 8x8 blocks": "4 equal 8x8 sub-segments of the 8x32 panel, confirmed working with solid-colour test",
+      "Copy Segment cross-bus": "o2=true required when source segment is on a different bus (reads global frame buffer)",
+      "o1=true": "swaps axes — use for portrait->landscape rotation in Copy Segment",
+      "WS panel orientation": "physical matrix is landscape (32 wide x 8 tall); WLED config is portrait (8x32); WLED x=physical row, WLED y=physical column"
+    }
+  },
+  "seg": [
+    {
+      "id": 0, "n": "RAD1",
+      "start": 1, "stop": 14, "startY": 2, "stopY": 22,
+      "on": true, "bri": 255, "fx": 149, "pal": 66,
+      "col": [[255,0,128],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": false
+    },
+    {
+      "id": 1, "n": "RAD2",
+      "start": 14, "stop": 27, "startY": 2, "stopY": 22,
+      "on": true, "bri": 255, "fx": 74, "pal": 26,
+      "col": [[255,160,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": true
+    },
+    {
+      "id": 2, "n": "RAD3",
+      "start": 27, "stop": 40, "startY": 2, "stopY": 22,
+      "on": true, "bri": 255, "fx": 119, "pal": 11,
+      "col": [[0,128,255],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 0, "rev": false
+    },
+    {
+      "id": 3, "n": "CPU",
+      "start": 1, "stop": 21, "startY": 24, "stopY": 44,
+      "on": true, "bri": 255, "fx": 154, "pal": 0,
+      "col": [[255,160,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 0
+    },
+    {
+      "id": 4, "n": "CASE1",
+      "start": 22, "stop": 31, "startY": 24, "stopY": 44,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[255,160,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 0, "rev": false
+    },
+    {
+      "id": 5, "n": "CASE2",
+      "start": 31, "stop": 40, "startY": 24, "stopY": 44,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[255,160,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 0, "rev": true
+    },
+    {
+      "id": 6, "n": "STRIP1",
+      "start": 1, "stop": 39, "startY": 46, "stopY": 58,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[255,160,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": false
+    },
+    {
+      "id": 7, "n": "STRIP2",
+      "start": 1, "stop": 39, "startY": 60, "stopY": 72,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[255,160,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": true
+    },
+    {
+      "id": 8, "n": "WS_A",
+      "start": 0, "stop": 8, "startY": 80, "stopY": 88,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[255,0,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": false,
+      "o1": false, "o2": false
+    },
+    {
+      "id": 9, "n": "WS_B",
+      "start": 0, "stop": 8, "startY": 88, "stopY": 96,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[0,255,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": true,
+      "o1": false, "o2": false
+    },
+    {
+      "id": 10, "n": "WS_C",
+      "start": 0, "stop": 8, "startY": 96, "stopY": 104,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[0,0,255],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": false,
+      "o1": false, "o2": false
+    },
+    {
+      "id": 11, "n": "WS_D",
+      "start": 0, "stop": 8, "startY": 104, "stopY": 112,
+      "on": true, "bri": 255, "fx": 9, "pal": 0,
+      "col": [[255,255,0],[0,0,0],[0,0,0]],
+      "sx": 128, "ix": 128, "rev": true,
+      "o1": false, "o2": false
+    }
+  ]
+}
