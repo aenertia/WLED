@@ -5,23 +5,20 @@
 #include <Wire.h>
 
 #ifndef SPI_MATRIX_W
-  #error "SPI_MATRIX_W must be defined — set virtual panel width via build flag (e.g. -D SPI_MATRIX_W=40)"
+  #error "SPI_MATRIX_W must be defined  -- set virtual panel width via build flag (e.g. -D SPI_MATRIX_W=40)"
 #endif
 #ifndef SPI_MATRIX_H
-  #error "SPI_MATRIX_H must be defined — set virtual panel height via build flag (e.g. -D SPI_MATRIX_H=80)"
+  #error "SPI_MATRIX_H must be defined  -- set virtual panel height via build flag (e.g. -D SPI_MATRIX_H=80)"
 #endif
 
-// Compile-time check: SPI_MATRIX_W must evenly divide TFT_WIDTH for full panel coverage.
-// Non-integer scale is safe (no crash) but leaves dead pixels at right/bottom edges.
 #if defined(TFT_WIDTH) && (TFT_WIDTH % SPI_MATRIX_W) != 0
-  #warning "SPI_MATRIX_W does not evenly divide TFT_WIDTH — right edge will have dead pixels"
+  #warning "SPI_MATRIX_W does not evenly divide TFT_WIDTH  -- right edge will have dead pixels"
 #endif
 #if defined(TFT_HEIGHT) && (TFT_HEIGHT % SPI_MATRIX_H) != 0
-  #warning "SPI_MATRIX_H does not evenly divide TFT_HEIGHT — bottom edge will have dead pixels"
+  #warning "SPI_MATRIX_H does not evenly divide TFT_HEIGHT  -- bottom edge will have dead pixels"
 #endif
 
-// Integer scale configurations (SPI_MATRIX_W must evenly divide TFT_WIDTH,
-// SPI_MATRIX_H must evenly divide TFT_HEIGHT for full panel coverage):
+// Integer scale configurations (Wxscale = TFT_WIDTH, Hxscale = TFT_HEIGHT):
 //
 // Small embedded:
 //   M5StickC ST7735S       80x160   W=40  H=80   2x2
@@ -41,9 +38,5 @@
 //   ST7796 4"                 320x480   W=40  H=60   8x8
 //   SSD1963 5"                480x800   W=60  H=100  8x8
 //   SSD1963 5"                480x800   W=80  H=100  6x8
-//
-// Non-integer scale is safe (no crash) but leaves dead pixels at
-// right/bottom edges. The bus renders (W*scale) x (H*scale) physical
-// pixels; any remainder is black.
 
 #endif // WLED_ENABLE_SPI_MATRIX

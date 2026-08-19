@@ -14,7 +14,7 @@ static const char *TAG = "WLED_PPP";
 #ifdef WLED_USE_PPP_UART
 esp_netif_t *ppp_netif_uart = nullptr;
 #endif
-// Backward compat alias — points to primary netif
+// Backward compat alias  -- points to primary netif
 esp_netif_t *ppp_netif = nullptr;
 volatile bool ppp_connected = false;
 
@@ -41,7 +41,7 @@ struct ppp_driver_t {
 };
 
 #ifdef WLED_USE_PPP_UART
-// ---- UART-specific counters and transmit ----
+// UART-specific counters and transmit
 static uint32_t ppp_rx_bytes = 0;
 static uint32_t ppp_tx_bytes = 0;
 static uint32_t ppp_tx_calls = 0;
@@ -52,7 +52,7 @@ static uint32_t ppp_rx_bytes_sec = 0;
 static uint32_t ppp_tx_bytes_sec = 0;
 static QueueHandle_t ppp_uart_event_queue = NULL;
 
-// UART transmit callback — lwIP PPP calls this to send HDLC frames out UART
+// UART transmit callback  -- lwIP PPP calls this to send HDLC frames out UART
 static esp_err_t ppp_transmit_cb(void *h, void *buffer, size_t len)
 {
     __atomic_fetch_add(&ppp_tx_calls, 1, __ATOMIC_RELAXED);
@@ -62,7 +62,7 @@ static esp_err_t ppp_transmit_cb(void *h, void *buffer, size_t len)
 }
 #endif // WLED_USE_PPP_UART
 
-// Post-attach callback — registers per-netif transmit function with esp_netif
+// Post-attach callback  -- registers per-netif transmit function with esp_netif
 static esp_err_t ppp_driver_post_attach(esp_netif_t *netif, esp_netif_iodriver_handle h)
 {
     ppp_driver_t *drv = (ppp_driver_t *)h;
@@ -73,16 +73,15 @@ static esp_err_t ppp_driver_post_attach(esp_netif_t *netif, esp_netif_iodriver_h
 }
 
 
-// ---- Minimal DNS responder for wled.local over PPP ----
+// Minimal DNS responder for wled.local over PPP
 static int dns_sock = -1;
 static TaskHandle_t dns_task_handle = NULL;
 
-// DNS response IP — parsed from PPP_OUR_IP at task start.
+// DNS response IP  -- parsed from PPP_OUR_IP at task start.
 // Always the primary transport IP (UART preferred, else BLE).
 static uint8_t dns_ip_bytes[4];
 
 static void dns_responder_task(void *arg) {
-    // Parse primary PPP IP for DNS responses
     esp_ip4_addr_t respond_addr;
     esp_netif_str_to_ip4(PPP_OUR_IP, &respond_addr);
     dns_ip_bytes[0] = (respond_addr.addr >>  0) & 0xFF;
@@ -116,7 +115,6 @@ static void dns_responder_task(void *arg) {
         pos++; // skip null terminator
         pos += 4; // skip QTYPE + QCLASS
 
-        // Build response -- copy header + question, set flags
         uint8_t resp[256];
         if (pos > (int)sizeof(resp) - 16) continue;
         memcpy(resp, buf, pos);
@@ -192,7 +190,7 @@ void stopDnsResponder() {
 
 // Restart PPP on PHASE_DEAD. ESP-IDF's on_ppp_status_changed() returns early
 // for PPPERR_CONNECT, skipping NETIF_PPP_STATUS posting. Only phase events
-// (via on_ppp_notify_phase) reliably fire — use NETIF_PPP_PHASE_DEAD.
+// (via on_ppp_notify_phase) reliably fire  -- use NETIF_PPP_PHASE_DEAD.
 static void ppp_status_handler(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     if (event_id == NETIF_PPP_PHASE_DEAD) {
@@ -215,7 +213,7 @@ static void ppp_status_handler(void *arg, esp_event_base_t base, int32_t event_i
     }
 }
 
-// IP event handler — tracks per-transport connect/disconnect state
+// IP event handler  -- tracks per-transport connect/disconnect state
 static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     if (base != IP_EVENT) return;
@@ -225,8 +223,7 @@ static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id
         ESP_LOGI(TAG, "PPP Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         ppp_connected = true;
 
-        // Track which transport connected via bitmask
-#ifdef WLED_USE_PPP_UART
+    #ifdef WLED_USE_PPP_UART
         if (event->esp_netif == ppp_netif_uart)
             pppTransportConnected(PPP_TRANSPORT_UART);
 #endif
@@ -271,7 +268,7 @@ static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id
     }
 }
 
-// ---- Transport-agnostic PPP netif lifecycle ----
+// Transport-agnostic PPP netif lifecycle
 
 esp_netif_t* initPPPNetif(
     esp_err_t (*transmit_fn)(void *, void *, size_t),
@@ -302,10 +299,8 @@ esp_netif_t* initPPPNetif(
     esp_netif_t *netif = esp_netif_new(&netif_ppp_config);
     assert(netif);
 
-    // Attach driver (triggers post_attach callback)
     ESP_ERROR_CHECK(esp_netif_attach(netif, &drv->base));
 
-    // Configure PPP server mode with static IPs
     esp_netif_ppp_config_t ppp_config = {};
     ppp_config.ppp_phase_event_enabled = true;
     ppp_config.ppp_error_event_enabled = true;
@@ -349,7 +344,6 @@ void teardownPPPNetif(esp_netif_t **netif_ptr)
 {
     if (!netif_ptr || !*netif_ptr) return;
 
-    // Clear transport bit for the netif being torn down
 #ifdef WLED_USE_PPP_UART
     if (*netif_ptr == ppp_netif_uart)
         pppTransportDisconnected(PPP_TRANSPORT_UART);
@@ -368,7 +362,6 @@ void teardownPPPNetif(esp_netif_t **netif_ptr)
     esp_event_handler_unregister(IP_EVENT, ESP_EVENT_ANY_ID, &ppp_event_handler);
     esp_event_handler_unregister(NETIF_PPP_STATUS, ESP_EVENT_ANY_ID, &ppp_status_handler);
 
-    // Free heap-allocated per-netif driver
     void *drv = esp_netif_get_io_driver(*netif_ptr);
 
     esp_netif_destroy(*netif_ptr);
@@ -381,7 +374,7 @@ void teardownPPPNetif(esp_netif_t **netif_ptr)
     *netif_ptr = nullptr;
 }
 
-// ---- UART-specific RX task and init ----
+// UART-specific RX task and init
 
 #ifdef WLED_USE_PPP_UART
 static void ppp_uart_event_task(void *arg)
@@ -407,7 +400,7 @@ static void ppp_rx_task(void *arg)
         // The ISR writes continuously at 1.5Mbps; if esp_netif_receive()
         // blocks (tcpip_thread mailbox full), the ring buffer fills.
         // Tier 1 (>50%): yield to let tcpip_thread drain.
-        // Tier 2 (>85%): emergency flush — drop bytes rather than let
+        // Tier 2 (>85%): emergency flush  -- drop bytes rather than let
         // the ISR overrun into adjacent DRAM (FreeRTOS TCBs).
         uart_get_buffered_data_len(PPP_UART_NUM, &buffered);
         if (buffered > (PPP_RX_BUF_SIZE * 3 / 2)) {  // >75% of 2x alloc
@@ -432,7 +425,7 @@ static void ppp_rx_task(void *arg)
 
 void initPPP()
 {
-    // Ensure TCP/IP stack and event loop are ready — idempotent, safe to call
+    // Ensure TCP/IP stack and event loop are ready  -- idempotent, safe to call
     // multiple times. Required because in WLED_PPP_WIFI mode, initPPP() runs
     // before any WiFi API call (which would otherwise init these lazily).
     ESP_ERROR_CHECK(esp_netif_init());
@@ -444,7 +437,6 @@ void initPPP()
 
     Serial.end();
 
-    // Configure UART
     uart_config_t uart_config = {};
     uart_config.baud_rate = PPP_BAUD;
     uart_config.data_bits = UART_DATA_8_BITS;
@@ -499,7 +491,7 @@ void initPPP()
              PPP_UART_NUM, PPP_BAUD, WLED_PPP_WANTED_MRU,
              PPP_RX_BUF_SIZE, PPP_BW_BUDGET_BYTES / 1024);
 #else
-    // No UART transport — BLE-only mode.
+    // No UART transport  -- BLE-only mode.
     // BLE PPP netif created on-demand when L2CAP connects (see wled_ppp_ble.cpp).
     ESP_LOGI(TAG, "PPP transport: BLE L2CAP CoC (deferred until connect)");
 #endif // WLED_USE_PPP_UART

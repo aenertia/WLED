@@ -1,6 +1,6 @@
 /*
- * Minimal DHCP server — serves exactly ONE client on the NCM interface.
- * Handles DISCOVER→OFFER and REQUEST→ACK. No lease tracking, no NAK.
+ * Minimal DHCP server  -- serves exactly ONE client on the NCM interface.
+ * Handles DISCOVER ->OFFER and REQUEST ->ACK. No lease tracking, no NAK.
  * Good enough for a single-host USB Ethernet bridge.
  */
 #include "dhcp_server.h"
@@ -53,7 +53,6 @@ static struct udp_pcb *dhcp_pcb;
 static struct netif *dhcp_netif;
 static ip4_addr_t dhcp_client_ip;
 
-/* Find a DHCP option in the options field. Returns NULL if not found. */
 static const uint8_t *find_option(const uint8_t *opts, size_t len, uint8_t code) {
     size_t i = 0;
     while (i < len) {
@@ -66,7 +65,6 @@ static const uint8_t *find_option(const uint8_t *opts, size_t len, uint8_t code)
     return NULL;
 }
 
-/* Build and send a DHCP reply (OFFER or ACK) */
 static void send_reply(const dhcp_msg_t *req, uint8_t msg_type) {
     struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, sizeof(dhcp_msg_t), PBUF_RAM);
     if (!p) return;
@@ -83,30 +81,26 @@ static void send_reply(const dhcp_msg_t *req, uint8_t msg_type) {
     memcpy(reply->chaddr, req->chaddr, 16);
     reply->cookie = PP_HTONL(DHCP_MAGIC_COOKIE);
 
-    /* Build options */
     uint8_t *opt = reply->options;
     int oi = 0;
 
-    /* Message type */
     opt[oi++] = DHCP_OPT_MSG_TYPE;
     opt[oi++] = 1;
     opt[oi++] = msg_type;
 
-    /* Server identifier */
     opt[oi++] = DHCP_OPT_SERVER_ID;
     opt[oi++] = 4;
     uint32_t server_ip = ip4_addr_get_u32(netif_ip4_addr(dhcp_netif));
     memcpy(&opt[oi], &server_ip, 4);
     oi += 4;
 
-    /* Lease time (1 day — doesn't really matter, device is always on) */
+    /* Lease time (1 day  -- doesn't really matter, device is always on) */
     opt[oi++] = DHCP_OPT_LEASE_TIME;
     opt[oi++] = 4;
     uint32_t lease = PP_HTONL(86400);
     memcpy(&opt[oi], &lease, 4);
     oi += 4;
 
-    /* Subnet mask */
     opt[oi++] = DHCP_OPT_SUBNET;
     opt[oi++] = 4;
     uint32_t mask = PP_HTONL(0xFFFFFF00);  /* /24 */
@@ -119,10 +113,8 @@ static void send_reply(const dhcp_msg_t *req, uint8_t msg_type) {
     memcpy(&opt[oi], &server_ip, 4);
     oi += 4;
 
-    /* End */
     opt[oi++] = DHCP_OPT_END;
 
-    /* Truncate pbuf to actual size */
     pbuf_realloc(p, (uint16_t)(240 + 4 + oi));  /* fixed fields + cookie + options */
 
     /* Send as broadcast (client doesn't have an IP yet) */
@@ -133,7 +125,6 @@ static void send_reply(const dhcp_msg_t *req, uint8_t msg_type) {
     pbuf_free(p);
 }
 
-/* UDP receive callback for DHCP (port 67) */
 static void dhcp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                          const ip_addr_t *addr, u16_t port) {
     (void)arg; (void)pcb; (void)addr; (void)port;
@@ -152,7 +143,6 @@ static void dhcp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         return;
     }
 
-    /* Find message type option */
     size_t opts_len = sizeof(msg.options);
     const uint8_t *mt = find_option(msg.options, opts_len, DHCP_OPT_MSG_TYPE);
     if (!mt || mt[1] < 1) return;
@@ -164,7 +154,7 @@ static void dhcp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     } else if (msg_type == DHCP_REQUEST) {
         send_reply(&msg, DHCP_ACK);
     }
-    /* Ignore RELEASE, INFORM, DECLINE — we don't care */
+    /* Ignore RELEASE, INFORM, DECLINE  -- we don't care */
 }
 
 void dhcp_server_init(struct netif *netif, const ip4_addr_t *client_ip) {

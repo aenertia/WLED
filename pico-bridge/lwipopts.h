@@ -74,7 +74,7 @@
 
 /* ===== Netif ===== */
 #define LWIP_SINGLE_NETIF           0       /* TWO netifs: NCM + PPP */
-#define IP_FORWARD                  0       /* NO forwarding — we do NAT */
+#define IP_FORWARD                  0       /* NO forwarding  -- we do NAT */
 #define LWIP_NETIF_STATUS_CALLBACK  1
 #define LWIP_NETIF_LINK_CALLBACK    1
 #define LWIP_NETIF_HOSTNAME         1

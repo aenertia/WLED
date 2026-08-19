@@ -21,7 +21,7 @@
 #define CFG_TUD_NCM             1
 
 /* ---- NCM NTB buffer tuning ----
- * RP2040 has 264KB SRAM. These are modest — tune up if throughput matters.
+ * RP2040 has 264KB SRAM. These are modest  -- tune up if throughput matters.
  * At 5Mbps PPP the USB side is never the bottleneck (12Mbps FS USB).
  */
 #define CFG_TUD_NCM_IN_NTB_MAX_SIZE    2048

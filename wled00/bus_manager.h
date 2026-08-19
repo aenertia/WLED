@@ -146,8 +146,7 @@ class Bus {
     virtual uint8_t  getDriverType() const                      { return 0; } // Default to RMT (0) for non-digital buses
     virtual size_t   getBusSize() const                         { return sizeof(Bus); } // currently unused
     virtual const String getCustomText() const                  { return String(); }
-    // Override in subclasses where show() is expensive (SPI DMA, I2S DMA, network UDP).
-    // When true, BusManager::show() skips show() if no active segment covers this bus.
+    // true  -> BusManager::show() skips this bus when no segment is active
     virtual bool     hasIdleSkip() const                        { return false; }
     inline  bool     isSkipShow() const                         { return _skipShow; }
     inline  void     setSkipShow(bool s)                        { _skipShow = s; }
@@ -461,7 +460,7 @@ class BusHub75Matrix : public Bus {
 #endif
 
 #ifdef WLED_ENABLE_SPI_MATRIX
-class TFT_eSPI; // forward declaration — full definition in bus_spi_matrix.h via <TFT_eSPI.h>
+class TFT_eSPI;
 class BusSPIMatrix : public Bus {
   public:
     BusSPIMatrix(const BusConfig &bc);
@@ -488,17 +487,17 @@ class BusSPIMatrix : public Bus {
     uint8_t  _scaleX;
     uint8_t  _scaleY;
     uint16_t *_dmaBuf[2];
-    uint32_t *_snapBuf;        // pixel snapshot — copy of _pixels[] taken once per show()
+    uint32_t *_snapBuf;        // pixel snapshot
     uint8_t   _activeBuf;
-    uint16_t  _dmaRows;        // virtual rows per DMA strip (computed at init)
+    uint16_t  _dmaRows;        // virtual rows per DMA strip
     size_t    _dmaStripBytes;  // bytes per DMA strip buffer
-    bool      _buffersAllocated = false; // Wave 3B: deferred DMA/snap allocation
+    bool      _buffersAllocated = false; // deferred  -- allocated on first active show()
     uint16_t  _activeRowMin = 0;         // first virtual row with active segment (inclusive)
     uint16_t  _activeRowMax = 0;         // last virtual row with active segment (exclusive), 0 = fully idle
-    uint16_t  _prevActiveRowMax = 0;     // previous range max — for blank-push on deactivation
-    bool allocateBuffers();              // lazy-allocate _dmaBuf + _snapBuf on first active show()
-    void deallocateBuffers();            // free _dmaBuf + _snapBuf when skip-show activates
-    void recalcActiveRowRange();         // recompute _activeRowMin/Max from segment coverage
+    uint16_t  _prevActiveRowMax = 0;     // previous range max  -- for blank-push on deactivation
+    bool allocateBuffers();
+    void deallocateBuffers();            // frees DMA/snap bufs when skip-show activates
+    void recalcActiveRowRange();
     static TFT_eSPI *_spiDisplay;
 #ifdef WLED_SPI_MATRIX_AXP192
     static void axpWrite(uint8_t reg, uint8_t val);
@@ -506,8 +505,7 @@ class BusSPIMatrix : public Bus {
 #endif
 };
 #ifdef WLED_SPI_MATRIX_AXP192
-// Early-boot AXP192 power rail init — call before beginStrip().
-// Idempotent; returns false if AXP192 not found on I2C.
+// AXP192 power rail init; call before beginStrip(). Idempotent; returns false if not found on I2C.
 bool initAXP192();
 #endif // WLED_SPI_MATRIX_AXP192
 #endif

@@ -120,7 +120,7 @@ void initSLIP() {
     xTaskCreatePinnedToCore(slip_rx_task, "slip_rx", 4096, NULL, 5, NULL, 0);
 
     slip_connected = true;
-    ESP_LOGI(TAG, "SLIP ready — %s gw %s", SLIP_OUR_IP, SLIP_THEIR_IP);
+    ESP_LOGI(TAG, "SLIP ready  -- %s gw %s", SLIP_OUR_IP, SLIP_THEIR_IP);
 }
 
 #endif

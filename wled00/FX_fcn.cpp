@@ -201,16 +201,11 @@ void Segment::deallocateData() {
   _dataLen = 0;
 }
 
-// Reclaim effect data under heap pressure. Frees the data buffer and
-// resets the effect state so it cleanly re-initializes on the next frame
-// (call==0 triggers the effect's init path in allocateData+memset).
-// Returns bytes freed. Safe to call from any context — the effect will
-// see call==0 on its next service() tick and re-allocate/re-init.
+// Frees effect data buffer; resets state so call==0 re-triggers init on next service(). Returns bytes freed.
 size_t Segment::reclaimData() {
   if (!data || _dataLen == 0) return 0;
   size_t freed = _dataLen;
   deallocateData();
-  // Reset effect state so it re-initializes cleanly
   step = 0;
   call = 0;
   aux0 = 0;
@@ -656,11 +651,11 @@ Segment &Segment::setName(const char *newName) {
       char *newBuf = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
       if (newBuf) {
         strlcpy(newBuf, newName, newLen+1);
-        // start transition BEFORE swapping — the copy constructor deep-copies the current
+        // start transition BEFORE swapping -- the copy constructor deep-copies the current
         // (still valid) name, so the old segment gets the correct previous text for blending.
         if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true);
         char *oldName = name;
-        name = newBuf;  // atomic pointer store — no torn reads on Xtensa
+        name = newBuf;  // atomic pointer store -- no torn reads on Xtensa
         // Note: callers hold strip.suspend()+waitForIt() (see deserializeState),
         // but waitForIt() has a timeout (see #4779).  If it expires while the
         // effect loop is mid-read (e.g. mode_2Dscrolltext iterating name[]),
@@ -668,7 +663,7 @@ Segment &Segment::setName(const char *newName) {
         // upstream issue; alloc-before-swap narrows the window vs the old code
         // (which freed first, leaving a dangling `name` pointer for the entire
         // allocation+copy duration).  A proper fix requires waitForIt() to
-        // guarantee quiescence — tracked upstream as #4779.
+        // guarantee quiescence -- tracked upstream as #4779.
         if (oldName) p_free(oldName);
       }
       return *this;
@@ -1795,7 +1790,7 @@ void WS2812FX::show() {
     }
   }
 
-  // Deferred fade application removed — fade_out/fadeToBlackBy/fadeToSecondaryBy
+  // Deferred fade application removed -- fade_out/fadeToBlackBy/fadeToSecondaryBy
   // now always apply per-pixel to the segment buffer directly (Option C fix).
 
   // avoid race condition, capture _callback value
@@ -1838,48 +1833,39 @@ void WS2812FX::show() {
   }
 }
 
-// showFrozenSegs() — fast-path show for DDP realtime.
-// Called from handleNotifications() when rtFrozenSegs != 0 (DDP Mode A/B active).
-// Bypasses the full _pixels[] pipeline (memset + blendSegment + 4480-pixel paint loop)
-// by walking segment pixel buffers directly into BusManager::setPixelColor().
-//
-// Cases:
-//   B: single frozen seg  — walk seg.pixels[] directly, O(segLen) not O(totalLen)
-//   C: multi-slot eligible — sparse paint via ddpSlots[], skip non-frozen ranges
-//   A: all segs frozen     — fall through to normal show() (full pipeline needed)
-//   D: mixed RT + effects  — fall through to normal show() (effect segs need pipeline)
-//   E: legacy (no frozen)  — never called (handleNotifications guards on rtFrozenSegs)
+// Fast-path show for DDP realtime: walks frozen segment pixel buffers directly into
+// BusManager::setPixelColor(), bypassing the full _pixels[] pipeline.
+// Cases: B=single frozen seg (O(segLen)), C=multi-slot sparse paint via ddpSlots[],
+//        A/D=fall through to show() when all segs frozen or effects are running.
 void WS2812FX::showFrozenSegs() {
   if (!_pixels || !rtFrozenSegs) { show(); return; }
 
-  // Compute mask of all active segments
   uint32_t allActiveMask = 0;
   for (unsigned i = 0; i < _segments.size(); i++)
     if (_segments[i].isActive()) allActiveMask |= (1u << i);
 
-  // Case A: all active segments are frozen → full pipeline needed (DDP to whole strip)
+  // Case A: all active segments are frozen -> full pipeline needed (DDP to whole strip)
   if ((rtFrozenSegs & allActiveMask) == allActiveMask) { show(); return; }
 
-  // Case D: some segments are NOT frozen (running effects) → full pipeline needed
-  // Check: any active, non-frozen, on segment exists?
+  // Case D: effect segments running -> full pipeline needed
   for (unsigned i = 0; i < _segments.size(); i++) {
     if (!(allActiveMask & (1u << i))) continue;       // inactive
-    if (rtFrozenSegs & (1u << i)) continue;           // frozen by DDP — ok
-    if (_segments[i].on && !_segments[i].freeze) { show(); return; } // effect seg → full pipeline
+    if (rtFrozenSegs & (1u << i)) continue;           // frozen by DDP -- ok
+    if (_segments[i].on && !_segments[i].freeze) { show(); return; } // effect seg -> full pipeline
   }
 
-  // Cases B and C: only frozen segments are active — fast path
+  // Cases B and C: only frozen segments are active -- fast path
   unsigned long showNow = millis();
   size_t diff = showNow - _lastShow;
 
-  // Gamma correction: same guard as show() — disabled in realtime when arlsDisableGammaCorrection
+  // Gamma correction: same guard as show() -- disabled in realtime when arlsDisableGammaCorrection
   bool useGamma = gammaCorrectCol && !(realtimeMode && arlsDisableGammaCorrection && !realtimeOverride);
 
   const bool is2D = (Segment::maxHeight > 1);
   const uint16_t mw = Segment::maxWidth;
 
   if (__builtin_popcount(rtFrozenSegs) == 1) {
-    // Case B: single frozen segment — walk seg.pixels[] directly
+    // Case B: single frozen segment -- walk seg.pixels[] directly
     unsigned segIdx = __builtin_ctz(rtFrozenSegs);
     if (segIdx < _segments.size()) {
       const Segment &seg = _segments[segIdx];
@@ -1894,7 +1880,7 @@ void WS2812FX::showFrozenSegs() {
       }
     }
   } else {
-    // Case C: multiple frozen segments — sparse paint via ddpSlots[]
+    // Case C: multiple frozen segments -- sparse paint via ddpSlots[]
     for (uint8_t s = 0; s < ddpSlotCount; s++) {
       const DdpSegSlot &slot = ddpSlots[s];
       if (!(rtFrozenSegs & (1u << slot.segId))) continue;
@@ -1910,10 +1896,8 @@ void WS2812FX::showFrozenSegs() {
     }
   }
 
-  // Zero _pixels[] so slow buses (TFT/Hub75) that read from it via getPixelsRaw()
-  // see black rather than stale effect data from a previous service() run.
-  // The fast path only writes to bus buffers directly; _pixels[] is not updated.
-  // This memset is ~2us on ESP32 and is the correct fix for the stale-TFT bug.
+  // _pixels[] zeroed -- fast path writes bus buffers directly, not _pixels[].
+  // TFT/Hub75 buses read _pixels[] via getPixelsRaw(); clear to avoid stale effect data.
   if (_pixels) memset(_pixels, 0, sizeof(uint32_t) * getLengthTotal());
 
   BusManager::show();
@@ -1926,7 +1910,7 @@ void WS2812FX::showFrozenSegs() {
 }
 
 void WS2812FX::setRealtimePixelColor(unsigned i, uint32_t c) {
-  setPixelColor(i, c); // legacy path only — Mode A/B write directly to segment buffers
+  setPixelColor(i, c); // legacy path only -- Mode A/B write directly to segment buffers
 }
 
 // reset all segments
@@ -2227,10 +2211,8 @@ void WS2812FX::setRange(uint16_t i, uint16_t i2, uint32_t col) {
   for (unsigned x = i; x <= i2; x++) setPixelColor(x, col);
 }
 
-// Reclaim effect data from segments to free heap under memory pressure.
-// Iterates segments largest-data-first, reclaiming until `needed` bytes
-// are freed or all segments are exhausted. If needed==0, reclaims all.
-// Returns total bytes freed.
+// Reclaim effect data from segments to free heap. Iterates in order until `needed` bytes
+// freed or all exhausted; needed==0 reclaims all. Returns total bytes freed.
 size_t WS2812FX::reclaimSegmentData(size_t needed) {
   size_t totalFreed = 0;
   for (auto &seg : _segments) {

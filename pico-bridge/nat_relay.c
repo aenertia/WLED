@@ -1,5 +1,5 @@
 /*
- * NAT relay — TCP proxy + UDP relay between NCM and PPP interfaces.
+ * NAT relay  -- TCP proxy + UDP relay between NCM and PPP interfaces.
  *
  * TCP: Full bidirectional proxy with backpressure handling.
  * UDP: Stateless forwarding with source tracking for return path.
@@ -15,19 +15,18 @@
 #include <string.h>
 #include <stdio.h>
 
-/* ---- State ---- */
 static struct netif *ncm_nif;
 static ip4_addr_t peer_ip;
 static bool ppp_up = false;
 
-/* ---- DDP compression state (port 4048) ---- */
+/* DDP compression state (port 4048) */
 static uint8_t  ddp_prev_frame[DDP_CHANNELS_PER_PACKET];
 static uint8_t  ddp_comp_buf[DDP_CHANNELS_PER_PACKET + 16];
 static uint8_t  ddp_workspace[DDP_CHANNELS_PER_PACKET * 2 + 16];
 static uint16_t ddp_frame_count = 0;
 static bool     ddp_has_prev = false;
 
-/* ---- TCP relay ---- */
+/* TCP relay */
 
 typedef struct tcp_relay {
     struct tcp_pcb *client;     /* NCM-side (from host) */
@@ -49,7 +48,6 @@ static tcp_listener_t *tcp_listeners = NULL;
 
 static void relay_cleanup(tcp_relay_t *r);
 
-/* Forward declarations */
 static err_t relay_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 static err_t relay_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 static void relay_client_err(void *arg, err_t err);
@@ -57,9 +55,7 @@ static void relay_server_err(void *arg, err_t err);
 static err_t relay_client_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
 static err_t relay_server_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
 
-/* Remove relay from linked list and free */
 static void relay_cleanup(tcp_relay_t *r) {
-    /* Remove from list */
     tcp_relay_t **pp = &active_relays;
     while (*pp && *pp != r) pp = &(*pp)->next;
     if (*pp) *pp = r->next;
@@ -83,7 +79,7 @@ static void relay_cleanup(tcp_relay_t *r) {
     free(r);
 }
 
-/* Client (host) sent data → forward to server (ESP32) */
+/* Client (host) sent data  -> forward to server (ESP32) */
 static err_t relay_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     tcp_relay_t *r = (tcp_relay_t *)arg;
     (void)tpcb; (void)err;
@@ -118,7 +114,7 @@ static err_t relay_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
     return ERR_OK;
 }
 
-/* Server (ESP32) sent data → forward to client (host) */
+/* Server (ESP32) sent data  -> forward to client (host) */
 static err_t relay_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     tcp_relay_t *r = (tcp_relay_t *)arg;
     (void)tpcb; (void)err;
@@ -162,7 +158,6 @@ static void relay_client_err(void *arg, err_t err) {
         tcp_abort(r->server);
         r->server = NULL;
     }
-    /* Remove from list */
     tcp_relay_t **pp = &active_relays;
     while (*pp && *pp != r) pp = &(*pp)->next;
     if (*pp) *pp = r->next;
@@ -197,12 +192,12 @@ static err_t relay_server_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
     return ERR_OK;
 }
 
-/* Server-side connect completed → wire up relay */
+/* Server-side connect completed  -> wire up relay */
 static err_t relay_server_connected(void *arg, struct tcp_pcb *tpcb, err_t err) {
     tcp_relay_t *r = (tcp_relay_t *)arg;
 
     if (err != ERR_OK || !tpcb) {
-        /* Connection to ESP32 failed → close client */
+        /* Connection to ESP32 failed  -> close client */
         if (r->client) {
             tcp_arg(r->client, NULL);
             tcp_recv(r->client, NULL);
@@ -217,7 +212,7 @@ static err_t relay_server_connected(void *arg, struct tcp_pcb *tpcb, err_t err) 
         return ERR_OK;
     }
 
-    /* Server connected — wire up bidirectional relay */
+    /* Server connected  -- wire up bidirectional relay */
     tcp_recv(r->server, relay_server_recv);
     tcp_err(r->server, relay_server_err);
     tcp_sent(r->server, relay_server_sent);
@@ -230,7 +225,7 @@ static err_t relay_server_connected(void *arg, struct tcp_pcb *tpcb, err_t err) 
     return ERR_OK;
 }
 
-/* New TCP connection from host → start relay to ESP32 */
+/* New TCP connection from host  -> start relay to ESP32 */
 static err_t tcp_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_listener_t *l = (tcp_listener_t *)arg;
 
@@ -241,7 +236,6 @@ static err_t tcp_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
         return ERR_ABRT;
     }
 
-    /* Count active relays for this port */
     int count = 0;
     for (tcp_relay_t *r = active_relays; r; r = r->next) {
         if (r->port == l->port) count++;
@@ -251,7 +245,6 @@ static err_t tcp_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
         return ERR_ABRT;
     }
 
-    /* Create relay state */
     tcp_relay_t *relay = calloc(1, sizeof(tcp_relay_t));
     if (!relay) {
         tcp_abort(newpcb);
@@ -264,10 +257,9 @@ static err_t tcp_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     active_relays = relay;
 
     tcp_arg(newpcb, relay);
-    /* Don't set recv callback yet — wait for server connection */
+    /* Don't set recv callback yet  -- wait for server connection */
     tcp_err(newpcb, relay_client_err);
 
-    /* Connect to ESP32 on the same port */
     struct tcp_pcb *server_pcb = tcp_new();
     if (!server_pcb) {
         relay_cleanup(relay);
@@ -290,7 +282,7 @@ static err_t tcp_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     return ERR_OK;
 }
 
-/* ---- UDP relay ---- */
+/* UDP relay */
 
 typedef struct udp_relay {
     struct udp_pcb *listen_pcb;     /* Bound on NCM side */
@@ -346,7 +338,6 @@ static struct pbuf *ddp_try_compress(struct pbuf *p) {
     memcpy(ddp_prev_frame, pixel_data, data_len);
     if (is_push) ddp_frame_count++;
 
-    /* Build compressed DDP packet */
     hdr[0] = flags | DDP_FLAGS_COMPRESSED;
     hdr[1] = (hdr[1] & 0x0F) | comp_type;
     hdr[8] = (comp_len >> 8) & 0xFF;
@@ -388,7 +379,7 @@ static void udp_ncm_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     pbuf_free(p);
 }
 
-/* Received from ESP32 on PPP → forward back to host via NCM */
+/* Received from ESP32 on PPP  -> forward back to host via NCM */
 static void udp_ppp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                          const ip_addr_t *addr, u16_t port) {
     udp_relay_t *r = (udp_relay_t *)arg;
@@ -396,7 +387,6 @@ static void udp_ppp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     if (!p) return;
 
-    /* Forward to last known host client */
     if (r->last_client_port != 0) {
         udp_sendto_if(r->listen_pcb, p, &r->last_client_addr,
                       r->last_client_port, ncm_nif);
@@ -404,8 +394,6 @@ static void udp_ppp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     pbuf_free(p);
 }
-
-/* ---- Public API ---- */
 
 void nat_relay_init(struct netif *netif) {
     ncm_nif = netif;
@@ -458,7 +446,7 @@ void nat_relay_add_udp(uint16_t port) {
 
     r->port = port;
 
-    /* Listen PCB — bound on NCM side */
+    /* Listen PCB  -- bound on NCM side */
     r->listen_pcb = udp_new();
     if (!r->listen_pcb) { free(r); return; }
 
@@ -467,14 +455,14 @@ void nat_relay_add_udp(uint16_t port) {
     udp_bind(r->listen_pcb, &bind_addr, port);
     udp_recv(r->listen_pcb, udp_ncm_recv, r);
 
-    /* Forward PCB — for ESP32 communication */
+    /* Forward PCB  -- for ESP32 communication */
     r->forward_pcb = udp_new();
     if (!r->forward_pcb) {
         udp_remove(r->listen_pcb);
         free(r);
         return;
     }
-    /* Bind to ephemeral port (any) — responses come back here */
+    /* Bind to ephemeral port (any)  -- responses come back here */
     udp_bind(r->forward_pcb, IP4_ADDR_ANY, 0);
     udp_recv(r->forward_pcb, udp_ppp_recv, r);
 

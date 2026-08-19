@@ -1,5 +1,5 @@
 /**
- * Standalone New API I2S PDM Microphone Test — M5StickC SPM1423
+ * Standalone New API I2S PDM Microphone Test  -- M5StickC SPM1423
  *
  * Tests the SPM1423 PDM mic using the IDF 5.x native driver/i2s_pdm.h API.
  * This bypasses all legacy I2S code paths that have known PDM bugs.
@@ -8,20 +8,20 @@
  * Prints sample statistics every 500ms. Blinks LED on G10 when signal detected.
  *
  * Serial commands:
- *   'd' — toggle downsample mode (DSR_8S ↔ DSR_16S)
- *   'l' — switch slot mask to LEFT
- *   'r' — switch slot mask to RIGHT
- *   'b' — switch slot mask to BOTH
- *   'i' — reinitialize with current settings
- *   's' — print current config summary
- *   'w' — swap CLK/DATA pins (test pin assignment)
- *   '1' — set sample rate 16000
- *   '2' — set sample rate 22050
- *   '3' — set sample rate 44100
- *   '4' — set sample rate 48000
- *   'v' — set mic voltage 2.8V (M5Stack default)
- *   'V' — set mic voltage 3.3V
- *   'p' — print raw samples (one burst of 64 values)
+ *   'd'  -- toggle downsample mode (DSR_8S  <-> DSR_16S)
+ *   'l'  -- switch slot mask to LEFT
+ *   'r'  -- switch slot mask to RIGHT
+ *   'b'  -- switch slot mask to BOTH
+ *   'i'  -- reinitialize with current settings
+ *   's'  -- print current config summary
+ *   'w'  -- swap CLK/DATA pins (test pin assignment)
+ *   '1'  -- set sample rate 16000
+ *   '2'  -- set sample rate 22050
+ *   '3'  -- set sample rate 44100
+ *   '4'  -- set sample rate 48000
+ *   'v'  -- set mic voltage 2.8V (M5Stack default)
+ *   'V'  -- set mic voltage 3.3V
+ *   'p'  -- print raw samples (one burst of 64 values)
  *
  * Build: pio run -e newapi_pdm -t upload && pio device monitor -b 115200
  */
@@ -79,7 +79,7 @@ static void axp192_init() {
     // M5StickC uses Wire1 for internal I2C bus
     Wire1.begin(I2C_SDA, I2C_SCL, 400000);
 
-    // Enable power output register — LDO2 + LDO3 + DCDC1 + DCDC3
+    // Enable power output register  -- LDO2 + LDO3 + DCDC1 + DCDC3
     uint8_t reg12 = axp192_read(0x12);
     reg12 = (reg12 & 0xEF) | 0x4D;  // Match M5Stack: enable LDO2, LDO3, DCDC1, DCDC3
     axp192_write(0x12, reg12);
@@ -102,7 +102,7 @@ static void axp192_init() {
     Serial.printf("[AXP192] LDOio0: reg90=0x%02X (expect 0x02), reg91=0x%02X (expect 0xA0=2.8V)\n", reg90, reg91);
     Serial.printf("[AXP192] Output enable reg12=0x%02X\n", reg12v);
     Serial.printf("[AXP192] Mic power rail: %s\n",
-        (reg90 == 0x02) ? "OK (LDO mode)" : "FAILED — not in LDO mode");
+        (reg90 == 0x02) ? "OK (LDO mode)" : "FAILED  -- not in LDO mode");
 
     delay(100);  // Let power rail stabilize
 }
@@ -115,7 +115,7 @@ static void axp192_set_mic_voltage(uint8_t reg91_val, const char* label) {
 }
 
 // ============================================================
-// I2S PDM Driver — New IDF 5.x API
+// I2S PDM Driver  -- New IDF 5.x API
 // ============================================================
 
 static const char* dsr_name(i2s_pdm_dsr_t dsr) {
@@ -270,21 +270,21 @@ static void handle_serial() {
         case 'd':
         case 'D':
             current_dsr = (current_dsr == I2S_PDM_DSR_8S) ? I2S_PDM_DSR_16S : I2S_PDM_DSR_8S;
-            Serial.printf("\n>>> Downsample: %s — send 'i' to reinitialize\n", dsr_name(current_dsr));
+            Serial.printf("\n>>> Downsample: %s  -- send 'i' to reinitialize\n", dsr_name(current_dsr));
             break;
         case 'l':
         case 'L':
             current_slot = I2S_PDM_SLOT_LEFT;
-            Serial.printf("\n>>> Slot: LEFT — send 'i' to reinitialize\n");
+            Serial.printf("\n>>> Slot: LEFT  -- send 'i' to reinitialize\n");
             break;
         case 'r':
             current_slot = I2S_PDM_SLOT_RIGHT;
-            Serial.printf("\n>>> Slot: RIGHT — send 'i' to reinitialize\n");
+            Serial.printf("\n>>> Slot: RIGHT  -- send 'i' to reinitialize\n");
             break;
         case 'b':
         case 'B':
             current_slot = I2S_PDM_SLOT_BOTH;
-            Serial.printf("\n>>> Slot: BOTH — send 'i' to reinitialize\n");
+            Serial.printf("\n>>> Slot: BOTH  -- send 'i' to reinitialize\n");
             break;
         case 'i':
         case 'I':
@@ -307,24 +307,24 @@ static void handle_serial() {
                 clk_pin = GPIO_NUM_0;
                 data_pin = GPIO_NUM_34;
             }
-            Serial.printf("\n>>> Pins %s: CLK=GPIO%d, DATA=GPIO%d — send 'i' to reinitialize\n",
+            Serial.printf("\n>>> Pins %s: CLK=GPIO%d, DATA=GPIO%d  -- send 'i' to reinitialize\n",
                 pins_swapped ? "SWAPPED" : "NORMAL", clk_pin, data_pin);
             break;
         case '1':
             sample_rate = 16000;
-            Serial.printf("\n>>> Sample rate: %lu — send 'i' to reinitialize\n", sample_rate);
+            Serial.printf("\n>>> Sample rate: %lu  -- send 'i' to reinitialize\n", sample_rate);
             break;
         case '2':
             sample_rate = 22050;
-            Serial.printf("\n>>> Sample rate: %lu — send 'i' to reinitialize\n", sample_rate);
+            Serial.printf("\n>>> Sample rate: %lu  -- send 'i' to reinitialize\n", sample_rate);
             break;
         case '3':
             sample_rate = 44100;
-            Serial.printf("\n>>> Sample rate: %lu — send 'i' to reinitialize\n", sample_rate);
+            Serial.printf("\n>>> Sample rate: %lu  -- send 'i' to reinitialize\n", sample_rate);
             break;
         case '4':
             sample_rate = 48000;
-            Serial.printf("\n>>> Sample rate: %lu — send 'i' to reinitialize\n", sample_rate);
+            Serial.printf("\n>>> Sample rate: %lu  -- send 'i' to reinitialize\n", sample_rate);
             break;
         case 'v':
             axp192_set_mic_voltage(0xA0, "2.8V (M5Stack default)");
@@ -339,7 +339,7 @@ static void handle_serial() {
             break;
         case 'c':
             clk_inverted = !clk_inverted;
-            Serial.printf("\n>>> Clock inversion: %s — send 'i' to reinitialize\n",
+            Serial.printf("\n>>> Clock inversion: %s  -- send 'i' to reinitialize\n",
                 clk_inverted ? "INVERTED" : "NORMAL");
             break;
         case 'R':
@@ -428,7 +428,7 @@ void loop() {
                 accum.min_val, accum.max_val, (long)mean, (long)abs_mean,
                 accum.has_signal ? "YES ***" : "no");
         } else {
-            Serial.printf("  %10lu | NO DATA — i2s_channel_read returned 0 bytes\n", now);
+            Serial.printf("  %10lu | NO DATA  -- i2s_channel_read returned 0 bytes\n", now);
         }
 
         accum = { INT16_MAX, INT16_MIN, 0, 0, 0, 0, false };

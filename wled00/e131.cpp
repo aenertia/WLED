@@ -20,7 +20,7 @@ std::atomic<uint32_t> ddpRateLimitDrops{0};
 std::atomic<uint32_t> ddpHeapGuardDrops{0};
 std::atomic<uint32_t> lastLoopMs{0};
 std::atomic<bool> loopPriorityBoosted{false};
-// tcpip_thread-only state (no atomics needed — single writer/reader)
+// tcpip_thread-only state (no atomics needed  -- single writer/reader)
 static uint32_t ddpLastFrameUs = 0;
 static bool ddpDropCurrentFrame = false;
 
@@ -49,13 +49,9 @@ static unsigned   ddpPrevFrameSize = 0;    // allocated size in pixels
 static uint8_t    ddpPrevFrameSegId = 0xFF; // 0xFF = whole-strip mode, else = segment-scoped
 static uint16_t   ddpPrevFrameSegStart = 0; // seg.start of scoped segment (valid when segId != 0xFF)
 
-// Convert strip-absolute pixel index to ddpPrevFrame-relative index.
-// In segment-scoped mode, subtracts the segment's start offset.
-// In whole-strip mode, passes through unchanged.
 #define DDP_PF_IDX(absIdx) ((ddpPrevFrameSegId != 0xFF) ? ((absIdx) - ddpPrevFrameSegStart) : (absIdx))
 
-// Free delta-compression frame buffer — called from exitRealtime() to reclaim
-// heap when DDP streaming stops. Lazy re-allocated on next compressed packet.
+// Called from exitRealtime(); lazy re-allocated on next compressed packet.
 void ddpFreePrevFrame() {
   free(ddpPrevFrame);
   ddpPrevFrame = nullptr;
@@ -72,12 +68,11 @@ void ddpFreePrevFrame() {
 //DDP protocol support, called by handleE131Packet
 //handles RGB data only
 static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
-  // Layer 0: heap guard — drop ALL DDP when heap critically low (Issue #2)
-  // Cheapest possible check, runs before any header parsing.
-  // esp_get_free_heap_size() is a lightweight FreeRTOS call (~1µs).
+  // Layer 0: heap guard  -- drop ALL DDP when heap critically low (Issue #2)
+  // esp_get_free_heap_size() is a lightweight FreeRTOS call (~1us).
   {
     uint32_t freeHeap = esp_get_free_heap_size();
-    if (freeHeap < 20000) {  // 20KB threshold — below this, lwIP allocs start failing
+    if (freeHeap < 20000) {  // 20KB threshold  -- below this, lwIP allocs start failing
       ddpHeapGuardDrops.fetch_add(1, std::memory_order_relaxed);
       return;
     }
@@ -220,7 +215,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     goto ddp_push;
   }
 
-  // Old PPP bandwidth rate limiter removed — subsumed by global rate limiter above (Issue #2)
+  // Old PPP bandwidth rate limiter removed  -- subsumed by global rate limiter above (Issue #2)
 
 #ifdef WLED_ENABLE_DDP_COMPRESSION
   if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
@@ -259,9 +254,9 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     unsigned totalLen = strip.getLengthTotal();
 
     // Lazy allocation: allocate ddpPrevFrame on first compressed packet.
-    // Wave 3A: when exactly one segment is DDP-frozen, allocate only for
-    // that segment's pixel count (~512B for 256px) instead of the full
-    // strip (~8960B for 4480px). Saves ~8.4KB heap in the common case.
+    // When exactly one segment is DDP-frozen, allocate only for that
+    // segment's pixel count (~512B for 256px) instead of the full strip
+    // (~8960B for 4480px), saving ~8.4KB heap in the common case.
     if (totalLen <= 12800) {
       unsigned wantSize = totalLen;
       uint8_t  wantSegId = 0xFF;
@@ -275,7 +270,6 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
           wantSegStart = frozenSeg.start;
         }
       }
-      // Reallocate if: (a) not yet allocated, or (b) scoping changed
       if (!ddpPrevFrame || ddpPrevFrameSegId != wantSegId) {
         free(ddpPrevFrame);
         ddpPrevFrame = (uint16_t*)calloc(wantSize, sizeof(uint16_t));
@@ -293,7 +287,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
 
       if (!isDelta && start == 0 && ddpPrevFrame) {
         memset(ddpPrevFrame, 0, ddpPrevFrameSize * sizeof(uint16_t));
-        // Note: scope vars (ddpPrevFrameSegId/Start) intentionally NOT reset here —
+        // Note: scope vars (ddpPrevFrameSegId/Start) intentionally NOT reset here  --
         // RLE full-frame reset just clears the pixel data, not the allocation scope.
       }
 
@@ -448,7 +442,7 @@ ddp_push:
       if (sn != expected) ddpSeqGaps++;
     }
     if (sn) { ddpLastSeq = sn; e131LastSequenceNumber[0] = sn; }
-    // NOTE: strip.show() MUST NOT be called here — this callback runs in
+    // NOTE: strip.show() MUST NOT be called here  -- this callback runs in
     // the lwIP tcpip_thread context (ESPAsyncE131 UDP handler). Calling
     // show() blocks the network stack for 24ms+ (WS2812 DMA / TFT SPI),
     // killing PPP and all network I/O. Use deferred show via e131NewData.

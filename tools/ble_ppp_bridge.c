@@ -1,5 +1,5 @@
 /*
- * ble_ppp_bridge.c — BLE L2CAP CoC → PPP bridge for testing WLED BLE transport
+ * ble_ppp_bridge.c  -- BLE L2CAP CoC  -> PPP bridge for testing WLED BLE transport
  *
  * Usage:
  *   # Echo test (Wave 1):
@@ -138,7 +138,7 @@ static void bridge_loop(int ble_fd, int pty_fd)
         }
         if (ret == 0) continue;
 
-        /* BLE → PTY (pppd) */
+        /* BLE  -> PTY (pppd) */
         if (FD_ISSET(ble_fd, &fds)) {
             int n = read(ble_fd, buf, sizeof(buf));
             if (n <= 0) {
@@ -148,7 +148,7 @@ static void bridge_loop(int ble_fd, int pty_fd)
             write(pty_fd, buf, n);
         }
 
-        /* PTY (pppd) → BLE */
+        /* PTY (pppd)  -> BLE */
         if (FD_ISSET(pty_fd, &fds)) {
             int n = read(pty_fd, buf, sizeof(buf));
             if (n <= 0) {

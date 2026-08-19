@@ -1,9 +1,9 @@
 #pragma once
 /*
- * WS2812B signal capture — decode types and algorithm.
+ * WS2812B signal capture  -- decode types and algorithm.
  *
  * Decode algorithm adapted from FastLED (MIT License).
- * Copyright (c) 2013 FastLED — https://github.com/FastLED/FastLED
+ * Copyright (c) 2013 FastLED  -- https://github.com/FastLED/FastLED
  *
  * Adapted for WLED ARGB passthrough: stripped FastLED dependencies,
  * uses plain C types, operates on ESP-IDF rmt_symbol_word_t input.
@@ -32,7 +32,6 @@ typedef struct {
     uint32_t reset_min_us;            /* reset pulse threshold (microseconds) */
 } argb_timing_t;
 
-/* Decode result */
 typedef struct {
     uint32_t bytes_written;  /* number of decoded bytes (3 per LED, GRB order) */
     uint32_t error_count;    /* edge-pair errors encountered */
@@ -45,8 +44,8 @@ typedef struct {
 #define ARGB_DECODE_HIGH_ERROR_RATE 3
 
 /*
- * Default WS2812B timing with ±150ns tolerance.
- * Nominal: T0H=400ns T0L=850ns T1H=800ns T1L=450ns Reset≥50us
+ * Default WS2812B timing with +/-150ns tolerance.
+ * Nominal: T0H=400ns T0L=850ns T1H=800ns T1L=450ns Reset>=50us
  */
 static inline argb_timing_t argb_timing_ws2812b(void) {
     argb_timing_t t;
@@ -60,7 +59,7 @@ static inline argb_timing_t argb_timing_ws2812b(void) {
 
 /*
  * Decode edge pairs into bytes using 4-phase timing windows.
- * Adapted from FastLED decodeWs2812Edges() — MIT licensed.
+ * Adapted from FastLED decodeWs2812Edges()  -- MIT licensed.
  *
  * edges:     array of edge timestamps (HIGH/LOW pairs)
  * edge_count: number of edges
@@ -103,7 +102,6 @@ static inline argb_decode_result_t argb_decode_edges(
         if (low_ns >= (uint32_t)timing->reset_min_us * 1000u) break;
         if (high_ns >= (uint32_t)timing->reset_min_us * 1000u) break;
 
-        /* Match against 4-phase timing windows */
         bool is_bit1 = (high_ns >= timing->t1h_min_ns && high_ns <= timing->t1h_max_ns &&
                         low_ns  >= timing->t1l_min_ns && low_ns  <= timing->t1l_max_ns);
         bool is_bit0 = (high_ns >= timing->t0h_min_ns && high_ns <= timing->t0h_max_ns &&
@@ -115,7 +113,6 @@ static inline argb_decode_result_t argb_decode_edges(
             continue;
         }
 
-        /* Accumulate bits MSB-first */
         current_byte = (current_byte << 1) | (is_bit1 ? 1 : 0);
         if (++bit_index == 8) {
             if (r.bytes_written >= out_size) {

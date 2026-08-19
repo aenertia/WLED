@@ -103,21 +103,21 @@ class TestCrossRLE:
         assert rle_decode(encoded) == b""
 
     def test_cross_rle_single_run(self) -> None:
-        # ctrl=0x02 → run of (2&0x7F)+1 = 3, value=0xAA
+        # ctrl=0x02  -> run of (2&0x7F)+1 = 3, value=0xAA
         encoded = b"\x02\xAA"
         expected = b"\xAA\xAA\xAA"
         assert c_rle_decode(encoded) == expected
         assert rle_decode(encoded) == expected
 
     def test_cross_rle_single_literal(self) -> None:
-        # ctrl=0x82 → literal of (0x82&0x7F)+1 = 3, bytes=01 02 03
+        # ctrl=0x82  -> literal of (0x82&0x7F)+1 = 3, bytes=01 02 03
         encoded = b"\x82\x01\x02\x03"
         expected = b"\x01\x02\x03"
         assert c_rle_decode(encoded) == expected
         assert rle_decode(encoded) == expected
 
     def test_cross_rle_mixed(self) -> None:
-        # Run of 5×0xFF, then literal [0x10, 0x20], then run of 2×0x00
+        # Run of 5x0xFF, then literal [0x10, 0x20], then run of 2x0x00
         encoded = (
             b"\x04\xFF"          # run: (4&0x7F)+1=5, value=0xFF
             b"\x81\x10\x20"     # literal: (0x81&0x7F)+1=2, bytes=[0x10,0x20]
@@ -131,20 +131,20 @@ class TestCrossRLE:
         assert c_result == py_result
 
     def test_cross_rle_boundary_128(self) -> None:
-        # Max run length: 128 (ctrl=0x7F → (0x7F&0x7F)+1=128)
-        run_128 = b"\x7F\x42"  # 128×0x42
+        # Max run length: 128 (ctrl=0x7F  -> (0x7F&0x7F)+1=128)
+        run_128 = b"\x7F\x42"  # 128x0x42
         expected_run = b"\x42" * 128
         assert c_rle_decode(run_128) == expected_run
         assert rle_decode(run_128) == expected_run
 
-        # Max literal length: 128 (ctrl=0xFF → (0xFF&0x7F)+1=128)
+        # Max literal length: 128 (ctrl=0xFF  -> (0xFF&0x7F)+1=128)
         lit_data = bytes(range(128))
         lit_128 = b"\xFF" + lit_data
         assert c_rle_decode(lit_128) == lit_data
         assert rle_decode(lit_128) == lit_data
 
     def test_cross_rle_all_control_bytes(self) -> None:
-        """Exercise every possible control byte value 0x00–0xFF."""
+        """Exercise every possible control byte value 0x00-0xFF."""
         for ctrl in range(256):
             count = (ctrl & 0x7F) + 1
             if ctrl & 0x80:

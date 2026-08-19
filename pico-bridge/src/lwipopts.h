@@ -47,12 +47,12 @@
 #define TCP_SND_BUF                 (4 * TCP_MSS)
 #define TCP_WND                     (8 * TCP_MSS)
 
-/* Memory pool — increased for IPv6 + mDNS + DHCP */
+/* Memory pool  -- increased for IPv6 + mDNS + DHCP */
 #define PBUF_POOL_SIZE              16
 #define MEMP_NUM_TCP_SEG            16
 #define MEM_SIZE                    (12 * 1024)
 
-/* Timeouts — extra headroom for PPP + mDNS + IPv6 + DHCP */
+/* Timeouts  -- extra headroom for PPP + mDNS + IPv6 + DHCP */
 #define MEMP_NUM_SYS_TIMEOUT        (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 8)
 
 /* ARP */
@@ -67,7 +67,7 @@
 #define PPP_SUPPORT                 1
 #define PPPOS_SUPPORT               1
 #define PPP_IPV4_SUPPORT            1
-#define PPP_IPV6_SUPPORT            1  /* IPV6CP — graceful fallback if peer unsupported */
+#define PPP_IPV6_SUPPORT            1  /* IPV6CP  -- graceful fallback if peer unsupported */
 #define PAP_SUPPORT                 0
 #define CHAP_SUPPORT                0
 #define PPP_SERVER                  0  /* Pico is PPP CLIENT */

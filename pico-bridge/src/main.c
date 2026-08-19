@@ -16,7 +16,7 @@
  * Proxy ARP makes 169.254.7.1 reachable from host's /24 subnet.
  * IPv6 link-local (fe80::) on all interfaces.
  *
- * Addressing uses RFC 3927 link-local (169.254.x.x) — no conflict with
+ * Addressing uses RFC 3927 link-local (169.254.x.x)  -- no conflict with
  * any routed network, BGP, VPN, or container subnet.
  *
  * UART1 pins (configurable):
@@ -72,13 +72,13 @@
   #define BRIDGE_UART_BAUD    921600
 #endif
 
-/* Link-local addressing (RFC 3927) — 169.254.7.0/24 */
+/* Link-local addressing (RFC 3927)  -- 169.254.7.0/24 */
 #define USB_IP_ADDR      LWIP_MAKEU32(169, 254, 7, 3)   /* Pico USB */
 #define USB_NETMASK      LWIP_MAKEU32(255, 255, 255, 0)
 #define USB_GW           LWIP_MAKEU32(0, 0, 0, 0)
 #define ESP32_IP_ADDR    LWIP_MAKEU32(169, 254, 7, 1)   /* ESP32 WLED */
 
-/* DHCP pool — single host client */
+/* DHCP pool  -- single host client */
 #define DHCP_CLIENT_IP   LWIP_MAKEU32(169, 254, 7, 2)
 #define DHCP_GATEWAY_IP  LWIP_MAKEU32(169, 254, 7, 3)
 #define DHCP_SERVER_PORT 67
@@ -107,8 +107,8 @@ static volatile uint32_t uart_rx_tail;
 
 static struct pbuf *received_frame;
 
-/* Fixed MAC — WLED-themed, locally administered (IEEE 802 bit 1), unicast
- * 02:57:4C:ED:07:01 → W=0x57, L=0x4C, 0xED, subnet .7, device .1 */
+/* Fixed MAC  -- WLED-themed, locally administered (IEEE 802 bit 1), unicast
+ * 02:57:4C:ED:07:01  -> W=0x57, L=0x4C, 0xED, subnet .7, device .1 */
 uint8_t tud_network_mac_address[6] = {0x02, 0x57, 0x4C, 0xED, 0x07, 0x01};
 
 static volatile bool ppp_connected;
@@ -254,7 +254,7 @@ static void dhcp_server_init(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Proxy ARP — answer ARP requests for ESP32 (169.254.7.1) with       */
+/* Proxy ARP  -- answer ARP requests for ESP32 (169.254.7.1) with       */
 /* the Pico's USB MAC so host traffic gets forwarded via PPP.          */
 /* ------------------------------------------------------------------ */
 
@@ -341,13 +341,13 @@ static void send_gratuitous_arp(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* mDNS responder — answers wled.local with 169.254.7.1 (ESP32)       */
+/* mDNS responder  -- answers wled.local with 169.254.7.1 (ESP32)       */
 /* ------------------------------------------------------------------ */
 
 /*
  * Minimal mDNS: listen on UDP 5353 for queries about "wled.local",
  * respond with A record pointing to the ESP32's IP.  Only one name,
- * only one client subnet — no need for lwIP's full mDNS app.
+ * only one client subnet  -- no need for lwIP's full mDNS app.
  */
 
 /* Pre-encoded DNS name: \x04wled\x05local\x00 */

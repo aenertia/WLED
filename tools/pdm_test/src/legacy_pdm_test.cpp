@@ -1,5 +1,5 @@
 /**
- * Standalone Legacy I2S PDM Microphone Test — M5StickC SPM1423
+ * Standalone Legacy I2S PDM Microphone Test  -- M5StickC SPM1423
  *
  * Tests the SPM1423 PDM mic using the legacy driver/i2s.h API,
  * matching M5Stack official example config (44100Hz, 16-bit, ALL_RIGHT).
@@ -8,10 +8,10 @@
  * Prints sample statistics every 500ms. Blinks LED on G10 when signal detected.
  *
  * Serial commands:
- *   'c' — toggle i2s_set_clk() call (tests whether it breaks PDM)
- *   'a' — toggle APLL on/off
- *   'r' — reinitialize I2S with current settings
- *   's' — print current config summary
+ *   'c'  -- toggle i2s_set_clk() call (tests whether it breaks PDM)
+ *   'a'  -- toggle APLL on/off
+ *   'r'  -- reinitialize I2S with current settings
+ *   's'  -- print current config summary
  *
  * Build: pio run -e legacy_pdm -t upload && pio device monitor -b 115200
  */
@@ -42,13 +42,13 @@ static bool use_apll = true;       // APLL on by default (better PDM clock quali
 static bool i2s_running = false;
 
 // ============================================================
-// AXP192 Power Management — Enable LDOio0 for mic power
+// AXP192 Power Management  -- Enable LDOio0 for mic power
 // ============================================================
 
 static void axp192_init() {
     Wire.begin(I2C_SDA, I2C_SCL, 400000);
 
-    // Enable LDO2 (LCD backlight) — 2.6V
+    // Enable LDO2 (LCD backlight)  -- 2.6V
     Wire.beginTransmission(AXP192_ADDR);
     Wire.write(0x28);  // LDO2/3 voltage reg
     Wire.write(0x0C);  // LDO2=2.6V, LDO3=1.8V
@@ -66,7 +66,7 @@ static void axp192_init() {
     Wire.write(val);
     Wire.endTransmission();
 
-    // Enable LDOio0 (GPIO0 as LDO output for mic power) — 3.3V
+    // Enable LDOio0 (GPIO0 as LDO output for mic power)  -- 3.3V
     // Reg 0x90: GPIO0 function = LDO output (mode 0x02)
     Wire.beginTransmission(AXP192_ADDR);
     Wire.write(0x90);
@@ -94,13 +94,13 @@ static void axp192_init() {
 
     Serial.printf("[AXP192] LDOio0: reg90=0x%02X (expect 0x02), reg91=0x%02X (expect 0xF0)\n", reg90, reg91);
     Serial.printf("[AXP192] Mic power rail: %s\n",
-        (reg90 == 0x02 && reg91 == 0xF0) ? "OK (3.3V)" : "FAILED — check I2C wiring");
+        (reg90 == 0x02 && reg91 == 0xF0) ? "OK (3.3V)" : "FAILED  -- check I2C wiring");
 
     delay(50);  // Let power rail stabilize
 }
 
 // ============================================================
-// I2S PDM Driver — Legacy API
+// I2S PDM Driver  -- Legacy API
 // ============================================================
 
 static void i2s_init() {
@@ -114,7 +114,7 @@ static void i2s_init() {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_PDM),
         .sample_rate = SAMPLE_RATE,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-        .channel_format = I2S_CHANNEL_FMT_ALL_RIGHT,  // M5Stack convention — safest for single PDM mic
+        .channel_format = I2S_CHANNEL_FMT_ALL_RIGHT,  // M5Stack convention  -- safest for single PDM mic
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = DMA_BUF_COUNT,
@@ -159,7 +159,7 @@ static void i2s_init() {
             Serial.println("[I2S] i2s_set_clk() succeeded");
         }
     } else {
-        Serial.println("[I2S] Skipping i2s_set_clk() — config set entirely by i2s_driver_install()");
+        Serial.println("[I2S] Skipping i2s_set_clk()  -- config set entirely by i2s_driver_install()");
     }
 
     i2s_running = true;
@@ -223,12 +223,12 @@ static void handle_serial() {
         case 'c':
         case 'C':
             use_set_clk = !use_set_clk;
-            Serial.printf("\n>>> i2s_set_clk: %s — send 'r' to reinitialize\n", use_set_clk ? "ENABLED" : "DISABLED");
+            Serial.printf("\n>>> i2s_set_clk: %s  -- send 'r' to reinitialize\n", use_set_clk ? "ENABLED" : "DISABLED");
             break;
         case 'a':
         case 'A':
             use_apll = !use_apll;
-            Serial.printf("\n>>> APLL: %s — send 'r' to reinitialize\n", use_apll ? "ON" : "OFF");
+            Serial.printf("\n>>> APLL: %s  -- send 'r' to reinitialize\n", use_apll ? "ON" : "OFF");
             break;
         case 'r':
         case 'R':
@@ -315,7 +315,7 @@ void loop() {
                 accum.min_val, accum.max_val, (long)mean, (long)abs_mean,
                 accum.has_signal ? "YES ***" : "no");
         } else {
-            Serial.printf("  %10lu | NO DATA — i2s_read returned 0 bytes\n", now);
+            Serial.printf("  %10lu | NO DATA  -- i2s_read returned 0 bytes\n", now);
         }
 
         // Reset accumulator

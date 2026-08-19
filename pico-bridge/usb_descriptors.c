@@ -6,10 +6,8 @@
 #include "tusb.h"
 #include "pico/unique_id.h"
 
-/* ---- MAC address (generated from board unique ID in main.c) ---- */
 uint8_t tud_network_mac_address[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
 
-/* ---- String indices ---- */
 enum {
     STRID_LANGID = 0,
     STRID_MANUFACTURER,
@@ -19,19 +17,16 @@ enum {
     STRID_MAC,
 };
 
-/* ---- Interface indices ---- */
 enum {
     ITF_NUM_CDC = 0,
     ITF_NUM_DATA,
     ITF_NUM_TOTAL,
 };
 
-/* ---- Endpoint addresses ---- */
 #define EPNUM_NET_NOTIF   0x81
 #define EPNUM_NET_OUT     0x02
 #define EPNUM_NET_IN      0x82
 
-/* ---- Device descriptor ---- */
 static tusb_desc_device_t const desc_device = {
     .bLength            = sizeof(tusb_desc_device_t),
     .bDescriptorType    = TUSB_DESC_DEVICE,
@@ -53,7 +48,6 @@ uint8_t const *tud_descriptor_device_cb(void) {
     return (uint8_t const *)&desc_device;
 }
 
-/* ---- Configuration descriptor ---- */
 #define NCM_CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_CDC_NCM_DESC_LEN)
 
 static uint8_t const desc_configuration[] = {
@@ -69,7 +63,6 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     return desc_configuration;
 }
 
-/* ---- String descriptors ---- */
 static char mac_string[13];  /* "AABBCCDDEEFF\0" */
 
 static void mac_to_string(void) {
@@ -106,7 +99,6 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         break;
     }
     case STRID_SERIAL: {
-        /* Use board unique ID */
         pico_unique_board_id_t id;
         pico_get_unique_board_id(&id);
         chr_count = 16;
@@ -136,7 +128,7 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     return _desc_str;
 }
 
-/* ---- BOS descriptor (required for NCM on Windows) ---- */
+/* BOS descriptor (required for NCM on Windows) */
 #define BOS_TOTAL_LEN      (TUD_BOS_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
 
 #define MS_OS_20_DESC_LEN  0xB2
@@ -150,7 +142,7 @@ uint8_t const *tud_descriptor_bos_cb(void) {
     return desc_bos;
 }
 
-/* MS OS 2.0 descriptor — tells Windows to load the NCM driver */
+/* MS OS 2.0 descriptor  -- tells Windows to load the NCM driver */
 static uint8_t const desc_ms_os_20[] = {
     /* Header */
     0x0A, 0x00,             /* wLength */
@@ -210,7 +202,6 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
     return false;
 }
 
-/* ---- Generate MAC from board unique ID ---- */
 void usb_descriptors_init(void) {
     pico_unique_board_id_t id;
     pico_get_unique_board_id(&id);

@@ -414,13 +414,12 @@ void initServer()
     serveSettings(request, true);
   });
 
-  // Diagnostic endpoint — bus layout, mapping, pixel state.
+  // Diagnostic endpoint  -- bus layout, mapping, pixel state.
   // Uses chunked response to avoid large buffer allocation.
   server.on("/diag", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("text/plain");
 
     #ifdef ARDUINO_ARCH_ESP32
-    // Reset reason decode
     static const char* const rstNames[] = {
       "UNKNOWN","POWERON","EXT","SW","PANIC","INT_WDT","TASK_WDT",
       "WDT","DEEPSLEEP","BROWNOUT","SDIO","USB","JTAG","EFUSE",
@@ -439,11 +438,10 @@ void initServer()
     #ifdef WLED_USE_PPP
     response->printf("ppp=%d\n", (int)ppp_connected);
     #endif
-    // Heap breakdown
     response->printf("dma_heap=%u 8bit_heap=%u\n",
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
-    // RTC crash snapshot — persists across soft resets
+    // RTC crash snapshot  -- persists across soft resets
     extern uint32_t rtcCrashHeap, rtcCrashMinHeap, rtcCrashDmaHeap, rtcCrashUptime;
     extern uint32_t rtcCrashMagic;
     if ((rstCode == ESP_RST_PANIC || rstCode == ESP_RST_INT_WDT || rstCode == ESP_RST_TASK_WDT)
@@ -457,7 +455,6 @@ void initServer()
     response->printf("reset=? heap=%u up=%lus\n", (unsigned)getFreeHeapSize(), millis()/1000);
     #endif
 
-    // Bus layout
     response->printf("\n--- buses (%u) ---\n", (unsigned)BusManager::getNumBusses());
     for (size_t b = 0; b < BusManager::getNumBusses(); b++) {
       Bus *bus = BusManager::getBus(b);
@@ -476,7 +473,6 @@ void initServer()
 #endif
     }
 
-    // Matrix config
     #ifndef WLED_DISABLE_2D
     response->printf("\n--- matrix ---\n");
     response->printf("isMatrix=%d maxW=%u maxH=%u panels=%u\n",
@@ -490,7 +486,6 @@ void initServer()
     }
     #endif
 
-    // Mapping check (sample via getMappedPixelIndex)
     response->printf("\n--- mapping ---\n");
     response->printf("respectLedMaps=%d totalLen=%u\n",
       realtimeRespectLedMaps, strip.getLengthTotal());
@@ -508,7 +503,6 @@ void initServer()
       response->println();
     }
 
-    // Realtime state
     response->printf("\n--- realtime ---\n");
     response->printf("mode=%u override=%u timeout=%lu now=%lu diff=%ld frozen=0x%08x\n",
       realtimeMode, realtimeOverride,
@@ -529,7 +523,6 @@ void initServer()
       (unsigned)ddpHeapGuardDrops.load(std::memory_order_relaxed),
       (unsigned)ddpMaxFps,
       (unsigned)(millis() - lastLoopMs.load(std::memory_order_relaxed)));
-    // Pixel sample
     response->printf("\n--- pixels ---\n");
     if (totalLen > 0) {
       response->print("px[0..4]: ");

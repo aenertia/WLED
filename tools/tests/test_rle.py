@@ -59,7 +59,7 @@ class TestRLESingleByte:
 
     def test_encoded_is_literal(self) -> None:
         enc = rle_encode(b"\x42")
-        # Single byte → literal span of length 1: ctrl=0x80, then 0x42
+        # Single byte  -> literal span of length 1: ctrl=0x80, then 0x42
         assert enc == b"\x80\x42"
 
 
@@ -96,22 +96,22 @@ class TestRLERunOf129:
         src = b"\xFF" * 129
         enc = rle_encode(src)
         _roundtrip(src)
-        # 128 + 1 → first run ctrl=0x7F, second is a short span
+        # 128 + 1  -> first run ctrl=0x7F, second is a short span
         assert len(enc) < len(src), "encoding must compress a long run"
 
     def test_roundtrip(self) -> None:
         _roundtrip(b"\xFF" * 129)
 
 
-# ── 6. Alternating bytes (worst case — all literals) ───────────────
+# ── 6. Alternating bytes (worst case  -- all literals) ───────────────
 
 class TestRLEAlternating:
     def test_all_literals(self) -> None:
-        src = b"\xAA\x55" * 64  # 128 bytes, no runs ≥ 3
+        src = b"\xAA\x55" * 64  # 128 bytes, no runs >= 3
         enc = rle_encode(src)
         _roundtrip(src)
-        # Literal spans add 1 control byte per ≤128 literal bytes.
-        # 128 literals → 1 ctrl + 128 data = 129 bytes
+        # Literal spans add 1 control byte per <=128 literal bytes.
+        # 128 literals  -> 1 ctrl + 128 data = 129 bytes
         assert len(enc) <= len(src) + 2
 
     def test_roundtrip(self) -> None:
@@ -179,20 +179,20 @@ class TestRLEAllByteValues:
 
 class TestRLERGBWPixelRoundtrip:
     def test_solid_white_rgbw(self) -> None:
-        """All-white RGBW frame: 100 pixels × 4 bytes = 400 bytes of 0xFF."""
+        """All-white RGBW frame: 100 pixels x 4 bytes = 400 bytes of 0xFF."""
         src = b"\xFF" * 400
         enc = rle_encode(src)
         _roundtrip(src)
-        # Should compress massively (400 → ~8 bytes)
+        # Should compress massively (400  -> ~8 bytes)
         assert len(enc) < 20
 
     def test_gradient_rgb(self) -> None:
-        """Smooth gradient — few runs, mostly literals."""
+        """Smooth gradient  -- few runs, mostly literals."""
         src = bytes(i % 256 for i in range(300))
         _roundtrip(src)
 
     def test_sparse_change_delta(self) -> None:
-        """Delta-XOR of two frames differing by 1 pixel → mostly zeros."""
+        """Delta-XOR of two frames differing by 1 pixel  -> mostly zeros."""
         frame_a = b"\x00" * 300
         frame_b = bytearray(frame_a)
         frame_b[150] = 0xFF
@@ -201,7 +201,7 @@ class TestRLERGBWPixelRoundtrip:
         delta = xor_delta(bytes(frame_b), frame_a)
         enc = rle_encode(delta)
         _roundtrip(delta)
-        # Delta is almost all zeros → compresses very well
+        # Delta is almost all zeros  -> compresses very well
         assert len(enc) < 30
 
 
@@ -240,7 +240,7 @@ class TestCompressAdaptive:
         assert comp_type == COMP_DELTA_RLE
 
     def test_random_data_prefers_none(self) -> None:
-        """Fully random data — compression can't help."""
+        """Fully random data  -- compression can't help."""
         rng = random.Random(77)
         src = bytes(rng.getrandbits(8) for _ in range(1000))
         _payload, comp_type = compress_adaptive(src)
@@ -254,12 +254,12 @@ class TestDeltaRleRGBWChannelPreservation:
     """TDD oracle for the C1 firmware fix: prevFrame RGBW allocation.
 
     The bug: firmware allocates 3 bytes/pixel for prevFrame but RGBW needs 4.
-    Delta decode stores only R,G,B — the W channel XORs against 0 instead of
+    Delta decode stores only R,G,B  -- the W channel XORs against 0 instead of
     the previous W value.  Every test here exercises the W byte explicitly.
     """
 
     def test_delta_rle_rgbw_identical_frames(self) -> None:
-        """XOR of identical RGBW frames → all zeros; RLE < 20 bytes."""
+        """XOR of identical RGBW frames  -> all zeros; RLE < 20 bytes."""
         prev = b"\xFF\x00\x80\x40" * 200  # 200 RGBW pixels
         delta = xor_delta(prev, prev)
         assert delta == b"\x00" * 800
@@ -271,7 +271,7 @@ class TestDeltaRleRGBWChannelPreservation:
         """Change ONLY the W byte of pixel 0; roundtrip must preserve it."""
         prev = b"\xFF\x00\x80\x40" * 200
         curr = bytearray(prev)
-        curr[3] = 0xFF  # W: 0x40 → 0xFF
+        curr[3] = 0xFF  # W: 0x40  -> 0xFF
 
         delta = xor_delta(bytes(curr), prev)
         enc = rle_encode(delta)
@@ -293,10 +293,10 @@ class TestDeltaRleRGBWChannelPreservation:
         frame1 = bytearray(frame0)
         frame2 = bytearray(frame0)
 
-        # Frame 1: all W bytes → 0x80
+        # Frame 1: all W bytes  -> 0x80
         for i in range(n_pixels):
             frame1[i * 4 + 3] = 0x80
-        # Frame 2: all W bytes → 0xC0
+        # Frame 2: all W bytes  -> 0xC0
         for i in range(n_pixels):
             frame2[i * 4 + 3] = 0xC0
 

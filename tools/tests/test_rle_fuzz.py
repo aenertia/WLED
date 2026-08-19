@@ -1,7 +1,7 @@
 """Fuzz test harness for the DDP RLE decoder (tools/ddp_codec.py).
 
 Generates malformed / adversarial DDP-RLE byte sequences and validates
-the Python reference decoder handles them safely — no crashes, no
+the Python reference decoder handles them safely  -- no crashes, no
 unhandled exceptions, bounded output.
 """
 
@@ -42,8 +42,8 @@ class TestFuzzRandomBytes:
                     f"input len={length}: {exc}"
                 )
             # Worst case: every byte is a RUN control 0x7F (128 repeats)
-            # followed by a value byte → 128 output bytes per 2 input bytes.
-            # So max decoded ≤ len(data) * 128.
+            # followed by a value byte  -> 128 output bytes per 2 input bytes.
+            # So max decoded <= len(data) * 128.
             assert len(result) <= len(data) * 128, (
                 f"decoded output unbounded: {len(result)} bytes "
                 f"from {len(data)} byte input"
@@ -57,7 +57,7 @@ class TestFuzzExtremeRunLengths:
 
     @pytest.mark.parametrize("value", [0x00, 0x42, 0xFF])
     def test_fuzz_extreme_run_lengths(self, value: int) -> None:
-        # 0x7F → (0x7F & 0x7F)+1 = 128 repeats
+        # 0x7F  -> (0x7F & 0x7F)+1 = 128 repeats
         encoded = bytes([0x7F, value])
         decoded = rle_decode(encoded)
         assert decoded == bytes([value]) * 128
@@ -71,7 +71,7 @@ class TestFuzzExtremeLiteralCounts:
 
     @pytest.mark.parametrize("available", [0, 1, 10, 64, 127])
     def test_fuzz_extreme_literal_counts(self, available: int) -> None:
-        # 0xFF → LITERAL, expects 128 bytes following
+        # 0xFF  -> LITERAL, expects 128 bytes following
         payload = bytes(range(available % 256)) * (available // 256 + 1)
         payload = payload[:available]
         encoded = bytes([0xFF]) + payload
@@ -99,7 +99,7 @@ class TestFuzzZeroLength:
 # ── 5. Single control byte (no value/data follows) ─────────────────
 
 class TestFuzzSingleControlByte:
-    """A lone control byte with no payload — decoder must not crash."""
+    """A lone control byte with no payload  -- decoder must not crash."""
 
     @pytest.mark.parametrize("ctrl", [0x00, 0x7F, 0x80, 0xFF])
     def test_fuzz_single_control_byte(self, ctrl: int) -> None:
@@ -109,19 +109,19 @@ class TestFuzzSingleControlByte:
             pytest.fail(
                 f"rle_decode crashed on single control byte 0x{ctrl:02X}: {exc}"
             )
-        # RUN with no value byte → should produce empty or gracefully stop.
-        # LITERAL with no data bytes → should produce empty or partial.
+        # RUN with no value byte  -> should produce empty or gracefully stop.
+        # LITERAL with no data bytes  -> should produce empty or partial.
         assert len(decoded) <= 128, (
             f"single control byte 0x{ctrl:02X} produced {len(decoded)} bytes"
         )
 
     def test_run_control_no_value_produces_empty(self) -> None:
-        """RUN control (bit7=0) with no following value byte → empty output."""
+        """RUN control (bit7=0) with no following value byte  -> empty output."""
         decoded = rle_decode(bytes([0x00]))  # RUN of 1, but no value byte
         assert decoded == b""
 
     def test_literal_control_no_data_produces_empty(self) -> None:
-        """LITERAL control (bit7=1) with no following data → empty output."""
+        """LITERAL control (bit7=1) with no following data  -> empty output."""
         decoded = rle_decode(bytes([0x80]))  # LITERAL of 1, but no data
         assert decoded == b""
 
@@ -129,7 +129,7 @@ class TestFuzzSingleControlByte:
 # ── 6. Amplification attack ────────────────────────────────────────
 
 class TestFuzzAmplificationAttack:
-    """128 consecutive max-RUN pairs: 256 bytes in → 16384 bytes out."""
+    """128 consecutive max-RUN pairs: 256 bytes in  -> 16384 bytes out."""
 
     def test_fuzz_amplification_attack(self) -> None:
         # Each pair: 0x7F (128-repeat RUN) + 0xAA (value)
@@ -195,7 +195,7 @@ class TestFuzzChannelOffsetOverflow:
 # ── 8. Roundtrip stability under fuzz ───────────────────────────────
 
 class TestFuzzRoundtripStability:
-    """Encode random data, then decode — result must match original."""
+    """Encode random data, then decode  -- result must match original."""
 
     def test_fuzz_roundtrip_random(self) -> None:
         rng = random.Random(FUZZ_SEED + 1)

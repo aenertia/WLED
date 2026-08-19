@@ -1326,7 +1326,7 @@ void respondModeData(AsyncWebServerRequest* request) {
   // Pass 1: measure total payload size so we can send with Content-Length.
   // Pass 2: the content callback fills each TCP send buffer on demand.
   char lineBuffer[256];
-  size_t totalLen = 1; // ']' only — first element's comma becomes '['
+  size_t totalLen = 1; // ']' only -- first element's comma becomes '['
   for (size_t i = 0; i < strip.getModeCount(); i++) {
     strncpy_P(lineBuffer, strip.getModeData(i), sizeof(lineBuffer)-1);
     lineBuffer[sizeof(lineBuffer)-1] = '\0';
@@ -1367,11 +1367,11 @@ void respondModeData(AsyncWebServerRequest* request) {
 // Stream effect names as JSON array without holding the JSON buffer lock.
 // Eliminates the deadlock between /json/effects HTTP response (LockedJsonResponse
 // holds lock during async TCP send) and WebSocket state push (sendDataWs needs lock).
-// Pattern mirrors respondModeData() — zero heap allocation for response body.
+// Pattern mirrors respondModeData() -- zero heap allocation for response body.
 void respondModeNames(AsyncWebServerRequest* request) {
   // Two-pass: measure then send with Content-Length (same as respondModeData).
   char lineBuffer[256];
-  size_t totalLen = 1; // ']' only — first element's comma becomes '['
+  size_t totalLen = 1; // ']' only -- first element's comma becomes '['
   for (size_t i = 0; i < strip.getModeCount(); i++) {
     strncpy_P(lineBuffer, strip.getModeData(i), sizeof(lineBuffer)-1);
     lineBuffer[sizeof(lineBuffer)-1] = '\0';
@@ -1474,7 +1474,7 @@ void serveJson(AsyncWebServerRequest* request)
   }
   // releaseJSONBufferLock() will be called when "response" is destroyed (from AsyncWebServer)
   // make sure you delete "response" if no "request->send(response);" is made
-  // Reclaim effect data if heap is tight — effects will re-init on next frame.
+  // Reclaim effect data if heap is tight -- effects will re-init on next frame.
   // This prevents JSON truncation when effect working RAM crowds out the
   // web server's response buffer allocation.
   if (ESP.getFreeHeap() < JSON_BUFFER_SIZE + 2048) {

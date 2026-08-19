@@ -6,9 +6,9 @@
  * The Pico presents as a USB Ethernet adapter (CDC-NCM) to the host.
  * It connects to the ESP32's PPP server over UART GP0(TX)/GP1(RX).
  * NAT relay forwards TCP/UDP between the two interfaces:
- *   - TCP :80  → ESP32:80  (HTTP, WebSocket — WLED dashboard)
- *   - UDP :4048 → ESP32:4048 (DDP pixel streaming)
- *   - UDP :5568 → ESP32:5568 (E1.31/sACN)
+ *   - TCP :80   -> ESP32:80  (HTTP, WebSocket  -- WLED dashboard)
+ *   - UDP :4048  -> ESP32:4048 (DDP pixel streaming)
+ *   - UDP :5568  -> ESP32:5568 (E1.31/sACN)
  *
  * The host sees a plug-and-play USB Ethernet adapter. No pppd needed.
  * DHCP assigns 10.0.0.2/24 to the host, gateway 10.0.0.1 (the Pico).
@@ -41,7 +41,7 @@
 #include "dhcp_server.h"
 #include "nat_relay.h"
 
-/* ---- Configuration ---- */
+/* Configuration */
 #define PPP_UART        uart0
 #define PPP_UART_IRQ    UART0_IRQ
 #define PPP_TX_PIN      0
@@ -58,13 +58,12 @@
 #define PORT_DDP        4048
 #define PORT_E131       5568
 
-/* UART RX ring buffer — sized for 5Mbps burst absorption */
+/* UART RX ring buffer  -- sized for 5Mbps burst absorption */
 #define RX_BUF_SIZE     4096
 static volatile uint8_t rx_buf[RX_BUF_SIZE];
 static volatile uint16_t rx_head = 0;
 static volatile uint16_t rx_tail = 0;
 
-/* ---- Global state ---- */
 static struct netif ncm_netif;
 static struct netif ppp_netif;
 static ppp_pcb *ppp;
@@ -81,14 +80,13 @@ static bool ncm_link_up = false;
 static volatile uint8_t mdns_announce_remaining;
 static uint32_t mdns_announce_next_ms;
 
-/* ---- Forward declarations ---- */
 extern void usb_descriptors_init(void);
 extern uint8_t tud_network_mac_address[6];
 
 /* ======================================================================
- * UART RX — interrupt-driven ring buffer
- * At 5Mbps, byte time is 2µs. FIFO is 32 bytes = 64µs to drain.
- * IRQ latency on RP2040 is ~1µs, so IRQ-based RX is viable with FIFO.
+ * UART RX  -- interrupt-driven ring buffer
+ * At 5Mbps, byte time is 2us. FIFO is 32 bytes = 64us to drain.
+ * IRQ latency on RP2040 is ~1us, so IRQ-based RX is viable with FIFO.
  * ====================================================================== */
 
 static void uart_rx_irq(void) {
@@ -99,11 +97,11 @@ static void uart_rx_irq(void) {
             rx_buf[rx_head] = ch;
             rx_head = next;
         }
-        /* else: overflow — drop byte. PPP HDLC CRC will catch it. */
+        /* else: overflow  -- drop byte. PPP HDLC CRC will catch it. */
     }
 }
 
-/* Drain ring buffer → pppos_input(). Called from main loop only. */
+/* Drain ring buffer  -> pppos_input(). Called from main loop only. */
 static void ppp_poll_rx(void) {
     uint8_t tmp[512];
     int n = 0;
@@ -119,18 +117,15 @@ static void ppp_poll_rx(void) {
     }
 }
 
-/* ======================================================================
- * PPP — client connecting to ESP32 server
- * ====================================================================== */
+/* PPP  -- client connecting to ESP32 server */
 
-/* PPPoS output callback — lwIP calls this to send HDLC frames */
+/* PPPoS output callback  -- lwIP calls this to send HDLC frames */
 static u32_t ppp_output_cb(ppp_pcb *pcb, const void *data, u32_t len, void *ctx) {
     (void)pcb; (void)ctx;
     uart_write_blocking(PPP_UART, (const uint8_t *)data, len);
     return len;
 }
 
-/* PPP link status callback */
 static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
     (void)ctx;
 
@@ -155,7 +150,7 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
         gpio_put(LED_PIN, 0);
         break;
     default:
-        /* Link lost — reconnect after 1s holdoff */
+        /* Link lost  -- reconnect after 1s holdoff */
         ppp_connected = false;
         nat_relay_set_ppp_up(false);
         gpio_put(LED_PIN, 0);
@@ -167,24 +162,21 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
 static void ppp_init_client(void) {
     ppp = pppos_create(&ppp_netif, ppp_output_cb, ppp_status_cb, NULL);
     if (!ppp) {
-        /* Fatal — can't continue */
+        /* Fatal  -- can't continue */
         while (1) { tight_loop_contents(); }
     }
 
     /* Accept whatever IPs the ESP32 server assigns */
     ppp_set_default(ppp);
 
-    /* Start LCP negotiation */
     ppp_connect(ppp, 0);
 }
 
-/* ======================================================================
- * CDC-NCM — TinyUSB network callbacks
- * ====================================================================== */
+/* CDC-NCM  -- TinyUSB network callbacks */
 
 static struct netif *ncm_netif_ptr = NULL;
 
-/* Receive callback: host → Pico (USB RX → lwIP) */
+/* Receive callback: host  -> Pico (USB RX  -> lwIP) */
 bool tud_network_recv_cb(const uint8_t *src, uint16_t size) {
     if (!ncm_netif_ptr) {
         tud_network_recv_renew();
@@ -207,7 +199,7 @@ bool tud_network_recv_cb(const uint8_t *src, uint16_t size) {
     return true;
 }
 
-/* Transmit callback: lwIP pbuf → USB TX buffer */
+/* Transmit callback: lwIP pbuf  -> USB TX buffer */
 uint16_t tud_network_xmit_cb(uint8_t *dst, void *ref, uint16_t arg) {
     struct pbuf *p = (struct pbuf *)ref;
     (void)arg;
@@ -219,7 +211,7 @@ void tud_network_init_cb(void) {
     /* Nothing to do for NCM */
 }
 
-/* Link output: lwIP → USB TX */
+/* Link output: lwIP  -> USB TX */
 static err_t ncm_linkoutput(struct netif *netif, struct pbuf *p) {
     (void)netif;
 
@@ -236,7 +228,6 @@ static err_t ncm_linkoutput(struct netif *netif, struct pbuf *p) {
     return ERR_USE;
 }
 
-/* NCM netif init */
 static err_t ncm_netif_init(struct netif *netif) {
     netif->mtu = CFG_TUD_NET_MTU;
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP
@@ -250,7 +241,6 @@ static err_t ncm_netif_init(struct netif *netif) {
     return ERR_OK;
 }
 
-/* Set up the NCM lwIP netif */
 static void ncm_lwip_init(void) {
     ip4_addr_t ipaddr, netmask, gw;
 
@@ -264,7 +254,7 @@ static void ncm_lwip_init(void) {
         while (1) { tight_loop_contents(); }
     }
 
-    /* Set MAC — device MAC differs from host MAC (toggle LSbit per TinyUSB convention) */
+    /* Set MAC  -- device MAC differs from host MAC (toggle LSbit per TinyUSB convention) */
     ncm_netif.hwaddr_len = 6;
     memcpy(ncm_netif.hwaddr, tud_network_mac_address, 6);
     ncm_netif.hwaddr[5] ^= 0x01;
@@ -275,10 +265,7 @@ static void ncm_lwip_init(void) {
     ncm_netif_ptr = &ncm_netif;
 }
 
-/* ======================================================================
- * mDNS responder — announces wled.local → Pico NCM IP (10.0.0.1)
- * Host connects to Pico; NAT relay forwards to ESP32 transparently.
- * ====================================================================== */
+/* mDNS responder  -- announces wled.local  -> Pico NCM IP (10.0.0.1) */
 
 #define MDNS_PORT   5353
 #define MDNS_TTL    120
@@ -318,7 +305,7 @@ static void mdns_send_response(uint16_t txn_id) {
     resp[off++] = MDNS_TTL & 0xFF;
     resp[off++] = 0x00; resp[off++] = 0x04;
 
-    /* Pico NCM IP: 10.0.0.1 — host connects here, NAT forwards to ESP32 */
+    /* Pico NCM IP: 10.0.0.1  -- host connects here, NAT forwards to ESP32 */
     resp[off++] = 10; resp[off++] = 0;
     resp[off++] = 0;  resp[off++] = 1;
 
@@ -402,23 +389,18 @@ static void mdns_periodic_task(void) {
     if (ppp_connected) mdns_send_response(0);
 }
 
-/* ======================================================================
- * UART hardware setup
- * ====================================================================== */
+/* UART hardware setup */
 
 static void uart_hw_init(void) {
-    /* Configure GPIO pins for UART */
     gpio_set_function(PPP_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(PPP_RX_PIN, GPIO_FUNC_UART);
 
-    /* Init UART at 5Mbps */
     uint actual = uart_init(PPP_UART, PPP_BAUD);
     (void)actual;
 
     /* Enable FIFO for burst absorption */
     uart_set_fifo_enabled(PPP_UART, true);
 
-    /* No flow control */
     uart_set_hw_flow(PPP_UART, false, false);
     uart_set_format(PPP_UART, 8, 1, UART_PARITY_NONE);
 
@@ -426,21 +408,16 @@ static void uart_hw_init(void) {
     gpio_set_drive_strength(PPP_TX_PIN, GPIO_DRIVE_STRENGTH_4MA);
     gpio_set_slew_rate(PPP_TX_PIN, GPIO_SLEW_RATE_FAST);
 
-    /* Enable RX interrupt */
     irq_set_exclusive_handler(PPP_UART_IRQ, uart_rx_irq);
     irq_set_enabled(PPP_UART_IRQ, true);
     uart_set_irq_enables(PPP_UART, true, false);
 }
 
-/* ======================================================================
- * Main
- * ====================================================================== */
+/* Main */
 
 int main(void) {
-    /* Basic hardware init (clocks, etc.) */
     set_sys_clock_khz(125000, true);
 
-    /* LED for status */
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
@@ -448,17 +425,13 @@ int main(void) {
     /* Generate stable MAC from board unique ID */
     usb_descriptors_init();
 
-    /* Initialize TinyUSB */
     board_init();
     tud_init(BOARD_TUD_RHPORT);
 
-    /* Initialize lwIP (bare-metal) */
     lwip_init();
 
-    /* Set up NCM network interface */
     ncm_lwip_init();
 
-    /* Start DHCP server on NCM */
     ip4_addr_t client_ip;
     IP4_ADDR(&client_ip, 10, 0, 0, 2);
     dhcp_server_init(&ncm_netif, &client_ip);
@@ -469,23 +442,19 @@ int main(void) {
     nat_relay_add_udp(PORT_DDP);
     nat_relay_add_udp(PORT_E131);
 
-    /* mDNS: wled.local → 10.0.0.1 (Pico NCM IP, NATed to ESP32) */
+    /* mDNS: wled.local  -> 10.0.0.1 (Pico NCM IP, NATed to ESP32) */
     mdns_init();
 
-    /* Set up UART for PPP */
     uart_hw_init();
 
-    /* Start PPP client — connects to ESP32 server */
+    /* Start PPP client  -- connects to ESP32 server */
     ppp_init_client();
 
-    /* ---- Main loop ---- */
     uint32_t last_blink = 0;
 
     while (1) {
-        /* TinyUSB device task — processes USB events */
         tud_task();
 
-        /* Feed UART RX bytes into PPP stack */
         ppp_poll_rx();
 
         /* lwIP timers (ARP, TCP retransmit, PPP LCP/IPCP, ...) */

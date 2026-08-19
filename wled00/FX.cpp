@@ -6465,7 +6465,7 @@ void mode_2Dscrollingtext(void) {
   uint8_t fontNum = map(SEGMENT.custom2, 0, 255, 0, 6);
 
   // letters orientation: -2/+2 = upside down, -1 = 90° clockwise, 0 = normal, 1 = 90° counterclockwise
-  const int8_t rotate = 0;  // rotation disabled — c3 used for shadow angle+distance
+  const int8_t rotate = 0;  // rotation disabled -- c3 used for shadow angle+distance
   const bool isRotated = (rotate == 1 || rotate == -1); // +/- 90° rotated, swap width and height for calculations
 
   // Load the font

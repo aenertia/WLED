@@ -1,14 +1,14 @@
 /**
- * GPIO0 Clock Diagnostic — M5StickC
+ * GPIO0 Clock Diagnostic  -- M5StickC
  *
  * Tests whether GPIO0 can output a clock signal at PDM frequencies.
  * GPIO0 is a boot strapping pin with external pull-up on M5StickC.
  * This test verifies the pin is actually toggling when used by I2S.
  *
  * Test sequence:
- * 1. Manual GPIO toggle test — verify GPIO0 can be driven high/low
- * 2. LEDC PWM test — output a measurable frequency on GPIO0
- * 3. I2S PDM init — then sample GPIO34 (data pin) with ADC to see if
+ * 1. Manual GPIO toggle test  -- verify GPIO0 can be driven high/low
+ * 2. LEDC PWM test  -- output a measurable frequency on GPIO0
+ * 3. I2S PDM init  -- then sample GPIO34 (data pin) with ADC to see if
  *    the mic is responding to the clock
  *
  * Build: pio run -e gpio_diag -t upload && pio device monitor -b 115200

@@ -1242,37 +1242,31 @@ size_t BusHub75Matrix::getPins(uint8_t* pinArray) const {
 #endif
 // ***************************************************************************
 
-// Returns true if any active (on && !freeze) or DDP-realtime-frozen segment
-// overlaps the pixel range [busStart, busStart+busLen). Used by BusManager::show()
-// to skip expensive show() calls on slow buses when no segment covers them.
+// Returns true if any segment overlapping [busStart, busStart+busLen) is active
+// (on && !freeze) or held by DDP realtime. Used by BusManager::show() to skip
+// buses with no live output.
 static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
   const uint16_t busEnd = busStart + busLen;
-  // In 2D matrix mode, seg.start/stop are column coords, not flat pixel indices.
-  // Convert to flat pixel range using maxWidth: pixelStart = startY*maxWidth + startX.
-  // For overlap test: a segment covers this bus if its row range intersects our pixel range.
+  // 2D: seg.start/stop are column coords; convert to flat pixel range via maxWidth.
   const bool is2D = (Segment::maxHeight > 1);
   const uint16_t mw = Segment::maxWidth;
   for (unsigned i = 0; i < strip.getSegmentsNum(); i++) {
     const Segment &seg = strip.getSegment(i);
-    // Compute segment flat pixel range
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
-      segPixEnd   = (uint16_t)seg.stopY  * mw; // conservative: rows entirely covered
+      segPixEnd   = (uint16_t)seg.stopY  * mw;
     } else {
       segPixStart = seg.start;
       segPixEnd   = seg.stop;
     }
-    // No pixel overlap with this bus range — skip segment
     if (segPixEnd <= busStart || segPixStart >= busEnd) continue;
-    // Segment is actively rendering (on and not frozen) — has active segment
-    // Also check isInTransition(): blendSegment() runs for transitioning segs
-    // even when on=false, so the bus must not skip during a transition.
+    // blendSegment() runs for transitioning segs even when on=false, so don't
+    // skip during a transition.
     if (seg.on && !seg.freeze) return true;
-    // DDP realtime has frozen this segment but is actively painting it — has active segment
     if (realtimeMode != REALTIME_MODE_INACTIVE && (rtFrozenSegs & (1u << i))) return true;
   }
-  return false;  // no active segment covers this bus range
+  return false;
 }
 
 #ifdef WLED_ENABLE_SPI_MATRIX
@@ -1286,19 +1280,14 @@ TFT_eSPI *BusSPIMatrix::_spiDisplay = nullptr;
 #endif
 
 #ifdef WLED_SPI_MATRIX_AXP192
-// --- AXP192 early-boot power rail init (M5StickC / M5StickC Plus) ---
-// Called from WLED::setup() BEFORE beginStrip() so that power rails are
-// stable regardless of which bus type is constructed on first boot.
-//
-// Register map (AXP192 @ I2C 0x34 on Wire1, SDA=21 SCL=22):
-//   0x12  DCDC13_LDO23 enable — bits 2,3 = LDO2+LDO3 (TFT backlight+logic)
-//   0x28  LDO2/LDO3 voltage  — 0xCC = 3.0V / 3.0V
-//   0x90  GPIO0 function      — 0x02 = LDOio0 mode (powers SPM1423 mic)
-//   0x91  LDOio0 voltage      — 0xA0 = 2.8V
-//
-// Without this init the mic's unpowered CLK line can pull ESP32 GPIO0 LOW
-// (a strapping pin), forcing download mode on the next reset.  See
-// m5stack/M5StickC-Plus#1 for the full write-up.
+// AXP192 power rail init (M5StickC). Called from WLED::setup() before beginStrip().
+// Register map (I2C 0x34, Wire1 SDA=21 SCL=22):
+//   0x12  DCDC13_LDO23 enable  -- bits 2,3 = LDO2+LDO3 (TFT backlight+logic)
+//   0x28  LDO2/LDO3 voltage   -- 0xCC = 3.0V / 3.0V
+//   0x90  GPIO0 function       -- 0x02 = LDOio0 mode (powers SPM1423 mic)
+//   0x91  LDOio0 voltage       -- 0xA0 = 2.8V
+// Without this, the unpowered mic CLK pulls GPIO0 low (boot strapping pin  ->
+// download mode). See m5stack/M5StickC-Plus#1.
 
 static bool s_axp192_ready = false;
 
@@ -1324,28 +1313,25 @@ bool initAXP192() {
   Wire1.begin(21, 22);
   Wire1.setClock(400000);
 
-  // Probe: try reading register 0x12 — if AXP192 isn't present, bail out
-  // instead of hanging on subsequent writes.
+  // Probe reg 0x12  -- bail if AXP192 not present rather than hanging on writes.
   bool probeOk = false;
   axp192ReadChecked(0x12, &probeOk);
   if (!probeOk) {
-    DEBUG_PRINTLN(F("AXP192: not found on I2C 0x34 — skipping power init"));
+    DEBUG_PRINTLN(F("AXP192: not found on I2C 0x34  -- skipping power init"));
     return false;
   }
 
-  // LDO2+LDO3 voltage = 3.0V (TFT backlight + logic)
-  if (!axp192WriteChecked(0x28, 0xCC)) return false;
+  if (!axp192WriteChecked(0x28, 0xCC)) return false;  // LDO2+LDO3 = 3.0V
 
-  // Enable LDO2+LDO3 (bits 2,3 of reg 0x12)
   bool rdOk = false;
   uint8_t reg12 = axp192ReadChecked(0x12, &rdOk);
   if (!rdOk) return false;
-  if (!axp192WriteChecked(0x12, reg12 | 0x0C)) return false;
+  if (!axp192WriteChecked(0x12, reg12 | 0x0C)) return false;  // enable LDO2+LDO3
 
-  // GPIO0 → LDOio0 mode — prevents mic CLK from pulling GPIO0 LOW
+  // GPIO0  -> LDOio0 mode: mic CLK on GPIO0 (boot strapping pin) must be driven,
+  // not floating, or it pulls low and forces download mode on reset.
   if (!axp192WriteChecked(0x90, 0x02)) return false;
-  // LDOio0 voltage = 2.8V (M5Stack default for SPM1423 mic)
-  if (!axp192WriteChecked(0x91, 0xA0)) return false;
+  if (!axp192WriteChecked(0x91, 0xA0)) return false;  // LDOio0 = 2.8V (SPM1423)
 
   delay(10);  // let rails stabilize
   s_axp192_ready = true;
@@ -1353,7 +1339,7 @@ bool initAXP192() {
   return true;
 }
 
-// Legacy wrappers used by BusSPIMatrix methods that still need raw I2C
+// Raw I2C wrappers (no error checking  -- callers handle failure via state).
 void BusSPIMatrix::axpWrite(uint8_t reg, uint8_t val) {
   Wire1.beginTransmission(0x34);
   Wire1.write(reg);
@@ -1386,10 +1372,8 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
   _hasCCT = false;
 
 #ifdef WLED_SPI_MATRIX_AXP192
-  // AXP192 init: use early-boot function (idempotent — safe to call again
-  // if setup() already called it, or if this bus is constructed at runtime).
   if (!initAXP192()) {
-    DEBUG_PRINTLN(F("BusSPIMatrix: AXP192 init failed — marking bus invalid"));
+    DEBUG_PRINTLN(F("BusSPIMatrix: AXP192 init failed  -- marking bus invalid"));
     _valid = false;
     return;
   }
@@ -1404,33 +1388,21 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
     _spiDisplay->fillScreen(TFT_BLACK);
   }
 
-  // Compute scale from post-rotation physical dimensions.
-  // TFT_eSPI::width()/height() return the rotated display size,
-  // so this works for any rotation + panel dimension combination.
+  // width()/height() return post-rotation size  -- correct for any rotation.
   _scaleX = _spiDisplay->width()  / _panelWidth;
   _scaleY = _spiDisplay->height() / _panelHeight;
   if (_scaleX < 1) _scaleX = 1;
   if (_scaleY < 1) _scaleY = 1;
 
-  // Compute optimal DMA strip rows from available heap at init time.
-  // Strategy: query free DMA-capable heap, reserve MIN_HEAP_SIZE for WLED
-  // operations (WebServer, JSON, effects), then allocate the largest
-  // ping-pong buffers that fit. Fewer strips = fewer pushPixelsDMA calls
-  // = less SPI transaction overhead.
-  //
-  // Constraints:
-  //   1. SPI DMA limit: 32767 pixels (65534 bytes) — all ESP32 variants
-  //   2. Available DMA heap minus safety reserve (MIN_HEAP_SIZE from const.h)
-  //   3. Panel height (no point exceeding it)
-  //   4. Minimum 2 rows (degenerate case fallback)
+  // DMA strip height: largest that fits within SPI DMA limit (32767 px) and
+  // available DMA heap budget. Fewer strips = fewer pushPixelsDMA calls.
   const uint16_t physWidth = _panelWidth * _scaleX;
   const size_t bytesPerRow = (size_t)physWidth * sizeof(uint16_t);
   const uint16_t maxRowsSpi = physWidth > 0 ? (uint16_t)(SPI_DMA_MAX_PIXELS / physWidth) : _panelHeight;
 
   const size_t dmaHeapFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
   const size_t dmaBudget = min((size_t)SPI_MATRIX_DMA_BUDGET, dmaHeapFree / 4);
-  // Buffer must hold _dmaRows * _scaleY physical rows (vertically replicated)
-  const size_t bytesPerPhysStrip = bytesPerRow * _scaleY;  // per virtual row: scaleY physical rows
+  const size_t bytesPerPhysStrip = bytesPerRow * _scaleY;  // scaleY physical rows per virtual row
   const uint16_t maxRowsHeap = (bytesPerPhysStrip > 0 && dmaBudget > 0)
       ? (uint16_t)(dmaBudget / (2 * bytesPerPhysStrip))
       : 2;
@@ -1438,11 +1410,8 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
   _dmaRows = max((uint16_t)2, min(_panelHeight, min(maxRowsSpi, maxRowsHeap)));
   _dmaStripBytes = bytesPerRow * _dmaRows * _scaleY;
 
-  // Wave 3B: DMA and snapshot buffers are NOT allocated here.
-  // They are lazily allocated on the first active show() call via allocateBuffers().
-  // This saves ~28KB heap when the TFT segment is off at boot.
-  // Start with _skipShow=true so BusManager::show() skips us on the first frame
-  // (beginStrip() calls show() before NVS state loads, with all segs on=true).
+  // Buffers allocated lazily on first active show()  -- saves ~28KB at boot.
+  // _skipShow=true: skip the beginStrip() show() before NVS state loads.
   _valid = (_spiDisplay != nullptr);
   DEBUGBUS_PRINTF_P(PSTR("SPI Matrix: %dx%d (%d pix), scale %dx%d, dmaRows=%d (%u B/strip), heap: %u free, %u budget, valid=%d (buffers deferred)\n"),
                     _panelWidth, _panelHeight, _len, _scaleX, _scaleY, _dmaRows,
@@ -1461,23 +1430,19 @@ uint32_t BusSPIMatrix::getPixelColor(unsigned pix) const {
 void BusSPIMatrix::show() {
   if (!_valid || !_spiDisplay) return;
   if (_skipShow) {
-    // Wave 3B: When skip-show gate is active (no active segment covers this bus),
-    // free DMA buffers to reclaim ~28KB. Re-allocated on next active show().
-    if (_buffersAllocated) deallocateBuffers();
+    if (_buffersAllocated) deallocateBuffers();  // reclaim ~28KB while idle
     return;
   }
   if (!_buffersAllocated) {
-    if (!allocateBuffers()) return;  // allocation failed — skip this frame, retry next
+    if (!allocateBuffers()) return;  // allocation failed  -- skip this frame, retry next
   }
 
-  // Recompute which rows have active segment coverage (cheap: ~5us)
-  recalcActiveRowRange();
+  recalcActiveRowRange();  // ~5us
 
-  // Determine push range this frame
   uint16_t pushRowMin = _activeRowMin;
   uint16_t pushRowMax = _activeRowMax;
 
-  if (pushRowMax == 0) return;  // fully idle — TFT retains last content (black)
+  if (pushRowMax == 0) return;  // fully idle  -- TFT retains last content (black)
 
   // If rows were deactivated since last frame, expand range once to push black
   if (_prevActiveRowMax > pushRowMax || (_prevActiveRowMax > 0 && pushRowMin > _activeRowMin)) {
@@ -1486,9 +1451,7 @@ void BusSPIMatrix::show() {
     _prevActiveRowMax = _activeRowMax;  // don't re-expand next frame
   }
 
-  // Partial snapshot: only copy rows in push range from _pixels[] to _snapBuf.
-  // Rows outside the range retain previous content (black after blank push).
-  // Memory barrier ensures DDP decoder writes on Core 0 are visible.
+  // Snapshot only the rows being pushed; barrier ensures Core 0 DDP writes are visible.
   __sync_synchronize();
   {
     unsigned snapStart = pushRowMin * _panelWidth;
@@ -1564,11 +1527,10 @@ std::vector<LEDType> BusSPIMatrix::getLEDTypes() {
   };
 }
 
-// Recompute which virtual rows have active segment coverage.
-// Called every frame from show() — cheap (~5us for 2 segments).
-// Only DMA strips overlapping [_activeRowMin, _activeRowMax) get pushed.
+// Compute [_activeRowMin, _activeRowMax)  -- the virtual row range with live segment
+// coverage. Called every frame; only DMA strips in this range get pushed.
 void BusSPIMatrix::recalcActiveRowRange() {
-  _prevActiveRowMax = _activeRowMax;  // remember for blank-push detection
+  _prevActiveRowMax = _activeRowMax;
   uint16_t rMin = _panelHeight, rMax = 0;
   const bool is2D = (Segment::maxHeight > 1);
   const uint16_t mw = Segment::maxWidth;
@@ -1576,13 +1538,12 @@ void BusSPIMatrix::recalcActiveRowRange() {
 
   for (unsigned i = 0; i < strip.getSegmentsNum(); i++) {
     const Segment &seg = strip.getSegment(i);
-    // Same active check as busHasActiveSegment(): on+!freeze OR DDP-frozen
     bool active = (seg.on && !seg.freeze);
     if (!active && realtimeMode != REALTIME_MODE_INACTIVE && (rtFrozenSegs & (1u << i)))
       active = true;
     if (!active) continue;
 
-    // Compute segment flat pixel range (2D-aware, matches busHasActiveSegment)
+    // 2D: convert column coords to flat pixel range (same as busHasActiveSegment).
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
@@ -1591,14 +1552,12 @@ void BusSPIMatrix::recalcActiveRowRange() {
       segPixStart = seg.start;
       segPixEnd   = seg.stop;
     }
-    // No overlap with this bus
     if (segPixEnd <= _start || segPixStart >= busEnd) continue;
 
-    // Clip to bus range, convert to local virtual rows
     uint16_t localStart = (segPixStart > _start) ? segPixStart - _start : 0;
     uint16_t localEnd   = (segPixEnd < busEnd) ? segPixEnd - _start : _len;
     uint16_t rowStart = localStart / _panelWidth;
-    uint16_t rowEnd   = (localEnd + _panelWidth - 1) / _panelWidth;  // ceil
+    uint16_t rowEnd   = (localEnd + _panelWidth - 1) / _panelWidth;  // ceil div
     rMin = min(rMin, rowStart);
     rMax = max(rMax, rowEnd);
   }
@@ -1608,9 +1567,7 @@ void BusSPIMatrix::recalcActiveRowRange() {
   _activeRowMax = min(rMax, _panelHeight);
 }
 
-// Wave 3B: Lazy-allocate DMA ping-pong buffers and pixel snapshot buffer.
-// Called on the first show() where the skip-show gate does NOT fire.
-// Returns true on success, false if allocation fails (non-fatal, retries next frame).
+// Lazy-allocate DMA ping-pong and snapshot buffers. Returns false on OOM (retries next frame).
 bool BusSPIMatrix::allocateBuffers() {
   if (_buffersAllocated) return true;
 
@@ -1621,7 +1578,7 @@ bool BusSPIMatrix::allocateBuffers() {
   _dmaBuf[1] = (uint16_t*)heap_caps_malloc(_dmaStripBytes, MALLOC_CAP_DMA);
 
   if (!_dmaBuf[0] || !_dmaBuf[1]) {
-    // First attempt failed — halve dmaRows and retry
+    // OOM  -- halve dmaRows and retry once
     heap_caps_free(_dmaBuf[0]); heap_caps_free(_dmaBuf[1]);
     _dmaBuf[0] = nullptr; _dmaBuf[1] = nullptr;
     _dmaRows = max((uint16_t)2, (uint16_t)(_dmaRows / 2));
@@ -1630,10 +1587,10 @@ bool BusSPIMatrix::allocateBuffers() {
     _dmaBuf[1] = (uint16_t*)heap_caps_malloc(_dmaStripBytes, MALLOC_CAP_DMA);
   }
 
-  _snapBuf = (uint32_t*)calloc(_len, sizeof(uint32_t));  // zeroed — inactive rows are black
+  _snapBuf = (uint32_t*)calloc(_len, sizeof(uint32_t));  // zeroed  -- inactive rows are black
 
   if (!_dmaBuf[0] || !_dmaBuf[1] || !_snapBuf) {
-    DEBUGBUS_PRINTLN(F("TFT allocateBuffers() failed — will retry next frame"));
+    DEBUGBUS_PRINTLN(F("TFT allocateBuffers() failed  -- will retry next frame"));
     heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
     heap_caps_free(_dmaBuf[1]); _dmaBuf[1] = nullptr;
     free(_snapBuf); _snapBuf = nullptr;
@@ -1648,8 +1605,7 @@ bool BusSPIMatrix::allocateBuffers() {
   return true;
 }
 
-// Wave 3B: Free DMA/snap buffers when TFT segment goes idle.
-// Called from show() when _skipShow is true. Re-allocated on next active show().
+// Free DMA/snap buffers when idle; re-allocated on next active show().
 void BusSPIMatrix::deallocateBuffers() {
   if (!_buffersAllocated) return;
   heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
@@ -1875,9 +1831,8 @@ void BusManager::off() {
 void BusManager::show() {
   applyABL(); // apply brightness limit, updates _gMilliAmpsUsed
   for (auto &bus : busses) {
-    // Idle-skip gate: buses that override hasIdleSkip() skip show() when no
-    // active segment covers them. "Blank then skip" — first idle frame calls
-    // show() once (blanks display), subsequent idle frames skip entirely.
+    // Blank-then-skip: first idle frame runs show() to blank the display,
+    // subsequent idle frames skip entirely.
     if (bus->hasIdleSkip()) {
       const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
       if (!hasActive) {

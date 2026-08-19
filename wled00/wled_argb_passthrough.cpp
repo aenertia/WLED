@@ -17,9 +17,9 @@
 #endif
 
 static rmt_channel_handle_t argb_rx_chan = nullptr;
-static rmt_symbol_word_t    argb_symbols[ARGB_SYMBOL_BUF_SIZE]; // HW target — must be static (ISR writes)
-static rmt_symbol_word_t   *argb_pending = nullptr;     // ISR double buffer — heap, allocated on start
-static rmt_symbol_word_t   *argb_decode_buf = nullptr;  // decode working copy — heap, allocated on start
+static rmt_symbol_word_t    argb_symbols[ARGB_SYMBOL_BUF_SIZE]; // HW target  -- must be static (ISR writes)
+static rmt_symbol_word_t   *argb_pending = nullptr;     // ISR double buffer  -- heap, allocated on start
+static rmt_symbol_word_t   *argb_decode_buf = nullptr;  // decode working copy  -- heap, allocated on start
 static volatile bool        argb_frame_ready = false;
 static volatile size_t      argb_pending_count = 0;
 static bool                 argb_active = false;
@@ -28,8 +28,8 @@ static argb_capture_mode_t  argb_mode = ARGB_MODE_RELAY;
 static uint16_t             argb_last_led_count = 0;
 static rmt_receive_config_t argb_rx_config = {};
 
-static argb_edge_t   *argb_edges = nullptr;   // edge pairs — heap, allocated on start
-static uint8_t       *argb_pixels = nullptr;  // decoded GRB — heap, allocated on start
+static argb_edge_t   *argb_edges = nullptr;   // edge pairs  -- heap, allocated on start
+static uint8_t       *argb_pixels = nullptr;  // decoded GRB  -- heap, allocated on start
 static argb_timing_t  argb_timing;
 
 static uint32_t       argb_boot_start_ms = 0;
@@ -208,7 +208,7 @@ void handleARGBPassthrough()
         ARGB_RMT_RESOLUTION_HZ,
         argb_edges, ARGB_EDGE_BUF_SIZE);
 
-    if (edge_count < 48) return;  // less than 1 LED (24 bits × 2 edges)
+    if (edge_count < 48) return;  // less than 1 LED (24 bits x 2 edges)
 
     argb_decode_result_t result = argb_decode_edges(
         &argb_timing, argb_edges, edge_count,

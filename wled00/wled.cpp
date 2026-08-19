@@ -1,7 +1,7 @@
 #define WLED_DEFINE_GLOBAL_VARS //only in one source file, wled.cpp!
 #include "wled.h"
 
-// RTC crash snapshot — persists across soft resets (PANIC, WDT)
+// RTC crash snapshot  -- persists across soft resets (PANIC, WDT)
 // Updated every 500ms by the main loop. On crash, /diag shows
 // the last snapshot before the panic.
 RTC_NOINIT_ATTR uint32_t rtcCrashMagic;
@@ -184,9 +184,7 @@ void WLED::loop()
       uint32_t activeMask = 0;
       for (unsigned _i = 0; _i < strip.getSegmentsNum(); _i++) {
         const Segment &_seg = strip.getSegment(_i);
-        // Only count on=true segments; off segments do not render
-        // and should not prevent the fast path from firing.
-        if (_seg.isActive() && _seg.on) activeMask |= (1u << _i);
+      if (_seg.isActive() && _seg.on) activeMask |= (1u << _i); // off segs don't render, don't block fast path
       }
       allSegsFrozenByDDP = activeMask && ((rtFrozenSegs & activeMask) == activeMask);
     }
@@ -198,11 +196,11 @@ void WLED::loop()
     #endif
   }
   // In realtime mode (DDP/E1.31/etc), the block above is skipped.
-  // Call strip.show() directly — NOT strip.service() — to transfer
+  // Call strip.show() directly  -- NOT strip.service()  -- to transfer
   // _pixels[] to bus buffers (TFT, HUB75) without running the effects
   // engine. service() would run effect functions that consume CPU time
   // and risk overwriting _pixels[] if realtime mode briefly lapses.
-  // show() does only: paint loop (_pixels[] → BusManager) + bus output.
+  // show() does only: paint loop (_pixels[]  -> BusManager) + bus output.
   if (realtimeMode && !realtimeOverride && !rtFrozenSegs) {
     if (e131NewData.load(std::memory_order_acquire)) {
       e131NewData.store(false, std::memory_order_relaxed);
@@ -442,7 +440,7 @@ void WLED::enableWatchdog() {
   // IDF v5: esp_task_wdt_init() takes a config struct, not (timeout, panic)
   esp_task_wdt_config_t wdt_cfg = {
     .timeout_ms = WLED_WATCHDOG_TIMEOUT * 1000,
-    .idle_core_mask = 0,       // don't subscribe idle tasks — only our loop task
+    .idle_core_mask = 0,       // don't subscribe idle tasks  -- only our loop task
     .trigger_panic = true,
   };
   esp_err_t watchdog = esp_task_wdt_init(&wdt_cfg);
@@ -656,30 +654,28 @@ void WLED::setup()
 #endif
 
 #ifdef WLED_USE_SLIP
-  // SLIP transport — mutually exclusive with WiFi, owns UART0
+  // SLIP transport  -- mutually exclusive with WiFi, owns UART0
   ESP_ERROR_CHECK(esp_netif_init());
   { esp_err_t e = esp_event_loop_create_default();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
   initSLIP();
 #elif defined(WLED_USE_PPP) && !defined(WLED_PPP_WIFI)
-  // PPP-exclusive mode (no WiFi) — manual TCP/IP bootstrap
+  // PPP-exclusive mode (no WiFi)  -- manual TCP/IP bootstrap
   ESP_ERROR_CHECK(esp_netif_init());
   { esp_err_t e = esp_event_loop_create_default();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) ESP_ERROR_CHECK(e); }
-  // BLE transport init — NimBLE + L2CAP server (advertising begins).
-  // Must run before UART init: NimBLE needs contiguous heap.
-  // UART PPP init — UART driver + PPP netif (always-on wired connection)
+  // UART PPP init  -- UART driver + PPP netif (always-on wired connection)
   #ifdef WLED_USE_PPP_UART
   initPPP();
   #endif
 #else
-  // WiFi available — WiFi-only or WiFi+PPP coexistence
+  // WiFi available  -- WiFi-only or WiFi+PPP coexistence
 
   #ifdef WLED_PPP_WIFI
-  // PPP+WiFi: init PPP FIRST — before ANY WiFi API calls.
+  // PPP+WiFi: init PPP FIRST  -- before ANY WiFi API calls.
   // WiFi.setScanMethod/persistent/setHostname/onEvent can trigger WiFi driver
   // initialization which hangs on fresh NVS (empty phy_init partition).
-  // PPP uses UART only — no WiFi dependency — so init it immediately.
+  // PPP uses UART only  -- no WiFi dependency  -- so init it immediately.
   #ifdef WLED_USE_PPP_UART
   initPPP();
   #endif
@@ -698,7 +694,7 @@ void WLED::setup()
 
   #ifdef WLED_PPP_WIFI
   if (strcmp(multiWiFi[0].clientSSID, DEFAULT_CLIENT_SSID) != 0) {
-    // Saved WiFi credentials exist — safe to start STA
+    // Saved WiFi credentials exist  -- safe to start STA
     WiFi.mode(WIFI_STA);
     #if defined(ARDUINO_ARCH_ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2))
     if (!WiFi.setBandMode(WIFI_BAND_MODE_AUTO)) {
@@ -707,11 +703,11 @@ void WLED::setup()
     #endif
     findWiFi(true);
   } else {
-    // Fresh install — PPP only, no WiFi STA scanning
+    // Fresh install  -- PPP only, no WiFi STA scanning
     DEBUG_PRINTLN(F("PPP+WiFi: fresh NVS, skipping WiFi STA (PPP provides connectivity)"));
   }
   #else
-  // WiFi-only path (no PPP) — original behavior
+  // WiFi-only path (no PPP)  -- original behavior
   WiFi.mode(WIFI_STA);
   #if defined(ARDUINO_ARCH_ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2))
   if (!WiFi.setBandMode(WIFI_BAND_MODE_AUTO)) {
@@ -728,14 +724,14 @@ void WLED::setup()
 
   // all GPIOs are allocated at this point
 #ifdef WLED_USE_SLIP
-  // SLIP owns UART0 exclusively — block all other WLED serial access
+  // SLIP owns UART0 exclusively  -- block all other WLED serial access
   serialCanRX = false;
   serialCanTX = false;
 #else
   serialCanRX = !PinManager::isPinAllocated(hardwareRX); // Serial RX pin (GPIO 3 on ESP32 and ESP8266)
   serialCanTX = !PinManager::isPinAllocated(hardwareTX) || PinManager::getPinOwner(hardwareTX) == PinOwner::DebugOut; // Serial TX pin (GPIO 1 on ESP32 and ESP8266)
   #ifdef WLED_USE_PPP_UART
-  // UART PPP owns its UART — block serial if PPP uses UART0 (FTDI variant)
+  // UART PPP owns its UART  -- block serial if PPP uses UART0 (FTDI variant)
   if (PPP_UART_NUM == UART_NUM_0) { serialCanRX = false; serialCanTX = false; }
   #endif
 #endif
@@ -1091,7 +1087,7 @@ void WLED::initInterfaces()
 #endif
 
   // Set up mDNS responder:
-  // Skip mDNS under PPP+WiFi coexistence — PPP is point-to-point (no mDNS LAN),
+  // Skip mDNS under PPP+WiFi coexistence  -- PPP is point-to-point (no mDNS LAN),
   // and MDNS.end() crashes in igmp_leavegroup_netif when WiFi STA disconnects
   // under DDP flood. Crash site: mdns_free -> igmp_lookfor_group NULL deref.
 #ifndef WLED_PPP_WIFI
@@ -1133,7 +1129,7 @@ void WLED::handleConnection()
   return;
 #endif
 #if defined(WLED_USE_PPP) && !defined(WLED_PPP_WIFI)
-  // PPP-exclusive mode (no WiFi) — manage interface state ourselves
+  // PPP-exclusive mode (no WiFi)  -- manage interface state ourselves
   if (ppp_connected && !interfacesInited) {
     initInterfaces();
   }
@@ -1143,14 +1139,14 @@ void WLED::handleConnection()
   return;
 #endif
 #ifdef WLED_PPP_WIFI
-  // WiFi+PPP coexistence — init interfaces when PPP link comes up
+  // WiFi+PPP coexistence  -- init interfaces when PPP link comes up
   if (ppp_connected && !interfacesInited) {
     initInterfaces();
   }
   // Start AP for local WiFi config access when PPP provides connectivity.
   // Normal WLED AP logic won't fire because PPP's initInterfaces() sets
   // wasConnected=true, making the AP_BEHAVIOR_BOOT_NO_CONN check false.
-  // Defer AP init during realtime — WiFi.softAP() acquires lock_tcpip_core
+  // Defer AP init during realtime  -- WiFi.softAP() acquires lock_tcpip_core
   // which contends with DDP packet processing on tcpip_thread. (Issue #2)
   if (ppp_connected && !apActive && realtimeMode == REALTIME_MODE_INACTIVE) {
     initAP();

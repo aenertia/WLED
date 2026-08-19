@@ -504,13 +504,13 @@ void handleNotifications()
   }
 
   //unlock strip when realtime UDP times out
-  //check BEFORE e131NewData show() — strip.show() can block on TFT DMA
+  //check BEFORE e131NewData show()  -- strip.show() can block on TFT DMA
   if (realtimeMode && millis() > realtimeTimeout) exitRealtime();
 
   if (e131NewData.load(std::memory_order_acquire)) {
     // Bi-modal inter-frame guard:
-    //   Conservative (15ms) when STA is connected or AP has clients — tcpip stack needs yield time.
-    //   Uncapped (MIN_FRAME_DELAY=2ms) when only PPP is up — no WiFi stack to yield to.
+    //   Conservative (15ms) when STA is connected or AP has clients  -- tcpip stack needs yield time.
+    //   Uncapped (MIN_FRAME_DELAY=2ms) when only PPP is up  -- no WiFi stack to yield to.
     const bool wifiActive = (WiFi.status() == WL_CONNECTED) || (apClients > 0);
     const uint16_t showGuard = wifiActive ? 15 : strip.getMinShowDelay();
     if (millis() - strip.getLastShow() > showGuard) {

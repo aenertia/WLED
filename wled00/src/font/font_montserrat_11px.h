@@ -1,4 +1,4 @@
-// Montserrat Medium 8px — 4bpp anti-aliased
+// Montserrat Medium 8px  -- 4bpp anti-aliased
 // Generated from Montserrat-Medium.ttf, 2585 bytes
 //
 /*
@@ -7,10 +7,10 @@
  * [1]   Glyph height: 11
  * [2]   Fixed/max glyph width: 9
  * [3]   Spacing: 1
- * [4]   Flags: 0x09 (bit0=variable, bits2-4=bpp:2→4bpp)
+ * [4]   Flags: 0x09 (bit0=variable, bits2-4=bpp:2 ->4bpp)
  * [5-6] Char range: 32-126
  * Bitmap packing: 4bpp nibbles, high nibble first, row-major
- * Alpha: 0x0=transparent, 0xF=opaque (scale ×17 for 0-255)
+ * Alpha: 0x0=transparent, 0xF=opaque (scale x17 for 0-255)
  */
 
 static const unsigned char font_montserrat_11px[] PROGMEM = {

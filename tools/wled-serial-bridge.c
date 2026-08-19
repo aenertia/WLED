@@ -2,7 +2,7 @@
  * wled-serial-bridge: SLIP tunnel between /dev/ttyUSBx and a TUN interface.
  *
  * Replaces pppd for the M5StickC FTDI serial link.
- * No negotiation protocol — just SLIP framing (RFC 1055) over UART.
+ * No negotiation protocol  -- just SLIP framing (RFC 1055) over UART.
  *
  * Usage: sudo ./wled-serial-bridge /dev/ttyUSB0 1500000
  *

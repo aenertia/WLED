@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IFS fractal renderer → DDP over PPP.
+"""IFS fractal renderer  -> DDP over PPP.
 
 Renders Iterated Function System attractors on the host and streams
 to ESP32 TFT at native 160x80 resolution via compressed DDP.
@@ -148,7 +148,6 @@ def render_ifs(preset, width, height, phase=0.0, iterations=0):
             idx = sy * width + sx
             heat[idx] = min(heat[idx] + 1, 255)
 
-    # Convert heat map to RGB pixels
     pixels = bytearray(width * height * 3)
     max_heat = max(max(heat), 1)
 
@@ -223,7 +222,7 @@ def main():
     raw_frame_bytes = num_pixels * 3
     packets_per_frame = math.ceil(raw_frame_bytes / mtu)
 
-    # W3.3: Bandwidth preflight — estimate if fps is achievable
+    # Bandwidth preflight  -- estimate if fps is achievable
     est_compressed = raw_frame_bytes * 0.25 if args.compress else raw_frame_bytes
     est_wire_per_sec = est_compressed * args.fps * 1.08  # ~8% PPP overhead
     est_baud_needed = est_wire_per_sec * 10  # 8N1 = 10 bits/byte
@@ -257,7 +256,6 @@ def main():
             phase = elapsed_total * 0.5
             current_preset = presets[preset_idx % len(presets)]
 
-            # Render IFS frame
             pixels = render_ifs(current_preset, w, h, phase, iterations=args.iterations)
             raw_total += len(pixels)
 
@@ -294,7 +292,6 @@ def main():
                 prev = None
                 print(f"  -> {PRESETS[presets[preset_idx % len(presets)]]['name']}")
 
-            # Frame pacing
             elapsed = time.monotonic() - frame_start
             sleep_time = (1.0 / args.fps) - elapsed
             if sleep_time > 0:

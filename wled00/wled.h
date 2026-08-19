@@ -757,9 +757,9 @@ void rebuildDdpSlots();                                                  // rebu
 void freezeSegForRealtime(uint8_t segId);                                // freeze one segment for realtime
 void freezeEligibleSegs();                                               // freeze all eligible segments (Mode B)
 
-// DDP rate limiter (Issue #2: flood survival)
+// DDP rate limiter (Issue #2)
 #ifdef WLED_ENABLE_SPI_MATRIX
-WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // max accepted DDP frames/sec (0=unlimited). TFT SPI DMA ~24ms → 40fps ceiling
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // max accepted DDP frames/sec (0=unlimited). TFT SPI DMA ~24ms  -> 40fps ceiling
 #else
 WLED_GLOBAL uint8_t ddpMaxFps _INIT(60);                                 // max accepted DDP frames/sec (0=unlimited)
 #endif
@@ -845,7 +845,7 @@ WLED_GLOBAL ESPAsyncE131 ddp  _INIT_N(((handleE131Packet)));
 // e131NewData: set by DDP callback on lwIP tcpip_thread (Core 0),
 // read by Arduino loop (Core 1). std::atomic with acquire/release
 // memory ordering ensures cross-core visibility.
-// Not WLED_GLOBAL — std::atomic is not trivially copyable.
+// Not WLED_GLOBAL  -- std::atomic is not trivially copyable.
 #ifdef WLED_DEFINE_GLOBAL_VARS
   std::atomic<bool> e131NewData{false};
 #else
