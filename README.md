@@ -73,7 +73,7 @@ The SPM1423 mic CLK line is GPIO0, which is also the ESP32 boot strapping pin. I
 
 - **WiFi + PPP simultaneous** — both `esp_netif_t` interfaces registered and active. WLED HTTP, DDP, and mDNS work on either interface. No mutual exclusion, no interface priority.
 
-- **TFT display as WLED pixel matrix** (`BusTFTMatrix`, `TYPE_TFT_MATRIX`) — ST7735S 80×160 mapped as 40×80 virtual pixels with 4× integer DMA scaling. WLED treats it as a standard 2D bus: effects, segments, presets, the lot. AXP192 boot guard prevents I2C hangs from blocking boot when this is the default bus type.
+- **SPI display as WLED pixel matrix** (`BusSPIMatrix`, `TYPE_SPI_MATRIX`) — ST7735S 80×160 mapped as 40×80 virtual pixels with 4× integer DMA scaling. WLED treats it as a standard 2D bus: effects, segments, presets, the lot. AXP192 boot guard prevents I2C hangs from blocking boot when this is the default bus type.
 
 - **DDP per-segment targeting** — dual-mode DDP routing replaces the old `useMainSegmentOnly` boolean:
   - Mode A: DDP `destination` byte (1–32) routes to segment 0–31, channel offset is segment-relative

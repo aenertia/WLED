@@ -464,10 +464,10 @@ void initServer()
       if (!bus) continue;
       response->printf("bus[%u]: type=%u start=%u len=%u tft=%d dig=%d\n",
         (unsigned)b, bus->getType(), bus->getStart(), bus->getLength(),
-        Bus::isTFT(bus->getType()), bus->isDigital());
-#ifdef WLED_ENABLE_TFT_MATRIX
-      if (Bus::isTFT(bus->getType())) {
-        auto *tft = static_cast<BusTFTMatrix*>(bus);
+         Bus::isSPIMatrix(bus->getType()), bus->isDigital());
+#ifdef WLED_ENABLE_SPI_MATRIX
+      if (Bus::isSPIMatrix(bus->getType())) {
+        auto *tft = static_cast<BusSPIMatrix*>(bus);
         response->printf("  tft: %ux%u scale=%ux%u dmaRows=%u stripBytes=%u\n",
           tft->getPanelWidth(), tft->getPanelHeight(),
           tft->getScaleX(), tft->getScaleY(),

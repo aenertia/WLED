@@ -38,7 +38,7 @@ Current 2-panel matrix configuration:
 
 | Panel | Type | Offset | Size | Physical LEDs |
 |-------|------|--------|------|---------------|
-| 0 | TFT_MATRIX (bus 0) | (0, 0) | 40×80 | 3200 |
+| 0 | SPI_MATRIX (bus 0) | (0, 0) | 40×80 | 3200 |
 | 1 | WS2812B (bus 1) | (0, 80) | 8×32 | 256 |
 
 `Segment::maxWidth = 40`, `Segment::maxHeight = 112`

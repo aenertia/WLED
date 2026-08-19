@@ -195,7 +195,7 @@ class Bus {
     static constexpr bool  isPWM(uint8_t type)        { return (type >= TYPE_ANALOG_MIN && type <= TYPE_ANALOG_MAX); }
     static constexpr bool  isVirtual(uint8_t type)    { return (type >= TYPE_VIRTUAL_MIN && type <= TYPE_VIRTUAL_MAX); }
     static constexpr bool  isHub75(uint8_t type)      { return (type >= TYPE_HUB75MATRIX_MIN && type <= TYPE_HUB75MATRIX_MAX); }
-    static constexpr bool  isTFT(uint8_t type)        { return (type >= TYPE_TFT_MATRIX_MIN && type <= TYPE_TFT_MATRIX_MAX); }
+    static constexpr bool  isSPIMatrix(uint8_t type)   { return (type >= TYPE_SPI_MATRIX_MIN && type <= TYPE_SPI_MATRIX_MAX); }
     static constexpr bool  is16bit(uint8_t type)      { return type == TYPE_UCS8903 || type == TYPE_UCS8904 || type == TYPE_SM16825; }
     static constexpr bool  mustRefresh(uint8_t type)  { return type == TYPE_TM1814; }
     static constexpr int   numPWMPins(uint8_t type)   { return (type - 40); }
@@ -455,17 +455,17 @@ class BusHub75Matrix : public Bus {
 };
 #endif
 
-#ifdef WLED_ENABLE_TFT_MATRIX
-class BusTFTMatrix : public Bus {
+#ifdef WLED_ENABLE_SPI_MATRIX
+class BusSPIMatrix : public Bus {
   public:
-    BusTFTMatrix(const BusConfig &bc);
-    ~BusTFTMatrix() { cleanup(); }
+    BusSPIMatrix(const BusConfig &bc);
+    ~BusSPIMatrix() { cleanup(); }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
     void setBrightness(uint8_t b) override;
     size_t getPins(uint8_t* pinArray = nullptr) const override;
-    size_t getBusSize() const override { return sizeof(BusTFTMatrix) + (_buffersAllocated ? 2 * _dmaStripBytes + _len * sizeof(uint32_t) : 0); }
+    size_t getBusSize() const override { return sizeof(BusSPIMatrix) + (_buffersAllocated ? 2 * _dmaStripBytes + _len * sizeof(uint32_t) : 0); }
     // Max SPI DMA transaction: 32767 pixels (65534 bytes) on all ESP32 variants.
     // TFT_eSPI pushPixelsDMA falls back to blocking SPI above this on S3/C3/C6.
     // We stay well under by computing optimal rows per strip at init time.

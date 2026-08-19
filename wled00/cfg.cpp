@@ -219,13 +219,13 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
     // cannot call strip.deserializeLedmap()/strip.setUpMatrix() here due to already locked JSON buffer
     //if (!fromFS) doInit2D = true; // if called at boot (fromFS==true), WLED::beginStrip() will take care of setting up matrix
   }
-  #if defined(TFT_VIRTUAL_W) && defined(TFT_VIRTUAL_H)
+  #if defined(SPI_MATRIX_W) && defined(SPI_MATRIX_H)
   else if (fromFS) {
     strip.isMatrix = true;
     strip.panel.clear();
     WS2812FX::Panel p;
-    p.width = TFT_VIRTUAL_W;
-    p.height = TFT_VIRTUAL_H;
+    p.width = SPI_MATRIX_W;
+    p.height = SPI_MATRIX_H;
     strip.panel.push_back(p);
     needsSave = true;
   }

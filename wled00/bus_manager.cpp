@@ -1275,7 +1275,7 @@ static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
   return false;  // no active segment covers this bus range
 }
 
-#ifdef WLED_ENABLE_TFT_MATRIX
+#ifdef WLED_ENABLE_SPI_MATRIX
 
 // --- AXP192 early-boot power rail init (M5StickC / M5StickC Plus) ---
 // Called from WLED::setup() BEFORE beginStrip() so that power rails are
@@ -1344,15 +1344,15 @@ bool initAXP192() {
   return true;
 }
 
-// Legacy wrappers used by BusTFTMatrix methods that still need raw I2C
-void BusTFTMatrix::axpWrite(uint8_t reg, uint8_t val) {
+// Legacy wrappers used by BusSPIMatrix methods that still need raw I2C
+void BusSPIMatrix::axpWrite(uint8_t reg, uint8_t val) {
   Wire1.beginTransmission(0x34);
   Wire1.write(reg);
   Wire1.write(val);
   Wire1.endTransmission();
 }
 
-uint8_t BusTFTMatrix::axpRead(uint8_t reg) {
+uint8_t BusSPIMatrix::axpRead(uint8_t reg) {
   Wire1.beginTransmission(0x34);
   Wire1.write(reg);
   Wire1.endTransmission(false);
@@ -1360,10 +1360,10 @@ uint8_t BusTFTMatrix::axpRead(uint8_t reg) {
   return Wire1.read();
 }
 
-BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
-: Bus(bc.type, bc.start, bc.autoWhite, TFT_VIRTUAL_W * TFT_VIRTUAL_H)
-, _panelWidth(TFT_VIRTUAL_W)
-, _panelHeight(TFT_VIRTUAL_H)
+BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
+: Bus(bc.type, bc.start, bc.autoWhite, SPI_MATRIX_W * SPI_MATRIX_H)
+, _panelWidth(SPI_MATRIX_W)
+, _panelHeight(SPI_MATRIX_H)
 , _scaleX(1)  // computed after TFT init
 , _scaleY(1)  // computed after TFT init
 , _activeBuf(0)
@@ -1378,25 +1378,25 @@ BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
   // AXP192 init: use early-boot function (idempotent — safe to call again
   // if setup() already called it, or if this bus is constructed at runtime).
   if (!initAXP192()) {
-    DEBUG_PRINTLN(F("BusTFTMatrix: AXP192 init failed — marking bus invalid"));
+    DEBUG_PRINTLN(F("BusSPIMatrix: AXP192 init failed — marking bus invalid"));
     _valid = false;
     return;
   }
 
-  if (!_tft_instance) {
-    _tft_instance = new TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
-    _tft_instance->init();
-    _tft_instance->setRotation(0);
-    _tft_instance->setSwapBytes(false);
-    _tft_instance->initDMA();
-    _tft_instance->fillScreen(TFT_BLACK);
+  if (!_spiDisplay) {
+    _spiDisplay = new TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
+    _spiDisplay->init();
+    _spiDisplay->setRotation(0);
+    _spiDisplay->setSwapBytes(false);
+    _spiDisplay->initDMA();
+    _spiDisplay->fillScreen(TFT_BLACK);
   }
 
   // Compute scale from post-rotation physical dimensions.
   // TFT_eSPI::width()/height() return the rotated display size,
   // so this works for any rotation + panel dimension combination.
-  _scaleX = _tft_instance->width()  / _panelWidth;
-  _scaleY = _tft_instance->height() / _panelHeight;
+  _scaleX = _spiDisplay->width()  / _panelWidth;
+  _scaleY = _spiDisplay->height() / _panelHeight;
   if (_scaleX < 1) _scaleX = 1;
   if (_scaleY < 1) _scaleY = 1;
 
@@ -1418,7 +1418,7 @@ BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
   // Budget for DMA ping-pong buffers.
   // Bus init runs early in boot before WiFi, PPP, audioreactive, WebServer
   // allocate — heap is inflated at this point. A fraction-based approach
-  // over-allocates. Instead: use a fixed absolute cap (TFT_DMA_MAX_BUDGET)
+  // over-allocates. Instead: use a fixed absolute cap (SPI_MATRIX_DMA_BUDGET)
   // that's known safe, and only go lower if current heap is already tight.
   //
   // Default budget: 16KB total (8KB per buffer). Yields:
@@ -1426,12 +1426,12 @@ BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
   //   240px wide: 16 rows/strip
   //   320px wide: 12 rows/strip
   //   480px wide:  8 rows/strip
-  // Override via build flag: -D TFT_DMA_MAX_BUDGET=32768
-  #ifndef TFT_DMA_MAX_BUDGET
-  #define TFT_DMA_MAX_BUDGET 16384  // 16KB total for both ping-pong buffers
+  // Override via build flag: -D SPI_MATRIX_DMA_BUDGET=32768
+  #ifndef SPI_MATRIX_DMA_BUDGET
+  #define SPI_MATRIX_DMA_BUDGET 16384  // 16KB total for both ping-pong buffers
   #endif
   const size_t dmaHeapFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
-  const size_t dmaBudget = min((size_t)TFT_DMA_MAX_BUDGET, dmaHeapFree / 4);
+  const size_t dmaBudget = min((size_t)SPI_MATRIX_DMA_BUDGET, dmaHeapFree / 4);
   // Buffer must hold _dmaRows * _scaleY physical rows (vertically replicated)
   const size_t bytesPerPhysStrip = bytesPerRow * _scaleY;  // per virtual row: scaleY physical rows
   const uint16_t maxRowsHeap = (bytesPerPhysStrip > 0 && dmaBudget > 0)
@@ -1446,23 +1446,23 @@ BusTFTMatrix::BusTFTMatrix(const BusConfig &bc)
   // This saves ~28KB heap when the TFT segment is off at boot.
   // Start with _skipShow=true so BusManager::show() skips us on the first frame
   // (beginStrip() calls show() before NVS state loads, with all segs on=true).
-  _valid = (_tft_instance != nullptr);
-  DEBUGBUS_PRINTF_P(PSTR("TFT Matrix: %dx%d (%d pix), scale %dx%d, dmaRows=%d (%u B/strip), heap: %u free, %u budget, valid=%d (buffers deferred)\n"),
+  _valid = (_spiDisplay != nullptr);
+  DEBUGBUS_PRINTF_P(PSTR("SPI Matrix: %dx%d (%d pix), scale %dx%d, dmaRows=%d (%u B/strip), heap: %u free, %u budget, valid=%d (buffers deferred)\n"),
                     _panelWidth, _panelHeight, _len, _scaleX, _scaleY, _dmaRows,
                     (unsigned)_dmaStripBytes, (unsigned)dmaHeapFree, (unsigned)dmaBudget, _valid);
 }
 
-void IRAM_ATTR BusTFTMatrix::setPixelColor(unsigned pix, uint32_t c) {
+void IRAM_ATTR BusSPIMatrix::setPixelColor(unsigned pix, uint32_t c) {
   if (!_valid || pix >= _len) return;
 }
 
-uint32_t BusTFTMatrix::getPixelColor(unsigned pix) const {
+uint32_t BusSPIMatrix::getPixelColor(unsigned pix) const {
   if (!_valid || pix >= _len) return 0;
   return strip.getPixelColorNoMap(_start + pix);
 }
 
-void BusTFTMatrix::show() {
-  if (!_valid || !_tft_instance) return;
+void BusSPIMatrix::show() {
+  if (!_valid || !_spiDisplay) return;
   if (_skipShow) {
     // Wave 3B: When skip-show gate is active (no active segment covers this bus),
     // free DMA buffers to reclaim ~28KB. Re-allocated on next active show().
@@ -1504,7 +1504,7 @@ void BusTFTMatrix::show() {
   const uint16_t numStrips = (_panelHeight + _dmaRows - 1) / _dmaRows;
   bool dmaStarted = false;
 
-  _tft_instance->startWrite();
+  _spiDisplay->startWrite();
 
   for (uint16_t s = 0; s < numStrips; s++) {
     uint16_t stripY   = s * _dmaRows;
@@ -1517,7 +1517,7 @@ void BusTFTMatrix::show() {
     unsigned basePix  = stripY * _panelWidth;
     uint16_t physRows = rows * _scaleY;
 
-    if (dmaStarted) _tft_instance->dmaWait();
+    if (dmaStarted) _spiDisplay->dmaWait();
     dmaStarted = true;
 
     uint16_t *buf = _dmaBuf[_activeBuf];
@@ -1537,21 +1537,21 @@ void BusTFTMatrix::show() {
       }
     }
 
-    _tft_instance->pushImageDMA(0, stripY * _scaleY, physW, physRows, buf);
+    _spiDisplay->pushImageDMA(0, stripY * _scaleY, physW, physRows, buf);
     _activeBuf ^= 1;
   }
 
   if (dmaStarted) {
-    _tft_instance->dmaWait();
+    _spiDisplay->dmaWait();
   }
-  _tft_instance->endWrite();
+  _spiDisplay->endWrite();
 }
 
-void BusTFTMatrix::setBrightness(uint8_t b) {
+void BusSPIMatrix::setBrightness(uint8_t b) {
   _bri = b;
 }
 
-size_t BusTFTMatrix::getPins(uint8_t* pinArray) const {
+size_t BusSPIMatrix::getPins(uint8_t* pinArray) const {
   if (pinArray) {
     pinArray[0] = TFT_MOSI;
     pinArray[1] = TFT_SCLK;
@@ -1561,16 +1561,16 @@ size_t BusTFTMatrix::getPins(uint8_t* pinArray) const {
   return 4;
 }
 
-std::vector<LEDType> BusTFTMatrix::getLEDTypes() {
+std::vector<LEDType> BusSPIMatrix::getLEDTypes() {
   return {
-    {TYPE_TFT_MATRIX, "", PSTR("TFT Matrix (SPI)")},
+    {TYPE_SPI_MATRIX, "", PSTR("SPI Matrix")},
   };
 }
 
 // Recompute which virtual rows have active segment coverage.
 // Called every frame from show() — cheap (~5us for 2 segments).
 // Only DMA strips overlapping [_activeRowMin, _activeRowMax) get pushed.
-void BusTFTMatrix::recalcActiveRowRange() {
+void BusSPIMatrix::recalcActiveRowRange() {
   _prevActiveRowMax = _activeRowMax;  // remember for blank-push detection
   uint16_t rMin = _panelHeight, rMax = 0;
   const bool is2D = (Segment::maxHeight > 1);
@@ -1614,7 +1614,7 @@ void BusTFTMatrix::recalcActiveRowRange() {
 // Wave 3B: Lazy-allocate DMA ping-pong buffers and pixel snapshot buffer.
 // Called on the first show() where the skip-show gate does NOT fire.
 // Returns true on success, false if allocation fails (non-fatal, retries next frame).
-bool BusTFTMatrix::allocateBuffers() {
+bool BusSPIMatrix::allocateBuffers() {
   if (_buffersAllocated) return true;
 
   const uint16_t physW = _panelWidth * _scaleX;
@@ -1653,7 +1653,7 @@ bool BusTFTMatrix::allocateBuffers() {
 
 // Wave 3B: Free DMA/snap buffers when TFT segment goes idle.
 // Called from show() when _skipShow is true. Re-allocated on next active show().
-void BusTFTMatrix::deallocateBuffers() {
+void BusSPIMatrix::deallocateBuffers() {
   if (!_buffersAllocated) return;
   heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
   heap_caps_free(_dmaBuf[1]); _dmaBuf[1] = nullptr;
@@ -1662,13 +1662,13 @@ void BusTFTMatrix::deallocateBuffers() {
   DEBUGBUS_PRINTLN(F("TFT deallocateBuffers(): freed DMA + snap buffers"));
 }
 
-void BusTFTMatrix::cleanup() {
-  DEBUGBUS_PRINTLN(F("TFT Matrix Cleanup."));
+void BusSPIMatrix::cleanup() {
+  DEBUGBUS_PRINTLN(F("SPI Matrix Cleanup."));
   deallocateBuffers();
   _valid = false;
 }
 
-#endif // WLED_ENABLE_TFT_MATRIX
+#endif // WLED_ENABLE_SPI_MATRIX
 // ***************************************************************************
 
 BusPlaceholder::BusPlaceholder(const BusConfig &bc)
@@ -1702,9 +1702,9 @@ size_t BusConfig::memUsage() const {
     mem += sizeof(BusDigital) + PolyBus::memUsage(count + skipAmount, iType);
   } else if (Bus::isOnOff(type)) {
     mem += sizeof(BusOnOff);
-#ifdef WLED_ENABLE_TFT_MATRIX
-  } else if (Bus::isTFT(type)) {
-    mem += sizeof(BusTFTMatrix) + ((count + 7) / 8);
+#ifdef WLED_ENABLE_SPI_MATRIX
+  } else if (Bus::isSPIMatrix(type)) {
+    mem += sizeof(BusSPIMatrix) + ((count + 7) / 8);
 #endif
   } else {
     mem += sizeof(BusPwm);
@@ -1733,9 +1733,9 @@ int BusManager::add(const BusConfig &bc, bool placeholder) {
   } else if (Bus::isHub75(bc.type)) {
     busses.push_back(make_unique<BusHub75Matrix>(bc));
 #endif
-#ifdef WLED_ENABLE_TFT_MATRIX
-  } else if (Bus::isTFT(bc.type)) {
-    busses.push_back(make_unique<BusTFTMatrix>(bc));
+#ifdef WLED_ENABLE_SPI_MATRIX
+  } else if (Bus::isSPIMatrix(bc.type)) {
+    busses.push_back(make_unique<BusSPIMatrix>(bc));
 #endif
   } else if (Bus::isDigital(bc.type)) {
     busses.push_back(make_unique<BusDigital>(bc));
@@ -1771,8 +1771,8 @@ String BusManager::getLEDTypesJSONString() {
   #ifdef WLED_ENABLE_HUB75MATRIX
   json += LEDTypesToJson(BusHub75Matrix::getLEDTypes());
   #endif
-  #ifdef WLED_ENABLE_TFT_MATRIX
-  json += LEDTypesToJson(BusTFTMatrix::getLEDTypes());
+  #ifdef WLED_ENABLE_SPI_MATRIX
+  json += LEDTypesToJson(BusSPIMatrix::getLEDTypes());
   #endif
 
   json.setCharAt(json.length()-1, ']'); // replace last comma with bracket
@@ -1882,7 +1882,7 @@ void BusManager::show() {
     // When no active segment covers this bus, skip the expensive show() call.
     // "Blank then skip": first idle frame calls show() to blank the display,
     // subsequent idle frames skip entirely. Resumes when a segment becomes active.
-    const bool isSlow = Bus::isTFT(bus->getType()) || Bus::isHub75(bus->getType()) || Bus::isVirtual(bus->getType());
+    const bool isSlow = Bus::isSPIMatrix(bus->getType()) || Bus::isHub75(bus->getType()) || Bus::isVirtual(bus->getType());
     if (isSlow) {
       const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
       if (!hasActive) {

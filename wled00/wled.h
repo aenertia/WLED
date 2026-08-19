@@ -127,8 +127,8 @@
 #ifdef WLED_USE_SLIP
 #include "wled_slip.h"
 #endif
-#ifdef WLED_ENABLE_TFT_MATRIX
-#include "bus_tft_matrix.h"
+#ifdef WLED_ENABLE_SPI_MATRIX
+#include "bus_spi_matrix.h"
 #endif
 #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
 #include "wled_argb_passthrough.h"
@@ -758,7 +758,7 @@ void freezeSegForRealtime(uint8_t segId);                                // free
 void freezeEligibleSegs();                                               // freeze all eligible segments (Mode B)
 
 // DDP rate limiter (Issue #2: flood survival)
-#ifdef WLED_ENABLE_TFT_MATRIX
+#ifdef WLED_ENABLE_SPI_MATRIX
 WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // max accepted DDP frames/sec (0=unlimited). TFT SPI DMA ~24ms → 40fps ceiling
 #else
 WLED_GLOBAL uint8_t ddpMaxFps _INIT(60);                                 // max accepted DDP frames/sec (0=unlimited)

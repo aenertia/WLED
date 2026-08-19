@@ -2116,7 +2116,7 @@ void WS2812FX::makeAutoSegments(bool forceReset) {
       const Bus *bus = BusManager::getBus(i);
       if (!bus) break;
 
-      if (Bus::isTFT(bus->getType()) && realtimeMode != REALTIME_MODE_INACTIVE) continue; // skip TFT when DDP active; allow segment when idle
+      if (Bus::isSPIMatrix(bus->getType()) && realtimeMode != REALTIME_MODE_INACTIVE) continue; // skip SPI Matrix when DDP active; allow segment when idle
 
       segStarts[s] = bus->getStart();
       segStops[s]  = segStarts[s] + bus->getLength();

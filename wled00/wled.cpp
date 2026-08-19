@@ -628,7 +628,7 @@ void WLED::setup()
   }
 #endif
 
-#ifdef WLED_ENABLE_TFT_MATRIX
+#ifdef WLED_ENABLE_SPI_MATRIX
   DEBUG_PRINTLN(F("Initializing AXP192 power rails"));
   initAXP192();
 #endif
