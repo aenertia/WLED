@@ -304,6 +304,7 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
 #define REALTIME_MODE_TPM2NET     7
 #define REALTIME_MODE_DDP         8
 #define REALTIME_MODE_DMX         9
+#define REALTIME_MODE_ARGB_PASSTHROUGH 10
 
 //realtime override modes
 #define REALTIME_OVERRIDE_NONE    0
@@ -380,6 +381,10 @@ static_assert(WLED_MAX_BUSSES <= 32, "WLED_MAX_BUSSES exceeds hard limit");
 #define TYPE_HUB75MATRIX_HS      65
 #define TYPE_HUB75MATRIX_QS      66
 #define TYPE_HUB75MATRIX_MAX     71
+
+#define TYPE_SPI_MATRIX_MIN  72
+#define TYPE_SPI_MATRIX      72            //SPI matrix (ST7735/ST7789)
+#define TYPE_SPI_MATRIX_MAX  79
 
 //Network types (master broadcast) (80-95)
 #define TYPE_VIRTUAL_MIN         80

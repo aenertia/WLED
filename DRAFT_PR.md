@@ -1,60 +1,85 @@
-## feat(bus): skip show() for idle slow buses + showFrozenSegs() DDP fast path
+# TFT Display as WLED Pixel Matrix Output Bus (BusSPIMatrix)
 
-**Forgejo**: Fixes #22
+**Forgejo**: Fixes #14
 
-### Problem
+## Summary
 
-On constrained ESP32 devices (no PSRAM), the TFT SPI DMA `show()` call
-takes ~24ms per frame. When DDP is streaming to a WS2812B strip only, the
-TFT bus still runs its full DMA cycle every frame — wasting CPU, blocking
-the main loop, and capping DDP throughput at ~45fps.
+Adds BusSPIMatrix — a new bus type that drives an ST7735S/ST7789 TFT display as a WLED pixel matrix. The display appears as a standard 2D LED matrix: effects, segments, presets, and DDP all work identically.
 
-Additionally, when the TFT segment is off (no active effects), the DMA
-ping-pong buffers (~16KB) and snapshot buffer (~12.8KB) remain allocated
-even though they're not needed.
+## Changes
 
-### Solution
+| File | Description |
+|------|-------------|
+| `bus_spi_matrix.h` | TFT_eSPI configuration defines and includes |
+| `bus_manager.cpp` | BusSPIMatrix class implementation + AXP192 PMIC init |
+| `bus_manager.h` | BusSPIMatrix class declaration, `isSPIMatrix()` type check |
+| `const.h` | `TYPE_SPI_MATRIX` (72) and range constants |
+| `wled.cpp` | Early `initAXP192()` call before `beginStrip()` |
+| `cfg.cpp` | `SPI_MATRIX_W/H` matrix panel defaults on fresh NVS |
+| `wled.h` | Minimal `rtFrozenSegs` for DDP-aware row range calculation |
 
-**Bus skip-show gate**: `BusManager::show()` calls `busHasActiveSegment()`
-before invoking `show()` on each bus. When no active segment covers a slow
-bus (TFT, Hub75, Network), `show()` is skipped. For TFT: DMA buffers are
-freed (`deallocateBuffers()`) when the bus goes idle, saving ~29KB heap.
-Re-allocated lazily on first active `show()`.
+## Build Flags
 
-**`showFrozenSegs()` fast path**: When DDP has frozen specific segments via
-`rtFrozenSegs` (see `pr/ddp-per-segment`), `showFrozenSegs()` bypasses the
-full `_pixels[]` pipeline and calls `show()` only on buses covering frozen
-segments. Eliminates the TFT SPI DMA bottleneck for DDP streams targeting
-only the WS2812B strip.
+The bus uses a layered flag system so board-specific code is cleanly separated from the generic bus:
 
-**Dirty-row partial render**: `recalcActiveRowRange()` computes the active
-row range from segment geometry each frame (~5µs). DMA strips outside the
-active range are skipped, reducing loopLag for sub-panel TFT segments.
+```
+# Generic — enables the bus class (any SPI display, any board)
+-D WLED_ENABLE_SPI_MATRIX
+-D SPI_MATRIX_W=40        # virtual panel width  (mandatory, no default)
+-D SPI_MATRIX_H=80        # virtual panel height (mandatory, no default)
 
-### Results (M5StickC, ESP32-PICO-D4, 40×80 TFT + 8×32 WS2812B)
+# M5StickC board support — compiles AXP192 PMIC code
+-D WLED_SPI_MATRIX_AXP192
+-D WLED_SPI_MATRIX_BOARD_INIT=initAXP192
+```
 
-| Scenario | Before | After |
-|----------|--------|-------|
-| DDP to strip only (fps) | 45 | 119 (+2.7×) |
-| TFT off (free heap) | 59 KB | 88.7 KB (+29 KB) |
-| Sub-panel TFT loopLag | 17 ms | 0–3 ms |
+`SPI_MATRIX_W` and `SPI_MATRIX_H` have no defaults — omitting them is a compile error. This forces explicit configuration and prevents silent M5StickC-specific values leaking into other boards.
 
-### Files changed
+### Common integer-scale configurations
 
-- `wled00/bus_manager.cpp` — `busHasActiveSegment()`, skip-show gate in `BusManager::show()`, `BusSPIMatrix` lazy alloc/dealloc, `recalcActiveRowRange()`
-- `wled00/bus_manager.h` — `_skipShow`, `_buffersAllocated`, `_activeRowMin/Max` fields, new method declarations
-- `wled00/bus_spi_matrix.h` — SPI matrix bus implementation
-- `wled00/FX_fcn.cpp` — `showFrozenSegs()` implementation
-- `wled00/FX.h` — `showFrozenSegs()` declaration
-- `wled00/wled.h` — `rtFrozenSegs` (shared with `pr/ddp-per-segment`)
-- `wled00/wled.cpp` — `allSegsFrozenByDDP` guard in main loop
-- `wled00/udp.cpp` — `showFrozenSegs()` call sites, timeout-before-show fix
+| Panel | TFT_WIDTH×HEIGHT | SPI_MATRIX_W×H | Scale |
+|-------|-----------------|-----------------|-------|
+| M5StickC ST7735S | 80×160 | W=40 H=80 | 2×2 |
+| M5StickC+ ST7789V2 | 135×240 | W=45 H=80 | 3×3 |
+| SSD1351 1.5" OLED | 128×128 | W=32 H=32 | 4×4 |
+| TTGO T-Display | 135×240 | W=27 H=48 | 5×5 |
+| ILI9341 2.8" / CYD | 240×320 | W=40 H=80 | 6×4 |
+| ILI9486/ILI9488 3.5" Pi | 320×480 | W=40 H=60 | 8×8 |
+| ST7796 4" Pi | 320×480 | W=80 H=120 | 4×4 |
+| SSD1963 5" Pi | 480×800 | W=60 H=100 | 8×8 |
 
-### Dependencies
+Non-integer scale is safe (no crash) but leaves dead pixels at right/bottom edges. A compile-time `#warning` fires when `TFT_WIDTH % SPI_MATRIX_W != 0`.
 
-Requires: `pr/ddp-per-segment` (provides `rtFrozenSegs` bitmask)
+## Key Design Decisions
 
-### Testing
+### Board-init hook (`WLED_SPI_MATRIX_BOARD_INIT`)
+The bus constructor calls `WLED_SPI_MATRIX_BOARD_INIT()` if defined, and marks the bus invalid if it returns false. For M5StickC this is `initAXP192`. Other boards define their own function or omit the flag entirely (constructor skips the hook). This keeps AXP192 code out of the generic bus path.
 
-Tested on M5StickC over 1.5Mbaud PPP link. 10-minute DDP soak: 0 crashes,
-heap stable, 119fps sustained to WS2812B strip with TFT idle.
+### AXP192 Early Init (M5StickC only)
+The M5StickC uses an AXP192 PMIC. Without early init, the mic's unpowered CLK line pulls GPIO0 LOW (a strapping pin), forcing download mode. `initAXP192()` runs before `beginStrip()` and is idempotent. Compiled only when `WLED_SPI_MATRIX_AXP192` is defined.
+
+### DMA Ping-Pong Buffers
+Two DMA strip buffers alternate to overlap SPI transfer with pixel conversion. Buffer size is computed at init time from available DMA heap with a configurable cap (`SPI_MATRIX_DMA_BUDGET`, default 16KB).
+
+### Lazy Buffer Allocation
+DMA and snapshot buffers are allocated on first active `show()`, not in the constructor. This saves ~28KB when the TFT segment is off at boot.
+
+### Integer Scaling
+4x integer scaling maps virtual pixels to physical TFT pixels (e.g., 40x80 virtual → 160x80 physical). No floating-point, no interpolation — each virtual pixel becomes a `scaleX × scaleY` block.
+
+## Hardware Tested
+
+- M5StickC (ESP32-PICO-D4, ST7735S 80×160)
+- M5StickC Plus (ESP32-PICO-D4, ST7789V2 135×240)
+
+## Notes
+
+- Build flag is opt-in; no impact on standard WLED builds
+- No dependencies on PPP, SLIP, or ARGB features
+## Related upstream issues
+
+| Issue/PR | Repo | Title | Relevance |
+|----------|------|-------|-----------|
+| [#2197](https://github.com/wled/WLED/issues/2197) | Aircoookie/WLED | Framebuffer::GFX for 2D matrix output (closed) | Prior discussion of TFT-as-matrix; this PR implements the concept cleanly |
+| [#1963](https://github.com/wled/WLED/issues/1963) | Aircoookie/WLED | Touch display support (closed/stale) | Related hardware integration pattern |
+| [#4375](https://github.com/wled/WLED/issues/4375) | Aircoookie/WLED | TTGO-T-Display usermod failure (closed) | TFT display integration pain points this PR addresses at the bus level |

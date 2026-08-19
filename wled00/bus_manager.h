@@ -176,7 +176,7 @@ class Bus {
     inline  bool     containsPixel(uint16_t pix) const          { return pix >= _start && pix < _start + _len; }
 
     static inline std::vector<LEDType> getLEDTypes()            { return {{TYPE_NONE, "", PSTR("None")}}; } // not used. just for reference for derived classes
-    static constexpr size_t   getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isPWM(type) ? numPWMPins(type) : isHub75(type) ? 5 : is2Pin(type) + 1; } // credit @PaoloTK; for HUB75 the 5 slots store config params (panelW, panelH, chain, rows, cols), not GPIO pins
+    static constexpr size_t   getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isPWM(type) ? numPWMPins(type) : isHub75(type) ? 5 : isSPIMatrix(type) ? 1 : is2Pin(type) + 1; } // credit @PaoloTK; HUB75 5 slots = config params; SPI matrix 1 = CS (SPI pins from TFT_eSPI)
     static constexpr size_t   getNumberOfChannels(uint8_t type) { return hasWhite(type) + 3*hasRGB(type) + hasCCT(type); }
     static constexpr bool hasRGB(uint8_t type) {
       return !((type >= TYPE_WS2812_1CH && type <= TYPE_WS2812_WWA) || type == TYPE_ANALOG_1CH || type == TYPE_ANALOG_2CH || type == TYPE_ONOFF);
@@ -200,6 +200,7 @@ class Bus {
     static constexpr bool  isPWM(uint8_t type)        { return (type >= TYPE_ANALOG_MIN && type <= TYPE_ANALOG_MAX); }
     static constexpr bool  isVirtual(uint8_t type)    { return (type >= TYPE_VIRTUAL_MIN && type <= TYPE_VIRTUAL_MAX); }
     static constexpr bool  isHub75(uint8_t type)      { return (type >= TYPE_HUB75MATRIX_MIN && type <= TYPE_HUB75MATRIX_MAX); }
+    static constexpr bool  isSPIMatrix(uint8_t type)   { return (type >= TYPE_SPI_MATRIX_MIN && type <= TYPE_SPI_MATRIX_MAX); }
     static constexpr bool  is16bit(uint8_t type)      { return type == TYPE_UCS8903 || type == TYPE_UCS8904 || type == TYPE_SM16825; }
     static constexpr bool  mustRefresh(uint8_t type)  { return type == TYPE_TM1814; }
     static constexpr int   numPWMPins(uint8_t type)   { return (type - 40); }
@@ -457,6 +458,58 @@ class BusHub75Matrix : public Bus {
     static constexpr uint32_t IS_DARKGREY = 0x333333u;
     static constexpr int PIN_COUNT = 14;
 };
+#endif
+
+#ifdef WLED_ENABLE_SPI_MATRIX
+class TFT_eSPI; // forward declaration  -- full definition in bus_spi_matrix.h via <TFT_eSPI.h>
+class BusSPIMatrix : public Bus {
+  public:
+    BusSPIMatrix(const BusConfig &bc);
+    ~BusSPIMatrix() { cleanup(); }
+    bool hasIdleSkip() const override { return true; }
+    void setPixelColor(unsigned pix, uint32_t c) override;
+    [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
+    void show() override;
+    void setBrightness(uint8_t b) override;
+    size_t getPins(uint8_t* pinArray = nullptr) const override;
+    size_t getBusSize() const override { return sizeof(BusSPIMatrix) + (_buffersAllocated ? 2 * _dmaStripBytes + _len * sizeof(uint32_t) : 0); }
+    static constexpr uint32_t SPI_DMA_MAX_PIXELS = 32767;
+    void cleanup();
+    static std::vector<LEDType> getLEDTypes();
+    uint16_t getPanelWidth() const { return _panelWidth; }
+    uint16_t getPanelHeight() const { return _panelHeight; }
+    uint8_t  getScaleX() const { return _scaleX; }
+    uint8_t  getScaleY() const { return _scaleY; }
+    uint16_t getDmaRows() const { return _dmaRows; }
+    size_t   getDmaStripBytes() const { return _dmaStripBytes; }
+  private:
+    uint16_t _panelWidth;
+    uint16_t _panelHeight;
+    uint8_t  _scaleX;
+    uint8_t  _scaleY;
+    uint16_t *_dmaBuf[2];
+    uint32_t *_snapBuf;        // pixel snapshot  -- copy of _pixels[] taken once per show()
+    uint8_t   _activeBuf;
+    uint16_t  _dmaRows;        // virtual rows per DMA strip (computed at init)
+    size_t    _dmaStripBytes;  // bytes per DMA strip buffer
+    bool      _buffersAllocated = false; // Wave 3B: deferred DMA/snap allocation
+    uint16_t  _activeRowMin = 0;         // first virtual row with active segment (inclusive)
+    uint16_t  _activeRowMax = 0;         // last virtual row with active segment (exclusive), 0 = fully idle
+    uint16_t  _prevActiveRowMax = 0;     // previous range max  -- for blank-push on deactivation
+    bool allocateBuffers();              // lazy-allocate _dmaBuf + _snapBuf on first active show()
+    void deallocateBuffers();            // free _dmaBuf + _snapBuf when skip-show activates
+    void recalcActiveRowRange();         // recompute _activeRowMin/Max from segment coverage
+    static TFT_eSPI *_spiDisplay;
+#ifdef WLED_SPI_MATRIX_AXP192
+    static void axpWrite(uint8_t reg, uint8_t val);
+    static uint8_t axpRead(uint8_t reg);
+#endif
+};
+#ifdef WLED_SPI_MATRIX_AXP192
+// Early-boot AXP192 power rail init  -- call before beginStrip().
+// Idempotent; returns false if AXP192 not found on I2C.
+bool initAXP192();
+#endif // WLED_SPI_MATRIX_AXP192
 #endif
 
 //temporary struct for passing bus configuration to bus
