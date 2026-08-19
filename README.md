@@ -73,7 +73,32 @@ The SPM1423 mic CLK line is GPIO0, which is also the ESP32 boot strapping pin. I
 
 - **WiFi + PPP simultaneous** — both `esp_netif_t` interfaces registered and active. WLED HTTP, DDP, and mDNS work on either interface. No mutual exclusion, no interface priority.
 
-- **SPI display as WLED pixel matrix** (`BusSPIMatrix`, `TYPE_SPI_MATRIX`) — ST7735S 80×160 mapped as 40×80 virtual pixels with 4× integer DMA scaling. WLED treats it as a standard 2D bus: effects, segments, presets, the lot. AXP192 boot guard prevents I2C hangs from blocking boot when this is the default bus type.
+- **SPI display as WLED pixel matrix** (`BusSPIMatrix`, `TYPE_SPI_MATRIX`) — any SPI display supported by TFT_eSPI (ST7735, ST7789, ILI9341, ILI9486, SSD1351 OLED, and more) mapped as a virtual pixel matrix. WLED treats it as a standard 2D bus: effects, segments, presets, DDP, the lot. Which is either clever or deeply cursed, depending on your perspective.
+
+  The M5StickC's 80×160 TFT maps to 40×80 virtual pixels at 2× integer scale. Each virtual pixel becomes a 2×2 physical block — no floating-point, no interpolation, no heap allocation per pixel. DMA ping-pong buffers overlap SPI transfer with pixel conversion; dirty-row tracking skips unchanged strips entirely.
+
+  The bus is generic — board-specific code is cleanly separated via build flags:
+  ```
+  WLED_ENABLE_SPI_MATRIX          ← enables the bus (any SPI display, any board)
+    SPI_MATRIX_W=40               ← virtual panel width  (mandatory, no default)
+    SPI_MATRIX_H=80               ← virtual panel height (mandatory, no default)
+  WLED_SPI_MATRIX_AXP192          ← M5StickC board support: compiles AXP192 PMIC init
+  WLED_SPI_MATRIX_BOARD_INIT=initAXP192  ← wires PMIC init into bus constructor
+  ```
+
+  Common integer-scale configurations (non-integer scale is safe but leaves dead pixels at edges):
+
+  | Panel | Physical | Virtual W×H | Scale |
+  |-------|----------|-------------|-------|
+  | M5StickC ST7735S | 80×160 | 40×80 | 2×2 |
+  | M5StickC+ ST7789V2 | 135×240 | 45×80 | 3×3 |
+  | SSD1351 1.5" OLED | 128×128 | 32×32 | 4×4 |
+  | ILI9341 2.8" / CYD | 240×320 | 40×80 | 6×4 |
+  | ILI9486/ILI9488 3.5" Pi | 320×480 | 40×60 | 8×8 |
+  | ST7796 4" Pi | 320×480 | 80×120 | 4×4 |
+  | SSD1963 5" Pi | 480×800 | 60×100 | 8×8 |
+
+  AXP192 boot guard prevents I2C hangs from blocking boot when this is the default bus type. The bus constructor calls a generic `WLED_SPI_MATRIX_BOARD_INIT` hook — other boards plug in their own PMIC or backlight init, or omit the flag entirely.
 
 - **DDP per-segment targeting** — dual-mode DDP routing replaces the old `useMainSegmentOnly` boolean:
   - Mode A: DDP `destination` byte (1–32) routes to segment 0–31, channel offset is segment-relative
