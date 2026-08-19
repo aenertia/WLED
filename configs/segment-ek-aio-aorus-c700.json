@@ -1,0 +1,769 @@
+{
+  "seg": [
+    {
+      "id": 0,
+      "start": 1,
+      "stop": 4,
+      "startY": 2,
+      "stopY": 8,
+      "on": true,
+      "bri": 255,
+      "n": "V1_push",
+      "col": [
+        [
+          255,
+          0,
+          128
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 149,
+      "sx": 128,
+      "ix": 128,
+      "pal": 66,
+      "c1": 128,
+      "c2": 128,
+      "c3": 16,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 1,
+      "start": 5,
+      "stop": 8,
+      "startY": 2,
+      "stopY": 8,
+      "on": true,
+      "bri": 255,
+      "n": "V2_push",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 149,
+      "sx": 128,
+      "ix": 128,
+      "pal": 66,
+      "c1": 128,
+      "c2": 128,
+      "c3": 16,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 2,
+      "start": 9,
+      "stop": 12,
+      "startY": 2,
+      "stopY": 8,
+      "on": true,
+      "bri": 255,
+      "n": "V3_push",
+      "col": [
+        [
+          0,
+          128,
+          255
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 149,
+      "sx": 128,
+      "ix": 0,
+      "pal": 66,
+      "c1": 128,
+      "c2": 128,
+      "c3": 16,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 3,
+      "start": 1,
+      "stop": 4,
+      "startY": 9,
+      "stopY": 15,
+      "on": true,
+      "bri": 255,
+      "n": "V4_pull",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 74,
+      "sx": 128,
+      "ix": 0,
+      "pal": 26,
+      "c1": 0,
+      "c2": 0,
+      "c3": 0,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 4,
+      "start": 5,
+      "stop": 8,
+      "startY": 9,
+      "stopY": 15,
+      "on": true,
+      "bri": 255,
+      "n": "V5_pull",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 74,
+      "sx": 128,
+      "ix": 0,
+      "pal": 26,
+      "c1": 0,
+      "c2": 0,
+      "c3": 2,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 5,
+      "start": 9,
+      "stop": 12,
+      "startY": 9,
+      "stopY": 15,
+      "on": true,
+      "bri": 255,
+      "n": "V6_pull",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 74,
+      "sx": 128,
+      "ix": 0,
+      "pal": 26,
+      "c1": 0,
+      "c2": 0,
+      "c3": 1,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 6,
+      "start": 1,
+      "stop": 9,
+      "startY": 17,
+      "stopY": 25,
+      "on": true,
+      "bri": 255,
+      "n": "CASE1",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 24,
+      "ix": 32,
+      "pal": 0,
+      "c1": 48,
+      "c2": 64,
+      "c3": 0,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 7,
+      "start": 16,
+      "stop": 24,
+      "startY": 17,
+      "stopY": 25,
+      "on": true,
+      "bri": 255,
+      "n": "CPU",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 154,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 0,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 8,
+      "start": 31,
+      "stop": 39,
+      "startY": 17,
+      "stopY": 25,
+      "on": true,
+      "bri": 255,
+      "n": "CASE2",
+      "col": [
+        [
+          255,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 0,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 9,
+      "start": 1,
+      "stop": 39,
+      "startY": 27,
+      "stopY": 33,
+      "on": true,
+      "bri": 255,
+      "n": "C700_FL",
+      "col": [
+        [
+          0,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 0,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 10,
+      "start": 1,
+      "stop": 39,
+      "startY": 34,
+      "stopY": 40,
+      "on": true,
+      "bri": 255,
+      "n": "C700_FR",
+      "col": [
+        [
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 0,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 11,
+      "start": 1,
+      "stop": 39,
+      "startY": 41,
+      "stopY": 47,
+      "on": true,
+      "bri": 255,
+      "n": "C700_B",
+      "col": [
+        [
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 0,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": false,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 12,
+      "start": 0,
+      "stop": 8,
+      "startY": 80,
+      "stopY": 88,
+      "on": true,
+      "bri": 255,
+      "n": "WS_RAD_PUSH",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 4,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": true,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 13,
+      "start": 0,
+      "stop": 8,
+      "startY": 88,
+      "stopY": 96,
+      "on": true,
+      "bri": 255,
+      "n": "WS_RAD_PULL",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 5,
+      "rev": true,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": true,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 14,
+      "start": 0,
+      "stop": 8,
+      "startY": 96,
+      "stopY": 104,
+      "on": true,
+      "bri": 255,
+      "n": "WS_CPU_CASE",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 154,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 6,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": true,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 15,
+      "start": 0,
+      "stop": 8,
+      "startY": 104,
+      "stopY": 112,
+      "on": true,
+      "bri": 255,
+      "n": "WS_C700",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 9,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 7,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": false,
+      "o2": true,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    },
+    {
+      "id": 16,
+      "start": 4,
+      "stop": 36,
+      "startY": 72,
+      "stopY": 80,
+      "on": true,
+      "bri": 255,
+      "n": "Preview",
+      "col": [
+        [
+          255,
+          160,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "fx": 77,
+      "sx": 128,
+      "ix": 128,
+      "pal": 0,
+      "c1": 128,
+      "c2": 128,
+      "c3": 12,
+      "rev": false,
+      "mi": false,
+      "rY": false,
+      "mY": false,
+      "tp": false,
+      "o1": true,
+      "o2": true,
+      "o3": false,
+      "si": 0,
+      "m12": 0,
+      "bm": 0
+    }
+  ]
+}
