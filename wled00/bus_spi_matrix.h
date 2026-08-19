@@ -46,6 +46,4 @@
 // right/bottom edges. The bus renders (W*scale) x (H*scale) physical
 // pixels; any remainder is black.
 
-static TFT_eSPI *_spiDisplay = nullptr;
-
 #endif // WLED_ENABLE_SPI_MATRIX

@@ -1277,6 +1277,14 @@ static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
 
 #ifdef WLED_ENABLE_SPI_MATRIX
 
+TFT_eSPI *BusSPIMatrix::_spiDisplay = nullptr;
+
+// DMA ping-pong buffer budget (total for both buffers).
+// Override via build flag: -D SPI_MATRIX_DMA_BUDGET=32768
+#ifndef SPI_MATRIX_DMA_BUDGET
+#define SPI_MATRIX_DMA_BUDGET 16384
+#endif
+
 #ifdef WLED_SPI_MATRIX_AXP192
 // --- AXP192 early-boot power rail init (M5StickC / M5StickC Plus) ---
 // Called from WLED::setup() BEFORE beginStrip() so that power rails are
@@ -1419,21 +1427,6 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
   const size_t bytesPerRow = (size_t)physWidth * sizeof(uint16_t);
   const uint16_t maxRowsSpi = physWidth > 0 ? (uint16_t)(SPI_DMA_MAX_PIXELS / physWidth) : _panelHeight;
 
-  // Budget for DMA ping-pong buffers.
-  // Bus init runs early in boot before WiFi, PPP, audioreactive, WebServer
-  // allocate — heap is inflated at this point. A fraction-based approach
-  // over-allocates. Instead: use a fixed absolute cap (SPI_MATRIX_DMA_BUDGET)
-  // that's known safe, and only go lower if current heap is already tight.
-  //
-  // Default budget: 16KB total (8KB per buffer). Yields:
-  //   160px wide: 25 rows/strip (4 strips for 80-row panel)
-  //   240px wide: 16 rows/strip
-  //   320px wide: 12 rows/strip
-  //   480px wide:  8 rows/strip
-  // Override via build flag: -D SPI_MATRIX_DMA_BUDGET=32768
-  #ifndef SPI_MATRIX_DMA_BUDGET
-  #define SPI_MATRIX_DMA_BUDGET 16384  // 16KB total for both ping-pong buffers
-  #endif
   const size_t dmaHeapFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
   const size_t dmaBudget = min((size_t)SPI_MATRIX_DMA_BUDGET, dmaHeapFree / 4);
   // Buffer must hold _dmaRows * _scaleY physical rows (vertically replicated)
@@ -1456,8 +1449,8 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
                     (unsigned)_dmaStripBytes, (unsigned)dmaHeapFree, (unsigned)dmaBudget, _valid);
 }
 
-void IRAM_ATTR BusSPIMatrix::setPixelColor(unsigned pix, uint32_t c) {
-  if (!_valid || pix >= _len) return;
+void BusSPIMatrix::setPixelColor(unsigned pix, uint32_t c) {
+  (void)pix; (void)c; // SPI matrix reads pixels from strip buffer in show()
 }
 
 uint32_t BusSPIMatrix::getPixelColor(unsigned pix) const {
@@ -1488,7 +1481,7 @@ void BusSPIMatrix::show() {
 
   // If rows were deactivated since last frame, expand range once to push black
   if (_prevActiveRowMax > pushRowMax || (_prevActiveRowMax > 0 && pushRowMin > _activeRowMin)) {
-    pushRowMin = min(pushRowMin, (uint16_t)0);  // conservative: push all rows once
+    pushRowMin = 0;  // conservative: push all rows once to blank deactivated regions
     pushRowMax = max(pushRowMax, _prevActiveRowMax);
     _prevActiveRowMax = _activeRowMax;  // don't re-expand next frame
   }
@@ -1708,7 +1701,7 @@ size_t BusConfig::memUsage() const {
     mem += sizeof(BusOnOff);
 #ifdef WLED_ENABLE_SPI_MATRIX
   } else if (Bus::isSPIMatrix(type)) {
-    mem += sizeof(BusSPIMatrix) + ((count + 7) / 8);
+    mem += sizeof(BusSPIMatrix) + count * sizeof(uint32_t);  // _snapBuf (DMA buffers allocated from DMA-capable heap separately)
 #endif
   } else {
     mem += sizeof(BusPwm);
@@ -1882,18 +1875,16 @@ void BusManager::off() {
 void BusManager::show() {
   applyABL(); // apply brightness limit, updates _gMilliAmpsUsed
   for (auto &bus : busses) {
-    // Skip-show gate for slow buses (TFT SPI DMA, Hub75 I2S DMA, Network UDP):
-    // When no active segment covers this bus, skip the expensive show() call.
-    // "Blank then skip": first idle frame calls show() to blank the display,
-    // subsequent idle frames skip entirely. Resumes when a segment becomes active.
-    const bool isSlow = Bus::isSPIMatrix(bus->getType()) || Bus::isHub75(bus->getType()) || Bus::isVirtual(bus->getType());
-    if (isSlow) {
+    // Idle-skip gate: buses that override hasIdleSkip() skip show() when no
+    // active segment covers them. "Blank then skip" — first idle frame calls
+    // show() once (blanks display), subsequent idle frames skip entirely.
+    if (bus->hasIdleSkip()) {
       const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
       if (!hasActive) {
-        if (bus->_skipShow) continue;  // already blanked — skip entirely
-        bus->_skipShow = true;          // first idle frame — fall through to show() once (blanks display)
+        if (bus->isSkipShow()) continue;
+        bus->setSkipShow(true);
       } else {
-        bus->_skipShow = false;         // active — clear skip flag, show normally
+        bus->setSkipShow(false);
       }
     }
     bus->show();

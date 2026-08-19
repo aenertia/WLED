@@ -146,6 +146,11 @@ class Bus {
     virtual uint8_t  getDriverType() const                      { return 0; } // Default to RMT (0) for non-digital buses
     virtual size_t   getBusSize() const                         { return sizeof(Bus); } // currently unused
     virtual const String getCustomText() const                  { return String(); }
+    // Override in subclasses where show() is expensive (SPI DMA, I2S DMA, network UDP).
+    // When true, BusManager::show() skips show() if no active segment covers this bus.
+    virtual bool     hasIdleSkip() const                        { return false; }
+    inline  bool     isSkipShow() const                         { return _skipShow; }
+    inline  void     setSkipShow(bool s)                        { _skipShow = s; }
 
     inline  bool     hasRGB() const                             { return _hasRgb; }
     inline  bool     hasWhite() const                           { return _hasWhite; }
@@ -171,7 +176,7 @@ class Bus {
     inline  bool     containsPixel(uint16_t pix) const          { return pix >= _start && pix < _start + _len; }
 
     static inline std::vector<LEDType> getLEDTypes()            { return {{TYPE_NONE, "", PSTR("None")}}; } // not used. just for reference for derived classes
-    static constexpr size_t   getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isPWM(type) ? numPWMPins(type) : isHub75(type) ? 5 : is2Pin(type) + 1; } // credit @PaoloTK; for HUB75 the 5 slots store config params (panelW, panelH, chain, rows, cols), not GPIO pins
+    static constexpr size_t   getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isPWM(type) ? numPWMPins(type) : isHub75(type) ? 5 : isSPIMatrix(type) ? 1 : is2Pin(type) + 1; } // credit @PaoloTK; HUB75 5 slots = config params; SPI matrix 1 = CS (SPI pins from TFT_eSPI)
     static constexpr size_t   getNumberOfChannels(uint8_t type) { return hasWhite(type) + 3*hasRGB(type) + hasCCT(type); }
     static constexpr bool hasRGB(uint8_t type) {
       return !((type >= TYPE_WS2812_1CH && type <= TYPE_WS2812_WWA) || type == TYPE_ANALOG_1CH || type == TYPE_ANALOG_2CH || type == TYPE_ONOFF);
@@ -229,9 +234,7 @@ class Bus {
       bool _hasWhite;//     : 1;
       bool _hasCCT;//       : 1;
     //} __attribute__ ((packed));
-  public:
-    bool _skipShow = false;  // set by BusManager::show() skip gate for slow buses
-  protected:
+    bool _skipShow = false;  // managed by BusManager::show() idle-skip gate
     static uint8_t _gAWM;
     // _cct has the following meanings (see calculateCCT() & BusManager::setSegmentCCT()):
     //    -1 means to extract approximate CCT value in K from RGB (in calcualteCCT())
@@ -360,6 +363,7 @@ class BusNetwork : public Bus {
     ~BusNetwork() { cleanup(); }
 
     bool canShow() const override  { return !_broadcastLock; } // this should be a return value from UDP routine if it is still sending data out
+    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     size_t getPins(uint8_t* pinArray = nullptr) const override;
@@ -423,6 +427,7 @@ class BusPlaceholder : public Bus {
 class BusHub75Matrix : public Bus {
   public:
     BusHub75Matrix(const BusConfig &bc);
+    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
@@ -456,19 +461,18 @@ class BusHub75Matrix : public Bus {
 #endif
 
 #ifdef WLED_ENABLE_SPI_MATRIX
+class TFT_eSPI; // forward declaration — full definition in bus_spi_matrix.h via <TFT_eSPI.h>
 class BusSPIMatrix : public Bus {
   public:
     BusSPIMatrix(const BusConfig &bc);
     ~BusSPIMatrix() { cleanup(); }
-    [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
+    bool hasIdleSkip() const override { return true; }
+    void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
     void setBrightness(uint8_t b) override;
     size_t getPins(uint8_t* pinArray = nullptr) const override;
     size_t getBusSize() const override { return sizeof(BusSPIMatrix) + (_buffersAllocated ? 2 * _dmaStripBytes + _len * sizeof(uint32_t) : 0); }
-    // Max SPI DMA transaction: 32767 pixels (65534 bytes) on all ESP32 variants.
-    // TFT_eSPI pushPixelsDMA falls back to blocking SPI above this on S3/C3/C6.
-    // We stay well under by computing optimal rows per strip at init time.
     static constexpr uint32_t SPI_DMA_MAX_PIXELS = 32767;
     void cleanup();
     static std::vector<LEDType> getLEDTypes();
@@ -495,6 +499,7 @@ class BusSPIMatrix : public Bus {
     bool allocateBuffers();              // lazy-allocate _dmaBuf + _snapBuf on first active show()
     void deallocateBuffers();            // free _dmaBuf + _snapBuf when skip-show activates
     void recalcActiveRowRange();         // recompute _activeRowMin/Max from segment coverage
+    static TFT_eSPI *_spiDisplay;
 #ifdef WLED_SPI_MATRIX_AXP192
     static void axpWrite(uint8_t reg, uint8_t val);
     static uint8_t axpRead(uint8_t reg);
