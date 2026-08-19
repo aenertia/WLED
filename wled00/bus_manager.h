@@ -495,12 +495,16 @@ class BusSPIMatrix : public Bus {
     bool allocateBuffers();              // lazy-allocate _dmaBuf + _snapBuf on first active show()
     void deallocateBuffers();            // free _dmaBuf + _snapBuf when skip-show activates
     void recalcActiveRowRange();         // recompute _activeRowMin/Max from segment coverage
+#ifdef WLED_SPI_MATRIX_AXP192
     static void axpWrite(uint8_t reg, uint8_t val);
     static uint8_t axpRead(uint8_t reg);
+#endif
 };
+#ifdef WLED_SPI_MATRIX_AXP192
 // Early-boot AXP192 power rail init — call before beginStrip().
 // Idempotent; returns false if AXP192 not found on I2C.
 bool initAXP192();
+#endif // WLED_SPI_MATRIX_AXP192
 #endif
 
 //temporary struct for passing bus configuration to bus

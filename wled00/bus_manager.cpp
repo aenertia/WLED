@@ -1277,6 +1277,7 @@ static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
 
 #ifdef WLED_ENABLE_SPI_MATRIX
 
+#ifdef WLED_SPI_MATRIX_AXP192
 // --- AXP192 early-boot power rail init (M5StickC / M5StickC Plus) ---
 // Called from WLED::setup() BEFORE beginStrip() so that power rails are
 // stable regardless of which bus type is constructed on first boot.
@@ -1359,6 +1360,7 @@ uint8_t BusSPIMatrix::axpRead(uint8_t reg) {
   Wire1.requestFrom((uint8_t)0x34, (uint8_t)1);
   return Wire1.read();
 }
+#endif // WLED_SPI_MATRIX_AXP192
 
 BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
 : Bus(bc.type, bc.start, bc.autoWhite, SPI_MATRIX_W * SPI_MATRIX_H)
@@ -1375,6 +1377,7 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
   _hasWhite = false;
   _hasCCT = false;
 
+#ifdef WLED_SPI_MATRIX_AXP192
   // AXP192 init: use early-boot function (idempotent — safe to call again
   // if setup() already called it, or if this bus is constructed at runtime).
   if (!initAXP192()) {
@@ -1382,6 +1385,7 @@ BusSPIMatrix::BusSPIMatrix(const BusConfig &bc)
     _valid = false;
     return;
   }
+#endif
 
   if (!_spiDisplay) {
     _spiDisplay = new TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
