@@ -146,6 +146,11 @@ class Bus {
     virtual uint8_t  getDriverType() const                      { return 0; } // Default to RMT (0) for non-digital buses
     virtual size_t   getBusSize() const                         { return sizeof(Bus); } // currently unused
     virtual const String getCustomText() const                  { return String(); }
+    // Override in subclasses where show() is expensive (SPI DMA, I2S DMA, network UDP).
+    // When true, BusManager::show() skips show() if no active segment covers this bus.
+    virtual bool     hasIdleSkip() const                        { return false; }
+    inline  bool     isSkipShow() const                         { return _skipShow; }
+    inline  void     setSkipShow(bool s)                        { _skipShow = s; }
 
     inline  bool     hasRGB() const                             { return _hasRgb; }
     inline  bool     hasWhite() const                           { return _hasWhite; }
@@ -228,6 +233,7 @@ class Bus {
       bool _hasWhite;//     : 1;
       bool _hasCCT;//       : 1;
     //} __attribute__ ((packed));
+    bool _skipShow = false;  // managed by BusManager::show() idle-skip gate
     static uint8_t _gAWM;
     // _cct has the following meanings (see calculateCCT() & BusManager::setSegmentCCT()):
     //    -1 means to extract approximate CCT value in K from RGB (in calcualteCCT())
@@ -356,6 +362,7 @@ class BusNetwork : public Bus {
     ~BusNetwork() { cleanup(); }
 
     bool canShow() const override  { return !_broadcastLock; } // this should be a return value from UDP routine if it is still sending data out
+    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     size_t getPins(uint8_t* pinArray = nullptr) const override;
@@ -419,6 +426,7 @@ class BusPlaceholder : public Bus {
 class BusHub75Matrix : public Bus {
   public:
     BusHub75Matrix(const BusConfig &bc);
+    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
