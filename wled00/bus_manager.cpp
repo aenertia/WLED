@@ -1435,9 +1435,44 @@ void BusManager::off() {
   _gMilliAmpsUsed = 0; // reset, assume no LED idle current if relay is off
 }
 
+// Returns true if any active segment overlaps the pixel range [busStart, busStart+busLen).
+// Used by BusManager::show() to skip expensive show() calls on idle buses.
+static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
+  const uint16_t busEnd = busStart + busLen;
+  const bool is2D = (Segment::maxHeight > 1);
+  const uint16_t mw = Segment::maxWidth;
+  for (unsigned i = 0; i < strip.getSegmentsNum(); i++) {
+    const Segment &seg = strip.getSegment(i);
+    uint16_t segPixStart, segPixEnd;
+    if (is2D) {
+      segPixStart = (uint16_t)seg.startY * mw + seg.start;
+      segPixEnd   = (uint16_t)seg.stopY  * mw;
+    } else {
+      segPixStart = seg.start;
+      segPixEnd   = seg.stop;
+    }
+    if (segPixEnd <= busStart || segPixStart >= busEnd) continue;
+    if (seg.on && !seg.freeze) return true;
+    if (realtimeMode != REALTIME_MODE_INACTIVE && seg.freeze) return true;
+  }
+  return false;
+}
+
 void BusManager::show() {
   applyABL(); // apply brightness limit, updates _gMilliAmpsUsed
   for (auto &bus : busses) {
+    // Idle-skip gate: buses that override hasIdleSkip() skip show() when no
+    // active segment covers them. "Blank then skip"  -- first idle frame calls
+    // show() once (blanks display), subsequent idle frames skip entirely.
+    if (bus->hasIdleSkip()) {
+      const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
+      if (!hasActive) {
+        if (bus->isSkipShow()) continue;
+        bus->setSkipShow(true);
+      } else {
+        bus->setSkipShow(false);
+      }
+    }
     bus->show();
   }
 }
