@@ -15,7 +15,7 @@ import re
 DDP_DEFAULT_PORT = 4048
 DDP_VER1 = 0x40
 DDP_PUSH = 0x01
-DDP_COMPRESSED = 0x20
+DDP_TYPE_COMPRESSED = 0x80
 DDP_RGB = 0x0B
 
 COMP_NONE = 0x00
@@ -162,10 +162,11 @@ def make_packets(
         if last and push:
             flags |= DDP_PUSH
 
+        data_type = DDP_RGB
         if comp != COMP_NONE:
             compressed_chunk = rle_encode(raw_chunk)
             if len(compressed_chunk) < len(raw_chunk):
-                flags |= DDP_COMPRESSED
+                data_type |= DDP_TYPE_COMPRESSED
                 payload = compressed_chunk
             else:
                 payload = raw_chunk
@@ -173,7 +174,7 @@ def make_packets(
             payload = raw_chunk
 
         hdr = struct.pack(
-            "!BBBBIH", flags, (seq & 0x0F) | (comp & 0xF0), DDP_RGB, 0xFF, off, len(payload),
+            "!BBBBIH", flags, (seq & 0x0F) | (comp & 0xF0), data_type, 0xFF, off, len(payload),
         )
         pkts.append(hdr + payload)
         off += chunk_size

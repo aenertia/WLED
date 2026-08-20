@@ -48,7 +48,7 @@ class TokenBucket:
 _bench_width = 40
 _bench_height = 80
 _ddp_destination = 0xFF
-DDP_VER1 = 0x40; DDP_PUSH = 0x01; DDP_COMPRESSED = 0x20; DDP_RGB = 0x0B
+DDP_VER1 = 0x40; DDP_PUSH = 0x01; DDP_TYPE_COMPRESSED = 0x80; DDP_RGB = 0x0B
 DDP_TYPE_RGBW32 = 0x1B  # 00 011 011  -- RGBW, 8 bits per channel, 4 channels
 COMP_NONE = 0x00; COMP_DELTA_RLE = 0x10; COMP_RLE = 0x20
 MAX_PAYLOAD = 1200  # sized for PPP MRU 1500: 1500-IP(20)-UDP(8)-DDP(10)=1462, use 1200 for safety
@@ -87,8 +87,8 @@ def make_packets(data, seq=1, push=True, comp=COMP_NONE, data_type=DDP_RGB, max_
         last = off+chunk >= len(data)
         flags = DDP_VER1
         if last and push: flags |= DDP_PUSH
-        if comp != COMP_NONE: flags |= DDP_COMPRESSED
-        hdr = struct.pack("!BBBBIH", flags, (seq&0x0F)|(comp&0xF0), data_type, _ddp_destination, channel_offset+off, chunk)
+        pkt_data_type = data_type | DDP_TYPE_COMPRESSED if comp != COMP_NONE else data_type
+        hdr = struct.pack("!BBBBIH", flags, (seq&0x0F)|(comp&0xF0), pkt_data_type, _ddp_destination, channel_offset+off, chunk)
         pkts.append(hdr + data[off:off+chunk]); off += chunk
         seq = (seq % 15) + 1  # wrap 1-15, never 0
     return pkts, seq
