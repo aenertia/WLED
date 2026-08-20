@@ -526,6 +526,23 @@ void initServer()
     extern uint32_t wsddpPktCount, wsddpAcceptCount, wsddpDropCount;
     response->printf("wsddp: pkts=%u accepted=%u dropped=%u\n",
       (unsigned)wsddpPktCount, (unsigned)wsddpAcceptCount, (unsigned)wsddpDropCount);
+    {
+      uint32_t sumUs = 0;
+      for (size_t i = 0; i < BusManager::getNumBusses(); i++) {
+        Bus* b = BusManager::getBus(i);
+        if (b && b->isOk()) {
+          uint32_t us = b->getShowUs();
+          response->printf("bus[%u].showUs=%u ", (unsigned)i, (unsigned)us);
+          sumUs += us;
+        }
+      }
+      response->printf("\nddpSafe: fps=%u sumUs=%u",
+        (unsigned)ddpCurrentSafeFps.load(std::memory_order_relaxed), (unsigned)sumUs);
+#ifdef WLED_ENABLE_SPI_MATRIX
+      response->printf(" spielig=%u spifps=%u", (unsigned)ddpSpiEligible, (unsigned)ddpSpiFps);
+#endif
+      response->printf("\n");
+    }
     response->printf("\n--- pixels ---\n");
     if (totalLen > 0) {
       response->print("px[0..4]: ");

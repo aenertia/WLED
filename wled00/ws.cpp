@@ -114,7 +114,10 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
             if (isFrameStart) {
               wsddpPktCount++;
               uint32_t nowUs = micros();
-              uint32_t minUs = ddpMaxFps > 0 ? (1000000U / ddpMaxFps) : 0;
+              uint8_t effFps = ddpMaxFps > 0
+                ? min((uint8_t)ddpMaxFps, ddpCurrentSafeFps.load(std::memory_order_relaxed))
+                : ddpCurrentSafeFps.load(std::memory_order_relaxed);
+              uint32_t minUs = effFps > 0 ? (1000000U / effFps) : 0;
               if (minUs > 0 && (nowUs - wsddpLastFrameUs) < minUs) {
                 wsddpDropCurrent = true;
                 wsddpDropCount++;

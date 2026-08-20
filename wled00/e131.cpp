@@ -128,7 +128,10 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     if (isFrameStart) {
       uint32_t nowUs = micros();
       uint32_t elapsedUs = nowUs - ddpLastFrameUs;
-      uint32_t minIntervalUs = ddpMaxFps > 0 ? (1000000U / ddpMaxFps) : 0;
+      uint8_t effFps = ddpMaxFps > 0
+        ? min((uint8_t)ddpMaxFps, ddpCurrentSafeFps.load(std::memory_order_relaxed))
+        : ddpCurrentSafeFps.load(std::memory_order_relaxed);
+      uint32_t minIntervalUs = effFps > 0 ? (1000000U / effFps) : 0;
       if (minIntervalUs > 0 && elapsedUs < minIntervalUs) {
         ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
         ddpDropCurrentFrame = true;
