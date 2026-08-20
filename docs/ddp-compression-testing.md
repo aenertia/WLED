@@ -83,3 +83,39 @@ Post-run /diag:
 ```bash
 python3 tools/ddp_compress_test.py --target 169.254.7.1 --segment 2 --fps 120 --duration 8
 ```
+
+---
+
+## DDP-over-WebSocket validation (2026-08-20)
+
+Confirms the WS receive path (ws.cpp -> handleE131Packet P_DDP -> e131.cpp)
+handles the C bit correctly. The 0x02 protocol indicator byte is stripped by
+ws.cpp before the DDP header is passed to handleDDPPacket().
+
+Test tool: tools/ddp_ws_test.py (websockets async, mirrors common.js sendDDP())
+Target: ws://169.254.7.1/ws, segment=2 (WS2812B 8x32, dest byte=3), 256 LEDs, 120fps
+
+```
+Phase                    Mode    FPS    Ratio  Savings         Wire KB/s
+rainbow raw              RAW     120fps  100.0%  no gain         90.0 KB/s
+rainbow compressed       COMP    120fps  100.0%  no gain         90.0 KB/s
+chase raw                RAW     120fps  100.0%  no gain         90.0 KB/s
+chase compressed         COMP    120fps    2.6%  +97% saved       2.3 KB/s
+twinkle 5% raw           RAW     120fps  100.0%  no gain         90.1 KB/s
+twinkle 5% compressed    COMP    120fps    9.6%  +90% saved       8.6 KB/s
+```
+
+Post-run /diag:
+  reset=1 (POWERON) heap=58720 minheap=51300 up=2547s fps=28 segs=3
+  ddp: pkts=27730 pix=7098880 heapSkip=0 ovrSkip=0 lastLen=768 push=27730
+  ddpRate: drops=0 heapGuard=0 loopLag=15ms
+  px[0..4]: 6B0035 810041 9B004D B10059 C50063  (twinkle colours visible)
+
+Compression ratios match UDP results for same patterns -- WS transport is
+transparent to the codec. C bit (dataType=0x8B) accepted correctly over WS.
+
+### Command
+
+```bash
+python3 tools/ddp_ws_test.py --target 169.254.7.1 --segment 2 --leds 256 --fps 120 --duration 6
+```
