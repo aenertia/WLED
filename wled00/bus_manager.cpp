@@ -257,6 +257,19 @@ bool BusDigital::canShow() const {
   return PolyBus::canShow(_busPtr, _iType);
 }
 
+uint16_t BusDigital::protocolRateKHz() const {
+  if (is2Pin()) return _frequencykHz ? _frequencykHz : 2000;
+  return 800; // WS2812/SK6812: 800kHz data rate per protocol spec (1.25us/bit)
+}
+
+uint32_t BusDigital::getShowUs() const {
+  if (isSkipShow()) return 0;
+  uint16_t rateKHz = protocolRateKHz();
+  if (rateKHz == 0) return 0;
+  uint8_t bitsPerLed = is2Pin() ? 32 : (hasWhite() ? 32 : 24);
+  return ((uint32_t)_len * bitsPerLed * 1000UL) / rateKHz;
+}
+
 //If LEDs are skipped, it is possible to use the first as a status LED.
 //TODO only show if no new show due in the next 50ms
 void BusDigital::setStatusPixel(uint32_t c) {
@@ -1569,6 +1582,16 @@ void BusSPIMatrix::recalcActiveRowRange() {
   if (rMax == 0) { _activeRowMin = 0; _activeRowMax = 0; return; }
   _activeRowMin = rMin;
   _activeRowMax = min(rMax, _panelHeight);
+}
+
+uint32_t BusSPIMatrix::getShowUs() const {
+  if (isSkipShow() || !_buffersAllocated || _dmaRows == 0) return 0;
+  uint16_t activeRows = _activeRowMax > _activeRowMin ? _activeRowMax - _activeRowMin : 0;
+  if (activeRows == 0) return 0;
+  uint16_t physW   = _panelWidth * _scaleX;
+  uint16_t nStrips = (activeRows + _dmaRows - 1) / _dmaRows;
+  uint32_t stripUs = ((uint32_t)_dmaRows * physW * 16UL) / (SPI_FREQUENCY / 1000000UL);
+  return (uint32_t)nStrips * (stripUs + 500); // 500us measured per-strip setAddrWindow overhead
 }
 
 // Lazy-allocate DMA ping-pong and snapshot buffers. Returns false on OOM (retries next frame).

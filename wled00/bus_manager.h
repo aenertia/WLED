@@ -130,6 +130,7 @@ class Bus {
     virtual void     begin()                                    {};
     virtual void     show()                                     = 0;
     virtual bool     canShow() const                            { return true; }
+    virtual uint32_t getShowUs() const                          { return 0; }
     virtual void     setStatusPixel(uint32_t c)                 {}
     virtual void     setPixelColor(unsigned pix, uint32_t c)    = 0;
     virtual void     setBrightness(uint8_t b)                   { _bri = b; };
@@ -258,6 +259,8 @@ class BusDigital : public Bus {
 
     void show() override;
     bool canShow() const override;
+    uint32_t getShowUs() const override;
+    uint16_t protocolRateKHz() const;
     void setStatusPixel(uint32_t c) override;
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     void setColorOrder(uint8_t colorOrder) override;
@@ -481,6 +484,7 @@ class BusSPIMatrix : public Bus {
     uint8_t  getScaleY() const { return _scaleY; }
     uint16_t getDmaRows() const { return _dmaRows; }
     size_t   getDmaStripBytes() const { return _dmaStripBytes; }
+    uint32_t getShowUs() const override;
   private:
     uint16_t _panelWidth;
     uint16_t _panelHeight;
@@ -622,6 +626,26 @@ namespace BusManager {
   [[gnu::hot]] uint32_t getPixelColor(unsigned pix);
   void        show();
   bool        canAllShow();
+  static uint8_t computeSafeDdpFps() {
+    uint32_t sumUs = 0;
+    bool hasBlockingBus = false;
+    for (const auto &bus : busses) {
+      if (!bus->isOk()) continue;
+      uint32_t us = bus->getShowUs();
+      sumUs += us;
+#ifdef WLED_ENABLE_SPI_MATRIX
+      if (us > 0 && Bus::isSPIMatrix(bus->getType())) hasBlockingBus = true;
+#endif
+    }
+    if (sumUs == 0) return 255;
+    // BusManager::show() is sequential -- use SUM not MAX.
+    // When an SPI Matrix bus is active, its blocking DMA creates an exclusion
+    // zone: 50% headroom (500000) instead of 70% (700000) to keep DDP frames
+    // from arriving during the DMA window.
+    uint32_t headroom = hasBlockingBus ? 500000UL : 700000UL;
+    uint32_t fps = headroom / sumUs;
+    return (uint8_t)(fps > 255 ? 255 : (fps < 1 ? 1 : fps));
+  }
   inline void setStatusPixel(uint32_t c) { for (auto &bus : busses) bus->setStatusPixel(c);}
   inline void setBrightness(uint8_t b)   { for (auto &bus : busses) bus->setBrightness(b); }
   // for setSegmentCCT(), cct can only be in [-1,255] range; allowWBCorrection will convert it to K
