@@ -119,3 +119,105 @@ transparent to the codec. C bit (dataType=0x8B) accepted correctly over WS.
 ```bash
 python3 tools/ddp_ws_test.py --target 169.254.7.1 --segment 2 --leds 256 --fps 120 --duration 6
 ```
+
+---
+
+## WS DDP Rate Limiting Validation
+
+Hardware: M5StickC (ESP32-PICO-D4), ST7735S 80x160 TFT, SPI_FREQUENCY=20MHz,
+virtual matrix 40x80 (2x2 scale), dmaRows=25, 4 DMA strips per frame.
+Firmware: dev/ddp-spec, rate gate build. Segment 2 = WS2812B 8x32 (256 LEDs) on G26.
+
+### Root cause
+
+WS DDP frames arriving during the TFT SPI DMA window cause ISR starvation:
+loopTask blocks in spi_device_get_trans_result(portMAX_DELAY) indefinitely.
+The DMA completion ISR never fires while the frame is being processed.
+
+At 40fps (25ms frame interval) the TFT show() takes ~8-9ms -- 35% of the budget.
+When handleE131Packet() runs during that window, the DMA ISR is starved and the
+device WDT-crashes within 2-3 frames. At 30fps (33ms interval) there is enough
+gap between frames for the DMA to complete cleanly.
+
+The crash is structural: it is a function of SPI_FREQUENCY and virtual resolution,
+not of frame content or compression. The safe ceiling formula is:
+
+  show_ms  = ceil(panelH / dmaRows) * (physW * dmaRows * scaleY * 2B * 8) / SPI_FREQ_Hz * 1000
+           + numStrips * 0.5ms  (setAddrWindow overhead)
+  safe_fps = floor(700 / show_ms)  -- 70% headroom
+
+For this config: show_ms ~8.4ms, safe_fps ~30fps. Matches empirical result exactly.
+
+### Fix
+
+WS-local rate gate in wsEvent() BINARY_PROTOCOL_DDP branch (wled00/ws.cpp).
+Mirrors the UDP gate in e131.cpp but with independent per-transport state --
+no shared atomics, no mutex. Gate runs before handleE131Packet() so dropped
+frames never enter the pixel pipeline.
+
+New /diag counters (wled00/wled_server.cpp):
+  wsddp: pkts=N accepted=N dropped=N
+
+New cfg key: interfaces.live.ddpfps controls the ceiling (persisted in NVS).
+
+### FPS sweep results (ddpMaxFps=30, segment 2, 256 LEDs, 8s per phase)
+
+| FPS | Pattern | Mode | wsddp acc | wsddp drp | loopLag | WDT |
+|-----|---------|------|-----------|-----------|---------|-----|
+| 10  | rainbow | RAW  | 80        | 0         | 20ms    | no  |
+| 10  | rainbow | COMP | 160       | 0         | 16ms    | no  |
+| 10  | chase   | RAW  | 240       | 0         | 34ms    | no  |
+| 10  | chase   | COMP | 320       | 0         | 30ms    | no  |
+| 10  | twinkle | RAW  | 400       | 0         | 24ms    | no  |
+| 10  | twinkle | COMP | 480       | 0         | 35ms    | no  |
+| 20  | rainbow | RAW  | 640       | 0         | 28ms    | no  |
+| 20  | rainbow | COMP | 800       | 0         | 11ms    | no  |
+| 20  | chase   | RAW  | 960       | 0         | 12ms    | no  |
+| 20  | chase   | COMP | 1120      | 0         | 30ms    | no  |
+| 20  | twinkle | RAW  | 1280      | 0         | 13ms    | no  |
+| 20  | twinkle | COMP | 1440      | 0         | 0ms     | no  |
+| 30  | rainbow | RAW  | ~150/ph   | ~90/ph    | 25ms    | no  |
+| 30  | rainbow | COMP | ~150/ph   | ~99/ph    | 11ms    | no  |
+| 30  | chase   | RAW  | ~153/ph   | ~87/ph    | 26ms    | no  |
+| 30  | chase   | COMP | ~149/ph   | ~91/ph    | 19ms    | no  |
+| 30  | twinkle | RAW  | ~150/ph   | ~90/ph    | 20ms    | no  |
+| 30  | twinkle | COMP | ~148/ph   | ~92/ph    | 16ms    | no  |
+| 40  | rainbow | RAW  | ~197/ph   | ~123/ph   | 8810ms  | YES |
+
+At 30fps the gate drops ~40% of frames (sender timing jitter exceeds the 33ms
+ceiling). The device stays stable throughout. At 40fps the first accepted frame
+triggers the SPI DMA ISR starvation -- loopLag spikes to 8+ seconds, WDT fires.
+
+### Stable ceiling
+
+30fps at SPI_FREQUENCY=20MHz, virtual 40x80, 2x2 scale.
+
+To raise the ceiling without changing virtual resolution:
+  27MHz SPI -> ~40fps safe (M5Stack's own frequency for ST7735S)
+  40MHz SPI -> ~60fps safe (over-spec for ST7735S, unit-dependent)
+  20x40 virtual (half res, 4x4 scale) -> ceiling doubles at any SPI freq
+
+These are tracked in the follow-on plan (spi-matrix-ddp-eligibility).
+
+### /diag counter descriptions
+
+  wsddp: pkts=N    -- frame-start packets seen by the WS gate (chanOff==0 or PUSH flag)
+  wsddp: accepted=N -- frames that passed the rate check and entered handleE131Packet()
+  wsddp: dropped=N  -- frames rejected by the gate (too soon after last accepted frame)
+  ddpRate: drops=N  -- frames dropped by the global UDP+WS rate limiter in e131.cpp
+  ddpRate: maxFps=N -- current ceiling (set via /json/cfg interfaces.live.ddpfps)
+  ddpRate: loopLag=Nms -- millis since last main loop iteration (WDT proxy)
+
+### Commands
+
+```bash
+# Set ceiling and apply 3-segment layout
+curl -X POST http://169.254.7.1/json/cfg -H 'Content-Type: application/json' \
+  -d '{"if":{"live":{"ddpfps":30}}}'
+curl -X POST http://169.254.7.1/json/state -H 'Content-Type: application/json' \
+  -d @configs/segment-mirror-3seg.json
+
+# Run sweep
+python3 tools/ddp_ws_test.py --target 169.254.7.1 --segment 2 --leds 256 \
+  --fps 30 --duration 8 --max-fps 30
+```
