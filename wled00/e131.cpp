@@ -165,7 +165,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   }
 
   unsigned ddpChannelsPerLed = 3; // default to RGB
-  if ((p->dataType & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4; // RGBW data type (see DDP protocol definition)
+  if (((p->dataType & 0x7F) & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4; // RGBW data type (see DDP protocol definition); mask C bit before type check
 
   uint32_t start =  htonl(p->channelOffset) / ddpChannelsPerLed;
   start += DMXAddress / ddpChannelsPerLed;
@@ -218,7 +218,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   // Old PPP bandwidth rate limiter removed  -- subsumed by global rate limiter above (Issue #2)
 
 #ifdef WLED_ENABLE_DDP_COMPRESSION
-  if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
+  if ((p->dataType & DDP_TYPE_COMPRESSED) && !realtimeOverride) {
     auto ddpCompWritePixel = [&](unsigned absIdx, uint32_t col) {
       uint8_t dest = p->destination;
       uint8_t r = R(col), g = G(col), b = B(col), w = W(col);

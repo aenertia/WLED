@@ -723,7 +723,7 @@ int ddp_hook_ip_input(struct pbuf *p, struct netif *inp, int is_v6) {
     uint16_t ddp_data_len = (ddp[8] << 8) | ddp[9];
     uint8_t *ddp_data = ddp + DDP_HEADER_LEN;
 
-    if (ddp_flags & DDP_FLAGS_COMPRESSED) return 0;
+    if (ddp[2] & DDP_TYPE_COMPRESSED) return 0;
     if (ddp_data_len > DDP_CHANNELS_PER_PACKET) return 0;
     if (ddp_data_len == 0) return 0;
 
@@ -747,7 +747,7 @@ int ddp_hook_ip_input(struct pbuf *p, struct netif *inp, int is_v6) {
     memcpy(ddp_prev_frame, ddp_data, ddp_data_len);
     if (is_push) ddp_frame_count++;
 
-    ddp[0] = ddp_flags | DDP_FLAGS_COMPRESSED;
+    ddp[2] |= DDP_TYPE_COMPRESSED;
     ddp[1] = (ddp[1] & 0x0F) | comp_type;
     ddp[8] = (comp_len >> 8) & 0xFF;
     ddp[9] = comp_len & 0xFF;

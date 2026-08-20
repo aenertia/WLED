@@ -307,7 +307,7 @@ static struct pbuf *ddp_try_compress(struct pbuf *p) {
     pbuf_copy_partial(p, hdr, DDP_HEADER_LEN, 0);
 
     uint8_t flags = hdr[0];
-    if (flags & DDP_FLAGS_COMPRESSED) return p;
+    if (hdr[2] & DDP_TYPE_COMPRESSED) return p;
 
     uint16_t data_len = (hdr[8] << 8) | hdr[9];
     if (data_len == 0 || data_len > DDP_CHANNELS_PER_PACKET) return p;
@@ -338,7 +338,7 @@ static struct pbuf *ddp_try_compress(struct pbuf *p) {
     memcpy(ddp_prev_frame, pixel_data, data_len);
     if (is_push) ddp_frame_count++;
 
-    hdr[0] = flags | DDP_FLAGS_COMPRESSED;
+    hdr[2] |= DDP_TYPE_COMPRESSED;
     hdr[1] = (hdr[1] & 0x0F) | comp_type;
     hdr[8] = (comp_len >> 8) & 0xFF;
     hdr[9] = comp_len & 0xFF;
