@@ -1,8 +1,8 @@
-# DDP Protocol Reference — Specification, Compression Extension, and Validation Suite
+# DDP Protocol Reference -- Specification, Compression Extension, and Validation Suite
 
-**Version**: 2.0 (2026-08-18)
-**Status**: Ground-truth update from sessions 8–17 hardware validation
-**Audience**: Any codebase implementing DDP — sender, receiver, or both
+**Version**: 2.1 (2026-08-20)
+**Status**: Expanded with upstream review feedback (wire format options, compression variants, WS transport)
+**Audience**: Any codebase implementing DDP -- sender, receiver, or both
 
 This document is a standalone reference for implementing the Distributed Display Protocol (DDP) with optional compression extensions for bandwidth-constrained transports. It covers the base protocol specification, comparison with E1.31/Art-Net, the compression wire format, reference implementations in C and Python, a complete validation suite, and known pitfalls.
 
@@ -26,6 +26,9 @@ This document is a standalone reference for implementing the Distributed Display
 14. [Known Issues and Design Decisions](#14-known-issues-and-design-decisions)
 15. [Bandwidth Budget Reference](#15-bandwidth-budget-reference)
 16. [Reference Implementations](#16-reference-implementations)
+17. [Wire Format Options (Open)](#17-wire-format-options-open)
+18. [Compression Variant Analysis (Open)](#18-compression-variant-analysis-open)
+19. [WebSocket Transport (Open)](#19-websocket-transport-open)
 
 ---
 
@@ -39,7 +42,7 @@ This document is a standalone reference for implementing the Distributed Display
 
 ```
 Offset  Size  Field          Description
-──────  ────  ─────          ───────────
+------  ----  -----          -----------
 0       1     flags          Version, control flags
 1       1     sequenceNum    4-bit sequence (lower nibble), reserved (upper nibble)
 2       1     dataType       Channel count + bit depth encoding
@@ -50,16 +53,16 @@ Offset  Size  Field          Description
 10/14+  N     data           Pixel data payload
 ```
 
-### 1.2 Flags Byte (byte 0) — Bit Layout
+### 1.2 Flags Byte (byte 0) -- Bit Layout
 
 ```
 Bit 7-6: VV    Protocol version (01 = v1, MUST be 0x40)
-Bit 5:   x     Reserved in base spec (set to 0) — used for COMPRESSED flag in extension
+Bit 5:   x     Reserved in base spec (set to 0) -- used for COMPRESSED flag in extension
 Bit 4:   T     Timecode field present (adds 4 bytes after header)
-Bit 3:   S     Storage — data sourced from local storage, not packet
-Bit 2:   R     Reply — response to a query
-Bit 1:   Q     Query — request data (no payload; dataLen = bytes to read)
-Bit 0:   P     Push — render buffer now / last packet in frame
+Bit 3:   S     Storage -- data sourced from local storage, not packet
+Bit 2:   R     Reply -- response to a query
+Bit 1:   Q     Query -- request data (no payload; dataLen = bytes to read)
+Bit 0:   P     Push -- render buffer now / last packet in frame
 ```
 
 **Common flag combinations**:
@@ -76,15 +79,15 @@ Bit 0:   P     Push — render buffer now / last packet in frame
 
 ### 1.3 Sequence Number (byte 1)
 
-**Lower nibble (bits 3-0)**: Sequence number, values 1–15. Wraps from 15 → 1.
-**Value 0**: "Unused" — receiver MUST NOT apply sequence filtering.
+**Lower nibble (bits 3-0)**: Sequence number, values 1-15. Wraps from 15 -> 1.
+**Value 0**: "Unused" -- receiver MUST NOT apply sequence filtering.
 **Upper nibble (bits 7-4)**: Reserved in base spec. Used for compression type in extension.
 
 Senders MUST increment sequence continuously across all packets in a frame AND across frames. The receiver maintains a sliding window of the last 5 sequence numbers; packets falling within `(lastPushSeq - 5, lastPushSeq)` are rejected as late arrivals from the previous frame.
 
 **Critical**: Using a fixed sequence number (e.g., always seq=1) causes silent packet drops after the first multi-packet frame.
 
-### 1.4 Data Type (byte 2) — Bit Field
+### 1.4 Data Type (byte 2) -- Bit Field
 
 ```
 Bit 7:   C     Custom type flag (1 = vendor-defined interpretation)
@@ -108,7 +111,7 @@ Bits 2-0: SSS  Size: 0=undef, 1=1bit, 2=4bit, 3=8bit, 4=16bit, 5=24bit, 6=32bit
 |-------|---------|
 | 0 | Reserved |
 | 1 | Default output display (most common) |
-| 2–245 | Custom device IDs |
+| 2-245 | Custom device IDs |
 | 246 | JSON control (read/write) |
 | 250 | JSON config (read/write) |
 | 251 | JSON status (read only) |
@@ -139,7 +142,7 @@ Two synchronization methods:
 
 ### 1.9 Timecode (optional, 4 bytes after header)
 
-Present only when the TIME flag (bit 4) is set. Contains the 32 middle bits of a 64-bit NTP timestamp: 16 bits seconds + 16 bits fractional (~15µs resolution). Only meaningful with the PUSH flag set.
+Present only when the TIME flag (bit 4) is set. Contains the 32 middle bits of a 64-bit NTP timestamp: 16 bits seconds + 16 bits fractional (~15us resolution). Only meaningful with the PUSH flag set.
 
 Most implementations (including WLED) ignore the timecode value but correctly skip the 4 bytes.
 
@@ -174,7 +177,7 @@ Most implementations (including WLED) ignore the timecode value but correctly sk
 
 ### 2.3 Why Compression is DDP-Only
 
-Art-Net and E1.31 are industry standards with thousands of existing controllers. Adding proprietary compression breaks interoperability. DDP is a niche protocol with a small, controlled ecosystem — extending it with compression is acceptable. The PPP serial transport use case (the primary motivation for compression) only uses DDP.
+Art-Net and E1.31 are industry standards with thousands of existing controllers. Adding proprietary compression breaks interoperability. DDP is a niche protocol with a small, controlled ecosystem -- extending it with compression is acceptable. The PPP serial transport use case (the primary motivation for compression) only uses DDP.
 
 ---
 
@@ -182,7 +185,7 @@ Art-Net and E1.31 are industry standards with thousands of existing controllers.
 
 ### 3.1 Design Principle
 
-The compression extension uses reserved bits in the DDP header — no new header fields, no new ports, no breaking changes. Standard DDP senders never set the reserved bits, so compressed and uncompressed packets coexist on the same port (4048) and are distinguished by a single flag check.
+The compression extension uses reserved bits in the DDP header -- no new header fields, no new ports, no breaking changes. Standard DDP senders never set the reserved bits, so compressed and uncompressed packets coexist on the same port (4048) and are distinguished by a single flag check.
 
 ### 3.2 Flag Usage
 
@@ -192,49 +195,49 @@ The compression extension uses reserved bits in the DDP header — no new header
 
 ```
 Compression types:
-  0x00  No compression (standard DDP — COMPRESSED flag should not be set)
-  0x10  Delta+RLE — XOR with previous frame, then RLE encode
-  0x20  RLE only — no delta, direct RLE (used for keyframes)
-  0x30  Transform — global operation + sparse explicit pixel writes
+  0x00  No compression (standard DDP -- COMPRESSED flag should not be set)
+  0x10  Delta+RLE -- XOR with previous frame, then RLE encode
+  0x20  RLE only -- no delta, direct RLE (used for keyframes)
+  0x30  Transform -- global operation + sparse explicit pixel writes
 ```
 
 ### 3.3 Wire Format Examples
 
 **Standard DDP (unchanged)**:
 ```
-[0x41] [0x0n] [0x0B] [0xFF] [offset×4] [len×2] [R G B R G B ...]
+[0x41] [0x0n] [0x0B] [0xFF] [offsetx4] [lenx2] [R G B R G B ...]
  flags  seq    RGB24   all   byte-off   raw-len  raw pixel data
 ```
 
 **Delta+RLE compressed**:
 ```
-[0x61] [0x1n] [0x0B] [0xFF] [offset×4] [len×2] [RLE-encoded XOR delta...]
+[0x61] [0x1n] [0x0B] [0xFF] [offsetx4] [lenx2] [RLE-encoded XOR delta...]
  flags  seq    RGB24   all   byte-off   comp-len compressed data
-  │      │
-  │      └── upper nibble 0x1 = delta+RLE
-  └── VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+  |      |
+  |      \-- upper nibble 0x1 = delta+RLE
+  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
 ```
 
 **RLE-only compressed (keyframe)**:
 ```
-[0x61] [0x2n] [0x0B] [0xFF] [offset×4] [len×2] [RLE-encoded raw data...]
-  │      │
-  │      └── upper nibble 0x2 = RLE only
-  └── VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+[0x61] [0x2n] [0x0B] [0xFF] [offsetx4] [lenx2] [RLE-encoded raw data...]
+  |      |
+  |      \-- upper nibble 0x2 = RLE only
+  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
 ```
 
 **Transform compressed**:
 ```
-[0x61] [0x3n] [0x0B] [0xFF] [offset×4] [len×2] [transform header + explicit writes...]
-  │      │
-  │      └── upper nibble 0x3 = transform
-  └── VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+[0x61] [0x3n] [0x0B] [0xFF] [offsetx4] [lenx2] [transform header + explicit writes...]
+  |      |
+  |      \-- upper nibble 0x3 = transform
+  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
 ```
 
 ### 3.4 Backward Compatibility
 
-- Standard DDP senders never set bit 5 of byte 0 — their packets are processed by the standard (uncompressed) code path with zero changes.
-- Standard DDP receivers will accept compressed packets without error (no flag validation) but display garbage pixels — compressed data is interpreted as raw RGB. Compression MUST be opt-in and enabled only when both sides support it.
+- Standard DDP senders never set bit 5 of byte 0 -- their packets are processed by the standard (uncompressed) code path with zero changes.
+- Standard DDP receivers will accept compressed packets without error (no flag validation) but display garbage pixels -- compressed data is interpreted as raw RGB. Compression MUST be opt-in and enabled only when both sides support it.
 - The compression type nibble occupies byte 1 bits 7-4, which the base spec reserves as zero. No known DDP sender sets these bits.
 
 ---
@@ -249,12 +252,12 @@ The RLE codec operates on raw byte streams (not pixel-aware). It distinguishes r
 
 ```
 Bit 7 = 0: RUN
-  Value: (ctrl & 0x7F) + 1 = repeat count (1–128)
+  Value: (ctrl & 0x7F) + 1 = repeat count (1-128)
   Next byte: the value to repeat
   Output: value repeated (ctrl & 0x7F) + 1 times
 
 Bit 7 = 1: LITERAL
-  Value: (ctrl & 0x7F) + 1 = literal count (1–128)
+  Value: (ctrl & 0x7F) + 1 = literal count (1-128)
   Next N bytes: literal data
   Output: the N bytes verbatim
 ```
@@ -263,11 +266,11 @@ Bit 7 = 1: LITERAL
 
 1. Scan input left to right
 2. At each position, look ahead for identical bytes
-3. If 3+ identical bytes found → emit RUN control byte + value byte
+3. If 3+ identical bytes found -> emit RUN control byte + value byte
 4. Otherwise, accumulate into a literal span
 5. While accumulating literals, peek ahead for 3+ byte runs to break the literal
-6. Literal spans cap at 128 bytes — emit and start a new span if needed
-7. Runs cap at 128 repetitions — emit and start a new run if needed
+6. Literal spans cap at 128 bytes -- emit and start a new span if needed
+7. Runs cap at 128 repetitions -- emit and start a new run if needed
 
 ### 4.4 Size Guarantees
 
@@ -277,7 +280,20 @@ Bit 7 = 1: LITERAL
 | Worst case (random data) | input + ceil(input/128) + 2 bytes (~0.8% expansion) |
 | Maximum encoded size | `srcLen + (srcLen / 128) + 2` |
 
-### 4.5 Python Reference Encoder
+### 4.5 Sender and Receiver Obligations
+
+**Sender MUST:**
+- Allocate an output buffer of at least `rle_max_encoded_size(rawLen)` bytes before encoding.
+- Compare compressed output size against raw size after encoding.
+- Fall back to uncompressed transmission if `compressedLen >= rawLen`. The COMPRESSED flag MUST NOT be set on packets where compression was not beneficial.
+- Never perform in-place encoding (source and destination buffers MUST NOT overlap).
+
+**Receiver MUST:**
+- Accept that `dataLen` in the DDP header represents the compressed payload size, not the decompressed pixel count. The decompressed size is inferred from the pixel range (channelOffset to end of strip).
+- Cap decoder output at the expected pixel count to guard against malformed input that would decode to more bytes than the pixel buffer can hold.
+- Zero `prevFrame` and discard the current packet if the RLE decoder encounters a malformed control byte or runs past the end of the payload.
+
+### 4.6 Python Reference Encoder
 
 ```python
 def rle_encode(src: bytes) -> bytes:
@@ -307,7 +323,7 @@ def rle_encode(src: bytes) -> bytes:
     return bytes(out)
 ```
 
-### 4.6 Python Reference Decoder
+### 4.7 Python Reference Decoder
 
 ```python
 def rle_decode(src: bytes) -> bytes:
@@ -327,7 +343,7 @@ def rle_decode(src: bytes) -> bytes:
     return bytes(out)
 ```
 
-### 4.7 C Reference Streaming Decoder
+### 4.8 C Reference Streaming Decoder
 
 The C implementation uses a stateful streaming decoder for zero-copy operation on memory-constrained devices (ESP32). It emits one byte at a time without requiring a decompression buffer.
 
@@ -381,7 +397,7 @@ bool rle_decoder_next(RLEDecoder *d, uint8_t *out) {
 1. **Delta**: XOR current frame with previous frame. Unchanged pixels become `0x000000` (or `0x00000000` for RGBW).
 2. **RLE**: Apply byte-level RLE to the delta buffer. Long runs of zeros compress extremely well.
 3. **Transmission**: Send the RLE-encoded delta with compression type `0x10`.
-4. **Receiver decode**: RLE decode → XOR with receiver's stored previous frame → final pixel values.
+4. **Receiver decode**: RLE decode -> XOR with receiver's stored previous frame -> final pixel values.
 
 ### 5.2 Sender Logic (pseudocode)
 
@@ -413,22 +429,22 @@ def decode_delta_rle(compressed_data, prev_frame):
 
 ### 5.4 Previous Frame Buffer
 
-The receiver MUST maintain its own `prevFrame` buffer — a copy of the last successfully decoded frame in logical pixel order.
+The receiver MUST maintain its own `prevFrame` buffer -- a copy of the last successfully decoded frame in logical pixel order.
 
 **Critical design requirement**: The prevFrame buffer must NOT be the live display buffer. Reading from the live pixel buffer introduces:
 - Race conditions with the display refresh hardware
-- Mapping table indirection (logical→physical pixel reordering)
+- Mapping table indirection (logical->physical pixel reordering)
 - Brightness/gamma transformations applied during display output
 
 The prevFrame stores raw decoded values, exactly as received, before any display-side transformations.
 
-**RGBW requirement**: The prevFrame buffer MUST store 4 bytes per pixel (RGBW32 format) regardless of whether the current data is RGB or RGBW. This ensures the W channel survives delta roundtrips on RGBW strips. Allocating only 3 bytes/pixel causes W channel corruption — the W channel XORs against 0 instead of the previous W value.
+**RGBW requirement**: The prevFrame buffer MUST store 4 bytes per pixel (RGBW32 format) regardless of whether the current data is RGB or RGBW. This ensures the W channel survives delta roundtrips on RGBW strips. Allocating only 3 bytes/pixel causes W channel corruption -- the W channel XORs against 0 instead of the previous W value.
 
 ### 5.5 Measured Compression Ratios (real hardware, M5StickC, 800 LEDs)
 
 | Pattern | Raw Size | Compressed | Ratio | Notes |
 |---------|----------|-----------|-------|-------|
-| Rainbow (worst case) | 2,400 B | 2,400 B | 1:1 | Every pixel differs — no benefit |
+| Rainbow (worst case) | 2,400 B | 2,400 B | 1:1 | Every pixel differs -- no benefit |
 | Solid color pulse | 2,400 B | 1,900-2,050 B | 1.2:1 | 13-21% savings |
 | Sparse twinkle (2% change) | 2,400 B | 120 B | 20:1 | 95% savings |
 | Static (no change) | 2,400 B | ~16 B | 150:1 | Only zeros in delta |
@@ -445,7 +461,7 @@ Transform compression encodes common LED animation operations directly, rather t
 
 ```
 Offset  Size  Field
-──────  ────  ─────
+------  ----  -----
 0       1     tOp           Transform operation
 1       1     tParam        Operation parameter (e.g., blend alpha, scale factor)
 2       3-4   targetColor   Target R,G,B[,W] (size = channelsPerPixel)
@@ -457,9 +473,9 @@ Offset  Size  Field
 
 | tOp Value | Name | Behavior |
 |-----------|------|----------|
-| 0x01 | SCALE_TOWARD | `pixel = lerp(prev_pixel, target, tParam/255)` — blend toward target color |
-| 0x02 | SCALE_MULT | `pixel = prev_pixel * tParam / 255` — multiply brightness |
-| 0x03 | NOP | No global transform — only explicit pixel writes applied |
+| 0x01 | SCALE_TOWARD | `pixel = lerp(prev_pixel, target, tParam/255)` -- blend toward target color |
+| 0x02 | SCALE_MULT | `pixel = prev_pixel * tParam / 255` -- multiply brightness |
+| 0x03 | NOP | No global transform -- only explicit pixel writes applied |
 
 ### 6.4 Example: Fade to Black + Set 3 Pixels
 
@@ -467,16 +483,16 @@ Offset  Size  Field
 tOp=0x02 (SCALE_MULT), tParam=200 (78% brightness), target=(0,0,0)
 numExplicit=3
 explicitData:
-  [pixel 42, 255, 0, 0]    — set pixel 42 to red
-  [pixel 100, 0, 255, 0]   — set pixel 100 to green
-  [pixel 200, 0, 0, 255]   — set pixel 200 to blue
+  [pixel 42, 255, 0, 0]    -- set pixel 42 to red
+  [pixel 100, 0, 255, 0]   -- set pixel 100 to green
+  [pixel 200, 0, 0, 255]   -- set pixel 200 to blue
 ```
 
-Total payload: 1 + 1 + 3 + 2 + (3 × 5) = **22 bytes** for 800 pixels (vs 2,400 bytes raw).
+Total payload: 1 + 1 + 3 + 2 + (3 x 5) = **22 bytes** for 800 pixels (vs 2,400 bytes raw).
 
 ### 6.5 Receiver Implementation Notes
 
-The transform path reads the previous pixel state to compute the new value. This MUST read from the `prevFrame` buffer, not from the live display pixel buffer. The same design requirement as delta+RLE applies — reading live pixels introduces race conditions and mapping table indirection.
+The transform path reads the previous pixel state to compute the new value. This MUST read from the `prevFrame` buffer, not from the live display pixel buffer. The same design requirement as delta+RLE applies -- reading live pixels introduces race conditions and mapping table indirection.
 
 ---
 
@@ -484,7 +500,7 @@ The transform path reads the previous pixel state to compute the new value. This
 
 ### 7.1 RGBW (4-channel)
 
-DDP natively supports RGBW via the dataType field. Set bits [5:3] to `011` (RGBW type) and bits [2:0] to `011` (8-bit per channel) → dataType = `0x1B`.
+DDP natively supports RGBW via the dataType field. Set bits [5:3] to `011` (RGBW type) and bits [2:0] to `011` (8-bit per channel) -> dataType = `0x1B`.
 
 **Sender**: Generate 4 bytes per pixel (R, G, B, W). Set dataType to `0x1B`.
 
@@ -516,7 +532,7 @@ Not supported via DDP. RGBWW strips are handled internally by WLED's autoWhite a
 import socket, struct
 
 def send_ddp_frame(sock, target_ip, pixels_rgb, seq=1):
-    """Send a single raw DDP frame (RGB, ≤480 pixels)."""
+    """Send a single raw DDP frame (RGB, <=480 pixels)."""
     DDP_PORT = 4048
     flags = 0x41  # VER1 | PUSH
     data_type = 0x0B  # RGB24
@@ -616,12 +632,12 @@ def send_ddp_compressed(sock, target_ip, pixels, prev_frame, seq=1):
 
 The sender should try compression types in this priority order and pick the smallest output:
 
-1. **Transform** — if applicable (detect solid fades, constant scaling)
-2. **Delta+RLE** — if previous frame available
-3. **RLE only** — if no previous frame or first frame
-4. **Raw** — if all compressed outputs ≥ 90% of raw size
+1. **Transform** -- if applicable (detect solid fades, constant scaling)
+2. **Delta+RLE** -- if previous frame available
+3. **RLE only** -- if no previous frame or first frame
+4. **Raw** -- if all compressed outputs >= 90% of raw size
 
-The receiver dispatches purely on the compression type byte — it doesn't need to know how the sender chose.
+The receiver dispatches purely on the compression type byte -- it doesn't need to know how the sender chose.
 
 ---
 
@@ -630,20 +646,20 @@ The receiver dispatches purely on the compression type byte — it doesn't need 
 ### 9.1 Packet Validation Checklist
 
 ```
-1. Length ≥ 10 bytes (DDP header minimum)
+1. Length >= 10 bytes (DDP header minimum)
 2. Flags byte has VER1 set (bits 7-6 = 01)
 3. Destination is not CONTROL(246), STATUS(251), or CONFIG(250)
 4. QUERY(bit 1) and REPLY(bit 2) flags not set
 5. If !PUSH and STORAGE: reject (storage-only without push)
 6. Sequence filter: reject if in late-packet window
-7. Payload length: packetLen ≥ header + timecode_offset + dataLen
+7. Payload length: packetLen >= header + timecode_offset + dataLen
 ```
 
 ### 9.2 Raw DDP Receive Path
 
 ```
 1. Parse header
-2. Detect channels: (dataType >> 3) & 0x07 == 3 → RGBW (4ch), else RGB (3ch)
+2. Detect channels: (dataType >> 3) & 0x07 == 3 -> RGBW (4ch), else RGB (3ch)
 3. Calculate start pixel: channelOffset / channelsPerPixel + DMX_offset
 4. Skip timecode if TIME flag set (4 bytes)
 5. Write pixels: for each pixel in [start, start + dataLen/channels):
@@ -677,7 +693,7 @@ static unsigned  prevFrameSize;   // allocated size in pixels
 
 `prevFrame` is allocated on DDP realtime mode entry and freed on exit. It MUST be zeroed on:
 - First entry into DDP mode
-- Mode transitions (effect → realtime or vice versa)
+- Mode transitions (effect -> realtime or vice versa)
 - RLE decode errors (malformed data)
 - After receiving a non-delta frame (keyframe)
 
@@ -687,8 +703,8 @@ static unsigned  prevFrameSize;   // allocated size in pixels
 
 ### 10.1 Sequence Counter Rules
 
-- Range: 1–15 (4-bit, lower nibble of byte 1)
-- Value 0: "unused" — receiver skips sequence validation
+- Range: 1-15 (4-bit, lower nibble of byte 1)
+- Value 0: "unused" -- receiver skips sequence validation
 - Increment continuously across packets AND frames
 - Wrap: after 15, next is 1 (NOT 0)
 
@@ -720,7 +736,7 @@ if (sn != 0 && e131SkipOutOfSequence && lastPushSeq != 0) {
 
 For multi-packet frames: set PUSH flag on the LAST packet only. The receiver accumulates pixel data and renders on push.
 
-For bandwidth-constrained links (PPP serial), bypass the show debounce timer on push — serial is FIFO with no reordering.
+For bandwidth-constrained links (PPP serial), bypass the show debounce timer on push -- serial is FIFO with no reordering.
 
 For WiFi/Ethernet: maintain a 10-15ms debounce between show calls to coalesce multi-packet bursts that may arrive out of order.
 
@@ -733,7 +749,7 @@ For WiFi/Ethernet: maintain a 10-15ms debounce between show calls to coalesce mu
 - **Frame 0**: Always uncompressed or RLE-only (no delta)
 - **Every 10 frames**: Send RLE-only (no delta) keyframe
 - **On connection init**: First frame is keyframe
-- **Sender heuristic**: If compressed output ≥ 90% of raw, send raw (implicit keyframe)
+- **Sender heuristic**: If compressed output >= 90% of raw, send raw (implicit keyframe)
 
 ### 11.2 Error Recovery
 
@@ -742,7 +758,7 @@ If the receiver detects any of these conditions, it MUST zero its `prevFrame` bu
 - Sequence number gap indicating lost packets
 - Realtime mode entry/exit transition
 
-After zeroing prevFrame, the next delta frame XORs against zeros — producing the raw values. This is correct but may produce a single frame of incorrect output if the sender's delta was computed against a non-zero previous frame. The next keyframe (within ≤10 frames) fully resynchronizes.
+After zeroing prevFrame, the next delta frame XORs against zeros -- producing the raw values. This is correct but may produce a single frame of incorrect output if the sender's delta was computed against a non-zero previous frame. The next keyframe (within <=10 frames) fully resynchronizes.
 
 ### 11.3 Desync Window
 
@@ -756,26 +772,26 @@ With 10-frame keyframe interval at 30fps: maximum desync duration = 333ms. At 60
 
 - MTU: 1500 bytes (Ethernet standard)
 - DDP payload: 1440 bytes max (480 RGB or 360 RGBW pixels)
-- Packet reordering: possible (especially WiFi) — use sequence filter
+- Packet reordering: possible (especially WiFi) -- use sequence filter
 - Show debounce: 10-15ms recommended for multi-packet coalescing
 
 ### 12.2 PPP over Serial (low-bitrate)
 
-- **MTU: 1500 bytes** (fixed — see note below)
+- **MTU: 1500 bytes** (fixed -- see note below)
 - Effective bandwidth: ~172 KB/s at 1.5Mbps UART
-- Packet ordering: guaranteed (serial is FIFO) — no debounce needed
+- Packet ordering: guaranteed (serial is FIFO) -- no debounce needed
 - Show timing: immediate on push (bypass debounce)
 
 **Why MTU is 1500, not 4096**: The Tasmota Arduino Core ships a pre-compiled
 `liblwip.a` with `PPP_MRU` hardcoded to 1500. Build-flag overrides
 (`-D PPP_MRU=4096`) have no effect on the pre-built library. This was
 discovered empirically in session 13 when DDP PANIC crashes were traced to
-UART RX buffer overruns at higher packet rates — the root cause was the MTU
+UART RX buffer overruns at higher packet rates -- the root cause was the MTU
 mismatch between the pppd command (`mru 1500`) and the firmware expectation.
 
 **PPP byte-stuffing**: PPP HDLC framing escapes bytes `0x7D` and `0x7E`.
 Worst case: payload doubles. At MTU=1500, worst-case byte-stuffed frame is
-~3000 bytes. The UART RX buffer is fixed at 8192 bytes (5.5× MTU) — adequate
+~3000 bytes. The UART RX buffer is fixed at 8192 bytes (5.5x MTU) -- adequate
 for ~2.7 frames of buffering. Two-tier flow control in the PPP RX task yields
 to the lwIP tcpip_thread when the buffer exceeds 50% capacity.
 
@@ -790,23 +806,23 @@ sudo pppd /dev/ttyUSB0 1500000 noauth nodetach local nocrtscts \
 
 ```
 WiFi (20 Mbps effective):
-  Raw RGB at 30fps:    → 222,222 pixels max
-  Raw RGBW at 30fps:   → 166,666 pixels max
+  Raw RGB at 30fps:    -> 222,222 pixels max
+  Raw RGBW at 30fps:   -> 166,666 pixels max
   No compression needed for most installations
 
 Ethernet (100 Mbps):
-  Raw RGB at 30fps:    → 1,111,111 pixels max
+  Raw RGB at 30fps:    -> 1,111,111 pixels max
   Compression irrelevant
 
 PPP 1.5Mbps UART:
-  Raw RGB at 30fps:    → 1,911 pixels max (5,733 bytes/frame)
-  Raw RGBW at 30fps:   → 1,433 pixels max
-  With delta+RLE 95%:  → 38,222 pixels at 30fps (theoretical)
-  With delta+RLE 50%:  → 3,822 pixels at 30fps
+  Raw RGB at 30fps:    -> 1,911 pixels max (5,733 bytes/frame)
+  Raw RGBW at 30fps:   -> 1,433 pixels max
+  With delta+RLE 95%:  -> 38,222 pixels at 30fps (theoretical)
+  With delta+RLE 50%:  -> 3,822 pixels at 30fps
 
   Display budgets:
-    20×40 matrix (800px):  raw=71fps, delta95%=1433fps
-    160×80 TFT (12800px): raw=4.5fps, delta95%=89fps, RLE50%=9fps
+    20x40 matrix (800px):  raw=71fps, delta95%=1433fps
+    160x80 TFT (12800px): raw=4.5fps, delta95%=89fps, RLE50%=9fps
 ```
 
 ### 12.4 Receiver-Side Flow Control and Flood Survival
@@ -814,33 +830,33 @@ PPP 1.5Mbps UART:
 The WLED DDP receiver implements multiple layers of protection against DDP
 flood conditions (uncapped sender, network burst, or slow consumer):
 
-**Layer 1 — Heap guard** (e131.cpp): Drop all DDP packets when free heap
+**Layer 1 -- Heap guard** (e131.cpp): Drop all DDP packets when free heap
 falls below 20KB. Prevents OOM crashes under sustained flood. Counter:
 `ddpHeapGuardDrops` (atomic, visible in `/diag`).
 
-**Layer 2 — Rate limiter** (e131.cpp): `ddpMaxFps` cap (default: 40fps when
+**Layer 2 -- Rate limiter** (e131.cpp): `ddpMaxFps` cap (default: 40fps when
 TFT bus is active, 60fps otherwise). Micros-based gate using `ddpLastFrameUs`.
 Excess frames dropped silently. Counter: `ddpRateLimitDrops` (atomic, visible
-in `/diag`). Rationale: TFT SPI DMA takes ~24ms per frame at 40×80 virtual
-pixels — accepting DDP faster than the display can render wastes CPU and
+in `/diag`). Rationale: TFT SPI DMA takes ~24ms per frame at 40x80 virtual
+pixels -- accepting DDP faster than the display can render wastes CPU and
 starves the main loop.
 
-**Layer 3 — Main loop starvation detector** (e131.cpp): When the main loop
+**Layer 3 -- Main loop starvation detector** (e131.cpp): When the main loop
 hasn't run for >100ms (detected via `lastLoopMs` atomic), the PPP RX task
 boosts the loop task priority to 19 via `vTaskPrioritySet(loopTaskHandle, 19)`.
 The main loop restores priority to 1 on its next iteration. This prevents
 TFT SPI DMA from being starved by sustained DDP flood. Implemented in session
 14 (Wave 7) after observing loop starvation under uncapped DDP at 670+ fps.
 
-**Layer 4 — Finite realtime timeout** (udp.cpp): `realtimeLock()` for DDP
+**Layer 4 -- Finite realtime timeout** (udp.cpp): `realtimeLock()` for DDP
 uses a 2500ms timeout (`realtimeLock(2500, REALTIME_MODE_DDP)`) rather than
 the configurable `realtimeTimeoutMs`. This ensures the device recovers from
 DDP streams that stop without sending a final packet. The FPS=0 lockup bug
 (session 16) was caused by the timeout check running after `strip.show()`
-which blocks for 24ms on TFT SPI DMA — fixed by moving the timeout check
+which blocks for 24ms on TFT SPI DMA -- fixed by moving the timeout check
 before the show block.
 
-**Layer 5 — UART flow control** (wled_ppp.cpp): Two-tier flow control in the
+**Layer 5 -- UART flow control** (wled_ppp.cpp): Two-tier flow control in the
 PPP RX task. Tier 1 (>50% UART RX buffer): yield to let tcpip_thread drain.
 Tier 2 (>75% buffer): drop the current DDP frame. Prevents UART ISR ring
 buffer overrun under sustained high-rate DDP.
@@ -866,12 +882,12 @@ buffer overrun under sustained high-rate DDP.
 |---|------|-------|----------|
 | 1 | Empty | `b""` | `b""` after roundtrip |
 | 2 | Single byte | `b"\x42"` | Roundtrips correctly |
-| 3 | Run of 3 | `b"\xAA" × 3` | Encoded = `b"\x02\xAA"` |
-| 4 | Run of 128 | `b"\x00" × 128` | Encoded = `b"\x7F\x00"` |
-| 5 | Run of 129 | `b"\xFF" × 129` | Two RLE runs, 4 bytes |
-| 6 | Alternating | `b"\xAA\x55" × 64` | All literals, ~130 bytes |
+| 3 | Run of 3 | `b"\xAA" x 3` | Encoded = `b"\x02\xAA"` |
+| 4 | Run of 128 | `b"\x00" x 128` | Encoded = `b"\x7F\x00"` |
+| 5 | Run of 129 | `b"\xFF" x 129` | Two RLE runs, 4 bytes |
+| 6 | Alternating | `b"\xAA\x55" x 64` | All literals, ~130 bytes |
 | 7 | Mixed | Runs + literals | Roundtrip correct |
-| 8 | Random (×100) | `os.urandom(N)` | Roundtrip correct for all |
+| 8 | Random (x100) | `os.urandom(N)` | Roundtrip correct for all |
 | 9 | Worst case | Non-repeating 1440 bytes | Expansion < 1.1% |
 | 10 | Full byte range | `bytes(range(256))` | Roundtrip correct |
 | 11 | RGBW pixels | 4-byte patterns | Roundtrip correct |
@@ -891,12 +907,12 @@ buffer overrun under sustained high-rate DDP.
 
 | # | Test | Expected |
 |---|------|----------|
-| 18 | Single packet (≤1440B) | 1 packet, PUSH set |
+| 18 | Single packet (<=1440B) | 1 packet, PUSH set |
 | 19 | Multi-packet (>1440B) | N packets, PUSH on last only |
 | 20 | Boundary (exactly 1440B) | 1 packet |
 | 21 | Header byte layout | Matches spec struct |
 | 22 | Compressed flag | Bit 5 set, comp type in upper nibble |
-| 23 | Sequence wrap | Cycles 1→15→1, never 0 |
+| 23 | Sequence wrap | Cycles 1->15->1, never 0 |
 | 24 | RGBW data type | Header byte 2 = 0x1B |
 | 25 | Zero-length | Defined behavior (0 or 1 packet) |
 
@@ -934,7 +950,7 @@ def verify_pixel(target_ip, pixel_idx, expected_rgb):
 | 37 | RGBW delta | Only W changes | W correct |
 | 38 | Sequence wrap | >15 packets | No drops |
 | 39 | Sustained 30fps | 5 seconds | Last frame correct |
-| 40 | Keyframe recovery | Send 10 deltas → verify | Matches after keyframe |
+| 40 | Keyframe recovery | Send 10 deltas -> verify | Matches after keyframe |
 
 ### 13.3 Cross-Implementation Verification
 
@@ -971,20 +987,20 @@ The `/diag` endpoint (HTTP GET) exposes:
 
 | # | Severity | Issue | Status |
 |---|----------|-------|--------|
-| C1 | CRITICAL | prevFrame allocates 3B/pixel — RGBW W channel lost in delta | **Accepted** — prevFrame uses RGB565 (2B/pixel). W channel intentionally absent: heap trade-off on no-PSRAM devices (2B×800px=1.6KB vs 4B×800px=3.2KB). Delta decode reconstructs W=0, acceptable for WLED effects. |
-| C2 | CRITICAL | Transform reads live pixel buffer instead of prevFrame | **Fixed (session 10)** — Transform reads `ddpPrevFrame` via `DDP_PF_IDX()`. Partial: reads RGB565 (W=0 reconstructed), not RGBW32. |
-| C3 | CRITICAL | PPP show() has no isUpdating() guard → torn frames | **Fixed (session 8, architectural)** — DDP handler never calls `strip.show()` directly. Handler sets `e131NewData` atomic flag; show deferred to main loop. No isUpdating() guard needed. |
-| C4 | CRITICAL | PPP byte-stuffing can overflow UART RX buffer | **Mitigated (session 13)** — Two-tier UART flow control: yield at >50% buffer fill. RX buffer 8192 bytes (5.5× MTU=1500). Not fully solved for MTU>1500, but MTU>1500 is not achievable with pre-built liblwip.a. |
-| H1 | HIGH | Sequence counter wraps to 0 after 15 packets | **Fixed (session 10)** — Sequence cycles 1→15→1 via `(ddpLastSeq % 15) + 1`. `ddpSeqGaps` counter tracks out-of-order packets. |
-| H2 | HIGH | 1-second keyframe gap = garbage on desync | **Not fixed** — Receiver does not zero prevFrame on sequence gap. Mitigated by: (1) sender keyframe interval (§11.1), (2) `ddpFreePrevFrame()` on `exitRealtime()`. Risk: visual glitches on packet loss until next keyframe. |
+| C1 | CRITICAL | prevFrame allocates 3B/pixel -- RGBW W channel lost in delta | **Accepted** -- prevFrame uses RGB565 (2B/pixel). W channel intentionally absent: heap trade-off on no-PSRAM devices (2Bx800px=1.6KB vs 4Bx800px=3.2KB). Delta decode reconstructs W=0, acceptable for WLED effects. |
+| C2 | CRITICAL | Transform reads live pixel buffer instead of prevFrame | **Fixed (session 10)** -- Transform reads `ddpPrevFrame` via `DDP_PF_IDX()`. Partial: reads RGB565 (W=0 reconstructed), not RGBW32. |
+| C3 | CRITICAL | PPP show() has no isUpdating() guard -> torn frames | **Fixed (session 8, architectural)** -- DDP handler never calls `strip.show()` directly. Handler sets `e131NewData` atomic flag; show deferred to main loop. No isUpdating() guard needed. |
+| C4 | CRITICAL | PPP byte-stuffing can overflow UART RX buffer | **Mitigated (session 13)** -- Two-tier UART flow control: yield at >50% buffer fill. RX buffer 8192 bytes (5.5x MTU=1500). Not fully solved for MTU>1500, but MTU>1500 is not achievable with pre-built liblwip.a. |
+| H1 | HIGH | Sequence counter wraps to 0 after 15 packets | **Fixed (session 10)** -- Sequence cycles 1->15->1 via `(ddpLastSeq % 15) + 1`. `ddpSeqGaps` counter tracks out-of-order packets. |
+| H2 | HIGH | 1-second keyframe gap = garbage on desync | **Not fixed** -- Receiver does not zero prevFrame on sequence gap. Mitigated by: (1) sender keyframe interval (sec 11.1), (2) `ddpFreePrevFrame()` on `exitRealtime()`. Risk: visual glitches on packet loss until next keyframe. |
 
 ### 14.2 Design Decisions
 
-**Byte-level RLE vs pixel-level RLE**: PackBits byte-level RLE is suboptimal for RGB pixel data (a run of identical RED pixels is `FF,00,00,FF,00,00...` at byte level — interleaved runs). However, delta+RLE captures temporal coherence at 95% savings, which is the primary use case. Pixel-level RLE or LZ4 would give ~2-3x better compression on keyframes but adds wire format complexity and decode cost. Decision: keep byte-level RLE for simplicity.
+**Byte-level RLE vs pixel-level RLE**: PackBits byte-level RLE is suboptimal for RGB pixel data (a run of identical RED pixels is `FF,00,00,FF,00,00...` at byte level -- interleaved runs). However, delta+RLE captures temporal coherence at 95% savings, which is the primary use case. Pixel-level RLE or LZ4 would give ~2-3x better compression on keyframes but adds wire format complexity and decode cost. Decision: keep byte-level RLE for simplicity.
 
 **No compression for Art-Net/E1.31**: These are industry standards. Proprietary compression breaks interoperability. DDP's niche ecosystem allows extension.
 
-**2-byte prevFrame (RGB565)**: prevFrame uses 2 bytes/pixel (RGB565 packed format) rather than 4 bytes/pixel (RGBW32). This is a deliberate heap trade-off for no-PSRAM devices (ESP32-PICO-D4, 520KB SRAM): 2B×800px=1.6KB vs 4B×800px=3.2KB. Trade-offs accepted: (1) W channel is absent — delta decode reconstructs W=0, acceptable since WLED effects rarely use the W channel in DDP streams; (2) R/G/B lose 3 bits of precision each due to 565 quantization — imperceptible at LED brightness levels. The RGB565 format was adopted in session 9 when heap pressure from DDP+TFT+WiFi left insufficient headroom for RGBW32 prevFrame on 800+ pixel configurations.
+**2-byte prevFrame (RGB565)**: prevFrame uses 2 bytes/pixel (RGB565 packed format) rather than 4 bytes/pixel (RGBW32). This is a deliberate heap trade-off for no-PSRAM devices (ESP32-PICO-D4, 520KB SRAM): 2Bx800px=1.6KB vs 4Bx800px=3.2KB. Trade-offs accepted: (1) W channel is absent -- delta decode reconstructs W=0, acceptable since WLED effects rarely use the W channel in DDP streams; (2) R/G/B lose 3 bits of precision each due to 565 quantization -- imperceptible at LED brightness levels. The RGB565 format was adopted in session 9 when heap pressure from DDP+TFT+WiFi left insufficient headroom for RGBW32 prevFrame on 800+ pixel configurations.
 
 **Transform compression is sender-side only**: The receiver decodes whatever the sender sends. The sender decides when to use transform vs delta+RLE based on content analysis. No negotiation protocol.
 
@@ -992,7 +1008,7 @@ The `/diag` endpoint (HTTP GET) exposes:
 
 - **CCT via DDP**: Not supported. CCT is a per-segment property in WLED, not a per-pixel DDP channel. Use JSON API for CCT control.
 - **Multi-packet compressed DDP**: Requires decoder state persistence across packets. Works but adds complexity. Prefer raising MTU on bandwidth-constrained links.
-- **Delta compression for >2048 pixels**: prevFrame buffer costs `pixels × 4` bytes. On ESP32 with 109KB free heap, 2048px × 4B = 8KB is acceptable. 12,800px × 4B = 50KB is too large without PSRAM. Use RLE-only or transform for large displays.
+- **Delta compression for >2048 pixels**: prevFrame buffer costs `pixels x 4` bytes. On ESP32 with 109KB free heap, 2048px x 4B = 8KB is acceptable. 12,800px x 4B = 50KB is too large without PSRAM. Use RLE-only or transform for large displays.
 - **Lossy compression**: Not implemented. All compression types are lossless. For bandwidth-starved links, the sender should reduce frame rate rather than pixel fidelity.
 
 ---
@@ -1002,10 +1018,10 @@ The `/diag` endpoint (HTTP GET) exposes:
 ### 15.1 Formula
 
 ```
-effective_bandwidth = link_speed × (1 - framing_overhead)
-bytes_per_frame = pixels × channels_per_pixel
+effective_bandwidth = link_speed x (1 - framing_overhead)
+bytes_per_frame = pixels x channels_per_pixel
 max_raw_fps = effective_bandwidth / bytes_per_frame
-max_compressed_fps = effective_bandwidth / (bytes_per_frame × (1 - compression_ratio))
+max_compressed_fps = effective_bandwidth / (bytes_per_frame x (1 - compression_ratio))
 ```
 
 ### 15.2 Quick Reference Table
@@ -1013,11 +1029,11 @@ max_compressed_fps = effective_bandwidth / (bytes_per_frame × (1 - compression_
 | Transport | Speed | Effective | 800px RGB | 800px RGBW | 12800px RGB |
 |-----------|-------|-----------|-----------|------------|-------------|
 | **PPP 1.5Mbps** | 1.5M | 172 KB/s | 71fps raw | 53fps raw | 4.5fps raw |
-| PPP compressed | — | — | >100fps* | >100fps* | 89fps @95%Δ |
+| PPP compressed | -- | -- | >100fps* | >100fps* | 89fps @95%delta |
 | **WiFi 20Mbps** | 20M | 2.3 MB/s | >100fps | >100fps | 60fps raw |
 | **Ethernet 100M** | 100M | 11.6 MB/s | >100fps | >100fps | >100fps |
 
-*Compression ratios depend on content — 95% is typical for sparse animations.
+*Compression ratios depend on content -- 95% is typical for sparse animations.
 
 ### 15.3 Frame Budget Calculator
 
@@ -1027,8 +1043,8 @@ def frame_budget(bandwidth_bytes_sec, target_fps):
 
 # PPP at 30fps:
 # frame_budget(172000, 30) = 5733 bytes
-# 800px RGB raw = 2400 bytes → fits easily
-# 12800px RGB raw = 38400 bytes → needs 6.7:1 compression
+# 800px RGB raw = 2400 bytes -> fits easily
+# 12800px RGB raw = 38400 bytes -> needs 6.7:1 compression
 ```
 
 ---
@@ -1043,7 +1059,7 @@ def frame_budget(bandwidth_bytes_sec, target_fps):
 | RLE codec (streaming decoder) | C | `wled00/ddp_compress.h` | Production |
 | DDP sender (raw only) | C/C++ | `wled00/udp.cpp` (`realtimeBroadcast()`) | Production |
 | DDP encoder + benchmark | Python | `tools/ddp_bench.py` | Production |
-| Transform encoder | C/C++ | `wled00/e131.cpp` | Not implemented — decoder only. `rle_encode_adaptive()` in `ddp_compress.h` implements RLE and delta+RLE only. |
+| Transform encoder | C/C++ | `wled00/e131.cpp` | Not implemented -- decoder only. `rle_encode_adaptive()` in `ddp_compress.h` implements RLE and delta+RLE only. |
 | RLE codec (encode + decode) | Python | `tools/ddp_codec.py` | In progress |
 | Validation suite | Python/pytest | `tools/tests/test_rle.py` | In progress |
 
@@ -1051,11 +1067,11 @@ def frame_budget(bandwidth_bytes_sec, target_fps):
 
 To implement compressed DDP in a new codebase:
 
-1. **Receiver**: Implement the packet validation checklist (§9.1), raw decode path (§9.2), and compressed decode dispatch (§9.3). The streaming RLE decoder (§4.7) is ~40 lines of C with zero dependencies.
+1. **Receiver**: Implement the packet validation checklist (sec 9.1), raw decode path (sec 9.2), and compressed decode dispatch (sec 9.3). The streaming RLE decoder (sec 4.7) is ~40 lines of C with zero dependencies.
 
-2. **Sender**: Implement raw DDP send (§8.1), then add adaptive compression selection (§8.4). The RLE encoder (§4.5) is ~25 lines of Python or ~50 lines of C.
+2. **Sender**: Implement raw DDP send (sec 8.1), then add adaptive compression selection (sec 8.4). The RLE encoder (sec 4.5) is ~25 lines of Python or ~50 lines of C.
 
-3. **Test**: Port the validation suite test cases (§13.1) to your test framework. The 11 RLE unit tests and 6 delta+RLE tests are the minimum bar for correctness.
+3. **Test**: Port the validation suite test cases (sec 13.1) to your test framework. The 11 RLE unit tests and 6 delta+RLE tests are the minimum bar for correctness.
 
 4. **Configure**: Set prevFrame buffer size based on maximum expected pixel count. For RGBW compatibility, always allocate 4 bytes per pixel.
 
@@ -1125,38 +1141,236 @@ DDP_TRANSFORM_NOP = 0x03
 
 ---
 
+## 17. Wire Format Options (Open)
+
+The current implementation signals compression via reserved bits in the DDP header. Upstream review raised the concern that borrowing reserved bits risks incompatibility with future DDP spec changes. Three signalling approaches are under consideration.
+
+### 17.1 Option A: Reserved Flag Bit (current implementation)
+
+**Byte 0 bit 5 (0x20)**: COMPRESSED flag. Compression type in byte 1 upper nibble.
+
+| Pro | Con |
+|-----|-----|
+| Single bit check in receiver hot path | Borrows a reserved bit the spec may assign later |
+| No changes to dataType semantics | No spec precedent for vendor use of flag bits |
+| Compression is a transport concern -- flag byte is the natural location | DDP spec author could collide with this bit in a future revision |
+
+### 17.2 Option B: Custom Data Type (C bit)
+
+**Byte 2 bit 7 (0x80)**: The DDP spec defines this as "1 for Customer defined". Set `dataType = 0x80 | original_type`. Compression type encoded in byte 1 upper nibble (unchanged) or in the remaining dataType bits.
+
+| Pro | Con |
+|-----|-----|
+| Explicitly spec-sanctioned extension mechanism | Compression is a transport property, not a data type property |
+| No risk of future spec collision on the C bit -- it exists for this purpose | Receiver must mask out bit 7 before interpreting the data type for channel count |
+| Existing receivers that validate dataType strictly may reject the packet cleanly | Overloads byte 2 with two unrelated concerns (pixel format + compression) |
+
+Wire format change: `0x0B` (RGB24) becomes `0x8B` when compressed. Receiver checks `dataType & 0x80` for compression, `dataType & 0x7F` for pixel format.
+
+### 17.3 Option C: Separate Protocol Discriminator
+
+Define a new port or protocol identifier entirely separate from standard DDP.
+
+| Pro | Con |
+|-----|-----|
+| Zero risk of DDP spec collision | Requires firewall/routing changes (new port) |
+| Clean separation of concerns | Breaks DDP tooling (sniffers, test tools, OpenRGB, LedFX) |
+| | Two code paths instead of one flag check |
+| | DDP has no protocol-version negotiation mechanism |
+
+### 17.4 Recommendation (pending upstream consensus)
+
+Option B (C bit) is the most spec-compliant -- it uses a mechanism the DDP spec explicitly provides for vendor extensions. Option A (current) is the simplest and has been validated on hardware. Option C is the most disruptive with no clear benefit.
+
+The wire format should be settled before code PRs land upstream. Both sender and receiver implementations can be trivially updated to use a different signalling bit -- the codec itself is format-agnostic.
+
+---
+
+## 18. Compression Variant Analysis (Open)
+
+The current codec uses byte-level RLE on XOR deltas. Upstream review suggested evaluating RGB-tuple RLE and separate colour plane RLE (per ITU T.45). This section documents the tradeoffs to inform the design decision.
+
+### 18.1 Byte-Level RLE (current)
+
+Operates on the raw byte stream after XOR delta. Channel boundaries are invisible to the encoder.
+
+**Strengths:**
+- Unchanged pixels become zero-byte runs regardless of channel count (RGB or RGBW).
+- 300 unchanged RGB pixels = 900 zero bytes = one 2-byte RLE token.
+- Partially-changed pixels still compress per-channel (if only R changes, the G and B zero bytes still form runs).
+- Simple: one encode pass, one decode pass, streaming decoder with no buffering.
+- PackBits is well-understood (Apple 1984, TIFF, DICOM).
+
+**Weaknesses:**
+- Keyframes (no delta) compress poorly on non-uniform data. A rainbow gradient has no byte-level runs.
+- Interleaved channel data (RGBRGB...) prevents cross-pixel runs on raw frames.
+
+### 18.2 RGB-Tuple RLE
+
+Each run unit is a full pixel (3 bytes RGB, 4 bytes RGBW). Runs of identical pixels compress to one control byte + one pixel.
+
+**Strengths:**
+- Keyframes with solid regions compress well (100 identical red pixels = 1 control + 3 bytes).
+- Semantically meaningful -- runs correspond to visible pixel regions.
+
+**Weaknesses:**
+- Identical compression to byte-level for delta frames (unchanged pixels are all-zero tuples either way).
+- Partial channel changes kill compression: if pixel (255,0,0) changes to (254,0,0), the tuple differs and must be a literal. Byte-level RLE can still run the unchanged G and B channels.
+- RGBW complicates the run unit size (3 vs 4 bytes depending on dataType).
+- Control byte overhead is higher per run: one control byte covers fewer bytes of output (3-4 per unit vs 1 per unit in byte-level).
+
+### 18.3 Separate Colour Planes
+
+Split RGB data into three independent byte streams (R-plane, G-plane, B-plane), RLE-encode each plane separately. Closer to ITU T.45 colour run-length encoding.
+
+**Strengths:**
+- Smooth gradients compress well per-plane (R channel changing slowly = good byte runs).
+- Each plane can be decoded independently.
+
+**Weaknesses:**
+- Three encode passes on sender, three decode passes on receiver.
+- Receiver must buffer at least one packet's worth per plane before writing any pixels (can't stream RGB output until all three planes are available for a given pixel range).
+- Breaks the streaming decoder model that enables zero-copy on ESP32.
+- Higher memory cost on receiver: 3x buffering vs streaming.
+- RGBW requires 4 planes.
+- More complex wire format: need to signal plane ordering and per-plane lengths.
+
+### 18.4 Comparison Matrix
+
+| Property | Byte-level RLE | RGB-tuple RLE | Colour planes |
+|----------|---------------|---------------|---------------|
+| Delta frame compression | Excellent | Excellent | Excellent |
+| Keyframe compression (solid) | Poor | Good | Moderate |
+| Keyframe compression (gradient) | Poor | Poor | Good |
+| Partial channel change | Good | Poor | Good |
+| Decoder complexity | Minimal | Minimal | High |
+| Decoder memory | Zero (streaming) | Zero (streaming) | 3x packet buffer |
+| RGBW handling | Transparent | Variable run unit | 4th plane |
+| Wire format complexity | Simple | Simple | Complex |
+
+### 18.5 Benchmarking Methodology (TODO)
+
+To make this decision empirically rather than theoretically, benchmark all three variants on real LED animation patterns:
+
+1. **Rainbow cycle** (worst case -- every pixel different every frame)
+2. **Sparse twinkle** (2-5% pixel change per frame)
+3. **Chase/wipe** (moving edge, static regions)
+4. **Gradient fade** (slow smooth colour transition)
+5. **Solid pulse** (uniform colour, brightness ramp)
+6. **Fire/plasma** (organic noise, moderate change rate)
+
+Measure compressed size, encode time, decode time for each variant on each pattern. Report as compression ratio and CPU microseconds on ESP32 (240MHz Xtensa LX6).
+
+The codec already supports multiple compression types via the upper nibble. Adding a new variant is a new type code and 30-50 lines of encoder/decoder -- the framework supports it without wire format changes.
+
+---
+
+## 19. WebSocket Transport (Open)
+
+DDP-over-WebSocket is an existing WLED feature (`common.js`, line ~216). Adding compression support to this path is a natural follow-on.
+
+### 19.1 Current DDP-over-WS Path
+
+The WLED frontend can stream pixel data to the device via WebSocket using the same DDP packet format encapsulated in WS binary frames. The receiver side (`handleDDPPacket()`) is transport-agnostic -- it processes the same packet structure regardless of whether it arrived via UDP or WS.
+
+### 19.2 Interaction with permessage-deflate
+
+WebSocket has its own per-message compression extension (permessage-deflate, RFC 7692). When enabled, the WS layer applies deflate compression to each message before transmission.
+
+**Key consideration:** If permessage-deflate is active, layering PackBits RLE on top is largely redundant -- deflate is a superset of RLE and handles entropy removal more effectively. The useful part of the compression extension over WS is the **delta framing** (XOR against previous frame), not the RLE encoding.
+
+Possible approaches:
+
+| Approach | Sender | Receiver | Bandwidth | Complexity |
+|----------|--------|----------|-----------|------------|
+| Raw DDP over WS + permessage-deflate | No codec needed | No codec needed | Good (deflate handles it) | Minimal |
+| Delta-only over WS (no RLE) | XOR delta, send raw delta | XOR decode only | Better (sparse deltas compress well under deflate) | Low |
+| Full compressed DDP over WS | Same as UDP path | Same as UDP path | Redundant with deflate | Unnecessary |
+| Delta+RLE over WS without deflate | Full codec | Full codec | Good | Moderate |
+
+### 19.3 Proposed WS-Specific Mode
+
+A delta-only mode (new compression type, e.g. `0x40`) that sends the raw XOR delta without RLE encoding. The WS transport layer (with permessage-deflate) handles the entropy removal. This gives the benefit of temporal coherence (delta) without the redundancy of double-compressing.
+
+On transports without permessage-deflate (or where it's disabled), the sender falls back to delta+RLE (`0x10`) as usual.
+
+### 19.4 JS Implementation Surface
+
+The PackBits encoder is ~30 lines of JavaScript. The delta XOR is trivial. The JS-side implementation would live in `wled00/data/common.js` alongside the existing DDP-over-WS sender.
+
+```javascript
+// PackBits RLE encoder (reference, not final)
+function rleEncode(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    let run = 1;
+    while (i + run < src.length && src[i + run] === src[i] && run < 128) run++;
+    if (run >= 3) {
+      out.push(run - 1, src[i]);
+      i += run;
+    } else {
+      const litStart = i;
+      let litLen = 0;
+      while (i < src.length && litLen < 128) {
+        let ahead = 1;
+        while (i + ahead < src.length && src[i + ahead] === src[i] && ahead < 3) ahead++;
+        if (ahead >= 3) break;
+        i++; litLen++;
+      }
+      if (litLen) {
+        out.push(0x80 | (litLen - 1));
+        for (let j = 0; j < litLen; j++) out.push(src[litStart + j]);
+      }
+    }
+  }
+  return new Uint8Array(out);
+}
+```
+
+This is provided as a starting point. The final JS implementation should be reviewed as a separate PR since it touches a different codebase surface (frontend JS vs firmware C++).
+
+### 19.5 Open Questions
+
+- Should the WS path use delta-only (relying on permessage-deflate) or full delta+RLE?
+- Does the WLED WS implementation enable permessage-deflate by default? If not, delta+RLE is needed.
+- What prevFrame storage strategy works in the browser? `Uint8Array` is straightforward but adds memory pressure on mobile browsers.
+- Should the JS encoder support transform compression, or just delta+RLE?
+
+---
+
 ## Appendix A: Packet Hexdump Examples
 
-### A.1 Raw RGB — 3 pixels (red, green, blue), single packet with push
+### A.1 Raw RGB -- 3 pixels (red, green, blue), single packet with push
 
 ```
 41 01 0B FF 00 00 00 00 00 09 FF 00 00 00 FF 00 00 00 FF
-│  │  │  │  └──offset=0──┘ └len=9┘ └R──G──B─┘ └R──G──B─┘ └R──G──B─┘
-│  │  │  └── dest=ALL (0xFF)
-│  │  └── dataType=RGB24 (0x0B)
-│  └── seq=1
-└── flags=VER1|PUSH (0x41)
+|  |  |  |  \--offset=0--/ \len=9/ \R--G--B-/ \R--G--B-/ \R--G--B-/
+|  |  |  \-- dest=ALL (0xFF)
+|  |  \-- dataType=RGB24 (0x0B)
+|  \-- seq=1
+\-- flags=VER1|PUSH (0x41)
 ```
 
-### A.2 Compressed Delta+RLE — 3 unchanged pixels (all zeros after XOR)
+### A.2 Compressed Delta+RLE -- 3 unchanged pixels (all zeros after XOR)
 
 ```
 61 11 0B FF 00 00 00 00 00 03 08 00
-│  │  │  │  └──offset=0──┘ └l=3─┘ │  └── RLE: run of 9 zeros (0x08 = count 9)
-│  │  │  └── dest=ALL
-│  │  └── RGB24
-│  └── seq=1, comp_type=DELTA_RLE (upper nibble 0x1)
-└── VER1|COMPRESSED|PUSH (0x61)
+|  |  |  |  \--offset=0--/ \l=3-/ |  \-- RLE: run of 9 zeros (0x08 = count 9)
+|  |  |  \-- dest=ALL
+|  |  \-- RGB24
+|  \-- seq=1, comp_type=DELTA_RLE (upper nibble 0x1)
+\-- VER1|COMPRESSED|PUSH (0x61)
 ```
 
-### A.3 RGBW Raw — 2 pixels (white, off), single packet
+### A.3 RGBW Raw -- 2 pixels (white, off), single packet
 
 ```
 41 01 1B FF 00 00 00 00 00 08 FF FF FF FF 00 00 00 00
-│  │  │  │  └──offset=0──┘ └l=8─┘ └──RGBW pixel 1─┘ └──RGBW pixel 2─┘
-│  │  └── dataType=RGBW32 (0x1B)
-│  └── seq=1
-└── VER1|PUSH
+|  |  |  |  \--offset=0--/ \l=8-/ \--RGBW pixel 1-/ \--RGBW pixel 2-/
+|  |  \-- dataType=RGBW32 (0x1B)
+|  \-- seq=1
+\-- VER1|PUSH
 ```
 
 ---
@@ -1170,7 +1384,7 @@ These are self-contained, copy-paste-ready implementations for any codebase. No 
 ```python
 #!/usr/bin/env python3
 """
-ddp.py — Complete DDP (Distributed Display Protocol) implementation.
+ddp.py -- Complete DDP (Distributed Display Protocol) implementation.
 
 Standalone library implementing raw and compressed DDP for any Python project.
 No dependencies beyond stdlib. Supports RGB, RGBW, raw, RLE, delta+RLE,
@@ -1198,9 +1412,9 @@ import struct
 import threading
 from typing import Optional, Tuple, List, Callable
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Protocol Constants
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 DDP_PORT            = 4048
 DDP_HEADER_LEN      = 10
@@ -1238,16 +1452,16 @@ DEST_CONFIG         = 0xFA
 DEST_STATUS         = 0xFB
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # RLE Codec (PackBits-inspired, byte-level)
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 class RLECodec:
     """PackBits-inspired byte-level RLE encoder/decoder.
 
     Control byte encoding:
-      bit 7 = 0: RUN   — next byte repeated (ctrl & 0x7F)+1 times (1-128)
-      bit 7 = 1: LITERAL — next (ctrl & 0x7F)+1 bytes are verbatim (1-128)
+      bit 7 = 0: RUN   -- next byte repeated (ctrl & 0x7F)+1 times (1-128)
+      bit 7 = 1: LITERAL -- next (ctrl & 0x7F)+1 bytes are verbatim (1-128)
 
     Worst-case expansion: ~0.8% (1 control byte per 128 input bytes).
     """
@@ -1307,7 +1521,7 @@ class RLECodec:
 
 
 class StreamingRLEDecoder:
-    """Stateful streaming RLE decoder — emits one byte at a time.
+    """Stateful streaming RLE decoder -- emits one byte at a time.
 
     This is a Python port of the C RLEDecoder struct used on ESP32 for
     zero-copy decoding on memory-constrained devices.
@@ -1354,9 +1568,9 @@ class StreamingRLEDecoder:
             return None
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Delta Encoding
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def xor_delta(current: bytes, previous: bytes) -> bytes:
     """XOR two byte buffers. Unchanged bytes become 0x00."""
@@ -1392,9 +1606,9 @@ def compress_adaptive(current: bytes, previous: Optional[bytes] = None,
     return best, best_type
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # DDP Packet Construction
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 def next_seq(seq: int) -> int:
     """Advance DDP sequence number. Cycles 1-15, never 0."""
@@ -1441,9 +1655,9 @@ def make_packets(data: bytes, seq: int = 1, push: bool = True,
     return packets, seq
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # DDP Sender
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 class DDPSender:
     """Complete DDP sender with optional compression.
@@ -1534,9 +1748,9 @@ class DDPSender:
         self.sock.close()
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # DDP Receiver
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 class DDPReceiver:
     """Complete DDP receiver with compression support.
@@ -1676,7 +1890,7 @@ class DDPReceiver:
                     pixel += 1
                     ch = []
 
-            # Error recovery: incomplete decode → zero prevFrame
+            # Error recovery: incomplete decode -> zero prevFrame
             if pixel < self.num_pixels and comp_type == COMP_DELTA_RLE:
                 self.prev_frame[:] = bytearray(len(self.prev_frame))
 
@@ -1736,9 +1950,9 @@ class DDPReceiver:
             self.prev_frame[off:off + 4] = self.pixels[off:off + 4]
 
 
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 # Usage Examples
-# ──────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------
 
 if __name__ == "__main__":
     import time, math
@@ -1783,7 +1997,7 @@ if __name__ == "__main__":
 
 ```c
 /*
- * ddp_receiver.h — Complete DDP receiver with compression support.
+ * ddp_receiver.h -- Complete DDP receiver with compression support.
  *
  * Header-only implementation for ESP32/Arduino or any C platform with
  * BSD sockets. Handles raw RGB/RGBW, RLE, delta+RLE, and transform
@@ -1810,7 +2024,7 @@ if __name__ == "__main__":
  *   }
  *
  *   void loop() {
- *       ddp_poll();  // call frequently — processes one packet per call
+ *       ddp_poll();  // call frequently -- processes one packet per call
  *   }
  *
  * License: MIT
@@ -1828,7 +2042,7 @@ if __name__ == "__main__":
 extern "C" {
 #endif
 
-/* ── Protocol Constants ─────────────────────────────────────────── */
+/* -- Protocol Constants ------------------------------------------- */
 
 #define DDP_PORT              4048
 #define DDP_HEADER_LEN        10
@@ -1859,7 +2073,7 @@ extern "C" {
 #define DDP_DEST_CONFIG       0xFA
 #define DDP_DEST_STATUS       0xFB
 
-/* ── RLE Streaming Decoder ──────────────────────────────────────── */
+/* -- RLE Streaming Decoder ---------------------------------------- */
 
 typedef struct {
     const uint8_t *src;
@@ -1906,7 +2120,7 @@ static inline bool ddp_rle_next(ddp_rle_decoder_t *d, uint8_t *out) {
     return true;
 }
 
-/* ── RLE Encoder ────────────────────────────────────────────────── */
+/* -- RLE Encoder -------------------------------------------------- */
 
 static inline size_t ddp_rle_encode(const uint8_t *src, size_t src_len,
                                      uint8_t *dst, size_t dst_max) {
@@ -1943,7 +2157,7 @@ static inline size_t ddp_rle_encode(const uint8_t *src, size_t src_len,
     return di;
 }
 
-/* ── Receiver State ─────────────────────────────────────────────── */
+/* -- Receiver State ----------------------------------------------- */
 
 typedef void (*ddp_frame_callback_t)(const uint8_t *pixels,
                                       unsigned num_pixels,
@@ -1971,7 +2185,7 @@ static inline void ddp_init(uint8_t *pixel_buf, uint8_t *prev_buf,
     memset(prev_buf, 0, num_pixels * 4);
 }
 
-/* ── Packet Handler ─────────────────────────────────────────────── */
+/* -- Packet Handler ----------------------------------------------- */
 
 static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
     if (pkt_len < DDP_HEADER_LEN) return;
@@ -2004,7 +2218,7 @@ static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
     unsigned start = offset / channels;
 
     if (!compressed) {
-        /* ── Raw decode ──────────────────────────────────── */
+        /* -- Raw decode ------------------------------------ */
         unsigned stop = start + data_len / channels;
         for (unsigned i = start, d = 0; i < stop && i < _ddp_rx.num_pixels;
              i++, d += channels) {
@@ -2017,7 +2231,7 @@ static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
         }
     } else if (comp_type == DDP_COMP_DELTA_RLE ||
                comp_type == DDP_COMP_RLE) {
-        /* ── RLE / Delta+RLE decode ──────────────────────── */
+        /* -- RLE / Delta+RLE decode ------------------------ */
         ddp_rle_decoder_t rle;
         ddp_rle_init(&rle, data, data_len);
         unsigned pixel = start;
@@ -2053,7 +2267,7 @@ static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
             memset(_ddp_rx.prev_frame, 0, _ddp_rx.num_pixels * 4);
         }
     }
-    /* Transform decode omitted for brevity — see full WLED implementation */
+    /* Transform decode omitted for brevity -- see full WLED implementation */
 
     if (push && _ddp_rx.callback) {
         _ddp_rx.callback(_ddp_rx.pixels, _ddp_rx.num_pixels, dtype);
@@ -2071,7 +2285,7 @@ static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
 
 ```c
 /*
- * ddp_send.c — Minimal DDP sender for POSIX systems.
+ * ddp_send.c -- Minimal DDP sender for POSIX systems.
  *
  * Compile: gcc -o ddp_send ddp_send.c
  * Usage:   ./ddp_send 192.168.1.100 60    # send rainbow to 60 LEDs
@@ -2195,7 +2409,7 @@ int main(int argc, char **argv) {
 | Source | URL | Content |
 |--------|-----|---------|
 | PackBits (Apple, 1984) | https://en.wikipedia.org/wiki/PackBits | Apple Macintosh Toolbox Manager, used in TIFF (tag 32773) and DICOM. Byte-level RLE with run/literal modes. |
-| TIFF 6.0 Specification §9 | https://www.itu.int/itudoc/itu-t/com16/tiff-fx/docs/tiff6.pdf | PackBits compression definition: control byte bit 7 distinguishes runs from literals, 128-byte maximum spans. |
+| TIFF 6.0 Specification sec 9 | https://www.itu.int/itudoc/itu-t/com16/tiff-fx/docs/tiff6.pdf | PackBits compression definition: control byte bit 7 distinguishes runs from literals, 128-byte maximum spans. |
 | VNC/RFB Protocol (RFC 6143) | https://datatracker.ietf.org/doc/html/rfc6143 | Remote framebuffer protocol encodings: Raw, CopyRect, RRE, Hextile, ZRLE, Tight. Relevant patterns for bandwidth-constrained display streaming. |
 | VESA Display Stream Compression | https://vesa.org/vesa-display-stream-compression/ | DSC achieves 3:1 visually lossless on displays using indexed color history and YCgCo-R. Indexed Color History concept applicable to LED data. |
 
@@ -2220,7 +2434,7 @@ This implementation was reviewed by a 5-member adversarial team:
 - **Creative Critic**: Architectural flaws, race conditions, compression algorithm suitability
 - **Deep Investigator**: End-to-end RGBW/CCT pixel pipeline trace
 
-4 critical, 2 high, and 3 medium defects were found and fixed. See §14.1 for the full defect list.
+4 critical, 2 high, and 3 medium defects were found and fixed. See sec 14.1 for the full defect list.
 
 ---
 
@@ -2230,4 +2444,5 @@ This implementation was reviewed by a 5-member adversarial team:
 |------|---------|---------|
 | 2026-08-12 | 1.0 | Initial release. DDP spec, compression extension, validation suite, RGBW handling, transport considerations, reference implementations. Based on adversarial review by 5 independent analysts. |
 | 2026-08-13 | 1.1 | Added complete standalone implementations (Python library, C header-only receiver, C POSIX sender). Added research citations. Added hexdump examples. |
-| 2026-08-18 | 2.0 | Ground-truth update: MTU=1500 (pre-built liblwip.a constraint), prevFrame=RGB565 (heap trade-off), all defect statuses updated to match implementation, new §12.4 Receiver-Side Flow Control, /diag fields corrected, Transform encoder marked not-implemented. Based on sessions 8–17 iterative development and hardware validation. |
+| 2026-08-18 | 2.0 | Ground-truth update: MTU=1500 (pre-built liblwip.a constraint), prevFrame=RGB565 (heap trade-off), all defect statuses updated to match implementation, new sec 12.4 Receiver-Side Flow Control, /diag fields corrected, Transform encoder marked not-implemented. Based on sessions 8-17 iterative development and hardware validation. |
+| 2026-08-20 | 2.1 | Added sec 17 Wire Format Options (reserved bit vs C-bit vs separate protocol), sec 18 Compression Variant Analysis (byte-level vs RGB-tuple vs colour planes), sec 19 WebSocket Transport (permessage-deflate interaction, JS encoder, delta-only mode). Added sec 4.5 Sender/Receiver Obligations for worst-case expansion. Renumbered sec 4.5-4.7 to sec 4.6-4.8. Sections 17-19 marked Open -- pending upstream consensus before wire format is locked. Prompted by softhack007 review feedback on #5810. |
