@@ -523,6 +523,9 @@ void initServer()
       (unsigned)ddpHeapGuardDrops.load(std::memory_order_relaxed),
       (unsigned)ddpMaxFps,
       (unsigned)(millis() - lastLoopMs.load(std::memory_order_relaxed)));
+    extern uint32_t wsddpPktCount, wsddpAcceptCount, wsddpDropCount;
+    response->printf("wsddp: pkts=%u accepted=%u dropped=%u\n",
+      (unsigned)wsddpPktCount, (unsigned)wsddpAcceptCount, (unsigned)wsddpDropCount);
     response->printf("\n--- pixels ---\n");
     if (totalLen > 0) {
       response->print("px[0..4]: ");

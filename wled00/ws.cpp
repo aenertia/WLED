@@ -16,7 +16,14 @@ constexpr uint8_t BINARY_PROTOCOL_DDP     = P_DDP; // = 2
 
 static uint16_t wsLiveClientId = 0;
 static unsigned long wsLastLiveTime = 0;
-//static uint8_t* wsFrameBuffer = nullptr;
+
+// WS DDP rate gate -- independent per-transport state, mirrors e131.cpp UDP gate.
+// Written only from async_tcp context (single-threaded there, no mutex needed).
+static uint32_t wsddpLastFrameUs  = 0;
+static bool     wsddpDropCurrent  = false;
+uint32_t wsddpPktCount     = 0;
+uint32_t wsddpAcceptCount  = 0;
+uint32_t wsddpDropCount    = 0;
 
 #define WS_LIVE_INTERVAL 40
 
@@ -92,8 +99,36 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
           case BINARY_PROTOCOL_ARTNET:
             handleE131Packet((e131_packet_t*)&data[offset], client->remoteIP(), P_ARTNET, len - offset);
             break;
-          case BINARY_PROTOCOL_DDP:
+          case BINARY_PROTOCOL_DDP: {
+            // Rate gate: drop frames above ddpMaxFps ceiling before buffering.
+            // Mirrors e131.cpp UDP gate but with WS-local state (no shared atomics needed).
+            // Frame start = channelOffset==0 or PUSH flag set (single-packet frame).
+            // DDP header at data[offset]: flags(1) seq(1) dataType(1) dest(1) chanOff(4) dataLen(2) data...
+            bool isPush = (len > (size_t)offset) && (data[offset] & DDP_FLAGS_PUSH);
+            uint32_t chanOff = 0;
+            if (len >= (size_t)(offset + 8)) {
+              chanOff = ((uint32_t)data[offset+4] << 24) | ((uint32_t)data[offset+5] << 16)
+                      | ((uint32_t)data[offset+6] <<  8) |  (uint32_t)data[offset+7];
+            }
+            bool isFrameStart = (chanOff == 0) || isPush;
+            if (isFrameStart) {
+              wsddpPktCount++;
+              uint32_t nowUs = micros();
+              uint32_t minUs = ddpMaxFps > 0 ? (1000000U / ddpMaxFps) : 0;
+              if (minUs > 0 && (nowUs - wsddpLastFrameUs) < minUs) {
+                wsddpDropCurrent = true;
+                wsddpDropCount++;
+                break;
+              }
+              wsddpLastFrameUs = nowUs;
+              wsddpDropCurrent = false;
+              wsddpAcceptCount++;
+            } else if (wsddpDropCurrent) {
+              wsddpDropCount++;
+              break;
+            }
             handleE131Packet((e131_packet_t*)&data[offset], client->remoteIP(), P_DDP, len - offset);
+          }
         }
       }
     } else {
