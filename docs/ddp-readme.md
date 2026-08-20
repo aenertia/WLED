@@ -1,7 +1,7 @@
 # DDP Protocol Reference -- Specification, Compression Extension, and Validation Suite
 
-**Version**: 2.2 (2026-08-20)
-**Status**: Added JPEG HW compression analysis for HUB75 LED wall use cases
+**Version**: 2.3 (2026-08-20)
+**Status**: Adopted C bit (dataType bit 7) as compression signal; added JS RLE codec and compressed DDP sender
 **Audience**: Any codebase implementing DDP -- sender, receiver, or both
 
 This document is a standalone reference for implementing the Distributed Display Protocol (DDP) with optional compression extensions for bandwidth-constrained transports. It covers the base protocol specification, comparison with E1.31/Art-Net, the compression wire format, reference implementations in C and Python, a complete validation suite, and known pitfalls.
@@ -58,7 +58,7 @@ Offset  Size  Field          Description
 
 ```
 Bit 7-6: VV    Protocol version (01 = v1, MUST be 0x40)
-Bit 5:   x     Reserved in base spec (set to 0) -- used for COMPRESSED flag in extension
+Bit 5:   x     Reserved (set to 0)
 Bit 4:   T     Timecode field present (adds 4 bytes after header)
 Bit 3:   S     Storage -- data sourced from local storage, not packet
 Bit 2:   R     Reply -- response to a query
@@ -72,8 +72,6 @@ Bit 0:   P     Push -- render buffer now / last packet in frame
 |------|------------|---------|
 | 0x41 | 01 0 0 0001 | VER1 + PUSH (single-packet frame) |
 | 0x40 | 01 0 0 0000 | VER1, no push (multi-packet, not last) |
-| 0x61 | 01 1 0 0001 | VER1 + COMPRESSED + PUSH |
-| 0x60 | 01 1 0 0000 | VER1 + COMPRESSED, no push |
 | 0x51 | 01 0 1 0001 | VER1 + TIMECODE + PUSH |
 | 0x42 | 01 0 0 0010 | VER1 + QUERY |
 | 0x44 | 01 0 0 0100 | VER1 + REPLY |
@@ -91,7 +89,7 @@ Senders MUST increment sequence continuously across all packets in a frame AND a
 ### 1.4 Data Type (byte 2) -- Bit Field
 
 ```
-Bit 7:   C     Custom type flag (1 = vendor-defined interpretation)
+Bit 7:   C     C = compressed payload (vendor-defined extension per DDP spec)
 Bit 6:   R     Reserved
 Bits 5-3: TTT  Type: 000=undef, 001=RGB, 010=HSL, 011=RGBW, 100=grayscale
 Bits 2-0: SSS  Size: 0=undef, 1=1bit, 2=4bit, 3=8bit, 4=16bit, 5=24bit, 6=32bit
@@ -103,8 +101,12 @@ Bits 2-0: SSS  Size: 0=undef, 1=1bit, 2=4bit, 3=8bit, 4=16bit, 5=24bit, 6=32bit
 |-------|-------------|---------|----------------|
 | 0x0B  | 00 001 011  | RGB, 8 bits/channel | 3 |
 | 0x1B  | 00 011 011  | RGBW, 8 bits/channel | 4 |
+| 0x8B  | 10 001 011  | RGB24, compressed (C bit set) | 3 |
+| 0x9B  | 10 011 011  | RGBW32, compressed (C bit set) | 4 |
 | 0x01  | 00 000 001  | Legacy RGB 8-bit | 3 (assumed) |
 | 0x00  | 00 000 000  | Undefined | 3 (default fallback) |
+
+`dataType & 0x7F` recovers the original pixel format when the C bit is set.
 
 ### 1.5 Destination ID (byte 3)
 
@@ -186,17 +188,17 @@ Art-Net and E1.31 are industry standards with thousands of existing controllers.
 
 ### 3.1 Design Principle
 
-The compression extension uses reserved bits in the DDP header -- no new header fields, no new ports, no breaking changes. Standard DDP senders never set the reserved bits, so compressed and uncompressed packets coexist on the same port (4048) and are distinguished by a single flag check.
+The compression extension uses the C bit (byte 2 bit 7) defined by the DDP spec as "Customer defined" -- no new header fields, no new ports, no breaking changes. Standard DDP senders never set the C bit, so compressed and uncompressed packets coexist on the same port (4048) and are distinguished by a single bit check on the dataType byte.
 
-### 3.2 Flag Usage
+### 3.2 Compression Signal
 
-**Byte 0, bit 5 (0x20)**: COMPRESSED flag. When set, the payload is compressed. When clear, standard raw DDP.
+**Byte 2, bit 7 (0x80)**: C bit. When set, the payload is compressed. Recover the pixel format with `dataType & 0x7F`.
 
-**Byte 1, upper nibble (bits 7-4)**: Compression type. Only meaningful when COMPRESSED flag is set.
+**Byte 1, upper nibble (bits 7-4)**: Compression type. Only meaningful when the C bit is set.
 
 ```
 Compression types:
-  0x00  No compression (standard DDP -- COMPRESSED flag should not be set)
+  0x00  No compression (standard DDP -- C bit must not be set)
   0x10  Delta+RLE -- XOR with previous frame, then RLE encode
   0x20  RLE only -- no delta, direct RLE (used for keyframes)
   0x30  Transform -- global operation + sparse explicit pixel writes
@@ -212,33 +214,33 @@ Compression types:
 
 **Delta+RLE compressed**:
 ```
-[0x61] [0x1n] [0x0B] [0xFF] [offsetx4] [lenx2] [RLE-encoded XOR delta...]
+[0x41] [0x1n] [0x8B] [0xFF] [offsetx4] [lenx2] [RLE-encoded XOR delta...]
  flags  seq    RGB24   all   byte-off   comp-len compressed data
-  |      |
-  |      \-- upper nibble 0x1 = delta+RLE
-  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+          |      |
+          |      \-- C bit (0x80) set; pixel format = 0x8B & 0x7F = 0x0B (RGB24)
+          \-- upper nibble 0x1 = delta+RLE
 ```
 
 **RLE-only compressed (keyframe)**:
 ```
-[0x61] [0x2n] [0x0B] [0xFF] [offsetx4] [lenx2] [RLE-encoded raw data...]
-  |      |
-  |      \-- upper nibble 0x2 = RLE only
-  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+[0x41] [0x2n] [0x8B] [0xFF] [offsetx4] [lenx2] [RLE-encoded raw data...]
+          |      |
+          |      \-- C bit set; pixel format = RGB24
+          \-- upper nibble 0x2 = RLE only
 ```
 
 **Transform compressed**:
 ```
-[0x61] [0x3n] [0x0B] [0xFF] [offsetx4] [lenx2] [transform header + explicit writes...]
-  |      |
-  |      \-- upper nibble 0x3 = transform
-  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+[0x41] [0x3n] [0x8B] [0xFF] [offsetx4] [lenx2] [transform header + explicit writes...]
+          |      |
+          |      \-- C bit set; pixel format = RGB24
+          \-- upper nibble 0x3 = transform
 ```
 
 ### 3.4 Backward Compatibility
 
-- Standard DDP senders never set bit 5 of byte 0 -- their packets are processed by the standard (uncompressed) code path with zero changes.
-- Standard DDP receivers will accept compressed packets without error (no flag validation) but display garbage pixels -- compressed data is interpreted as raw RGB. Compression MUST be opt-in and enabled only when both sides support it.
+- Standard DDP senders never set the C bit (byte 2 bit 7) -- their packets are processed by the standard (uncompressed) code path with zero changes.
+- Standard DDP receivers that validate dataType strictly will reject 0x8B as unknown and drop the packet cleanly. Lenient receivers (WLED) mask off the C bit and fall through to RGB24.
 - The compression type nibble occupies byte 1 bits 7-4, which the base spec reserves as zero. No known DDP sender sets these bits.
 
 ---
@@ -286,7 +288,7 @@ Bit 7 = 1: LITERAL
 **Sender MUST:**
 - Allocate an output buffer of at least `rle_max_encoded_size(rawLen)` bytes before encoding.
 - Compare compressed output size against raw size after encoding.
-- Fall back to uncompressed transmission if `compressedLen >= rawLen`. The COMPRESSED flag MUST NOT be set on packets where compression was not beneficial.
+- Fall back to uncompressed transmission if `compressedLen >= rawLen`. The C bit MUST NOT be set on packets where compression was not beneficial.
 - Never perform in-place encoding (source and destination buffers MUST NOT overlap).
 
 **Receiver MUST:**
@@ -614,13 +616,14 @@ def send_ddp_compressed(sock, target_ip, pixels, prev_frame, seq=1):
             payload = raw
 
     flags = 0x41  # VER1 | PUSH
+    data_type = 0x0B  # RGB24
     if comp_type != 0x00:
-        flags |= 0x20  # COMPRESSED
+        data_type |= 0x80  # C bit: payload is compressed
 
     header = struct.pack("!BBBBIH",
         flags,
         (seq & 0x0F) | (comp_type & 0xF0),
-        0x0B,     # RGB24
+        data_type,
         0xFF,
         0,        # offset
         len(payload))
@@ -672,14 +675,15 @@ The receiver dispatches purely on the compression type byte -- it doesn't need t
 
 ```
 1. Parse header (same as raw)
-2. Check COMPRESSED flag (bit 5)
-3. Read compression type from byte 1 upper nibble
-4. Dispatch:
+2. Check C bit: dataType & 0x80
+3. Extract pixel format: pixelFormat = dataType & 0x7F
+4. Read compression type from byte 1 upper nibble
+5. Dispatch:
    0x10: Delta+RLE decode
    0x20: RLE-only decode
    0x30: Transform decode
-5. After any decode: update prevFrame buffer
-6. On PUSH: trigger display refresh
+6. After any decode: update prevFrame buffer
+7. On PUSH: trigger display refresh
 ```
 
 ### 9.4 Receiver State
@@ -786,9 +790,9 @@ With 10-frame keyframe interval at 30fps: maximum desync duration = 333ms. At 60
 **Why MTU is 1500, not 4096**: The Tasmota Arduino Core ships a pre-compiled
 `liblwip.a` with `PPP_MRU` hardcoded to 1500. Build-flag overrides
 (`-D PPP_MRU=4096`) have no effect on the pre-built library. This was
-discovered empirically in session 13 when DDP PANIC crashes were traced to
-UART RX buffer overruns at higher packet rates -- the root cause was the MTU
-mismatch between the pppd command (`mru 1500`) and the firmware expectation.
+discovered empirically when DDP PANIC crashes were traced to UART RX buffer
+overruns at higher packet rates -- the root cause was the MTU mismatch between
+the pppd command (`mru 1500`) and the firmware expectation.
 
 **PPP byte-stuffing**: PPP HDLC framing escapes bytes `0x7D` and `0x7E`.
 Worst case: payload doubles. At MTU=1500, worst-case byte-stuffed frame is
@@ -853,7 +857,7 @@ TFT SPI DMA from being starved by sustained DDP flood. Implemented in session
 uses a 2500ms timeout (`realtimeLock(2500, REALTIME_MODE_DDP)`) rather than
 the configurable `realtimeTimeoutMs`. This ensures the device recovers from
 DDP streams that stop without sending a final packet. The FPS=0 lockup bug
-(session 16) was caused by the timeout check running after `strip.show()`
+was caused by the timeout check running after `strip.show()`
 which blocks for 24ms on TFT SPI DMA -- fixed by moving the timeout check
 before the show block.
 
@@ -912,7 +916,7 @@ buffer overrun under sustained high-rate DDP.
 | 19 | Multi-packet (>1440B) | N packets, PUSH on last only |
 | 20 | Boundary (exactly 1440B) | 1 packet |
 | 21 | Header byte layout | Matches spec struct |
-| 22 | Compressed flag | Bit 5 set, comp type in upper nibble |
+| 22 | C bit | dataType bit 7 set (0x8B for RGB24), comp type in upper nibble of byte 1 |
 | 23 | Sequence wrap | Cycles 1->15->1, never 0 |
 | 24 | RGBW data type | Header byte 2 = 0x1B |
 | 25 | Zero-length | Defined behavior (0 or 1 packet) |
@@ -989,10 +993,10 @@ The `/diag` endpoint (HTTP GET) exposes:
 | # | Severity | Issue | Status |
 |---|----------|-------|--------|
 | C1 | CRITICAL | prevFrame allocates 3B/pixel -- RGBW W channel lost in delta | **Accepted** -- prevFrame uses RGB565 (2B/pixel). W channel intentionally absent: heap trade-off on no-PSRAM devices (2Bx800px=1.6KB vs 4Bx800px=3.2KB). Delta decode reconstructs W=0, acceptable for WLED effects. |
-| C2 | CRITICAL | Transform reads live pixel buffer instead of prevFrame | **Fixed (session 10)** -- Transform reads `ddpPrevFrame` via `DDP_PF_IDX()`. Partial: reads RGB565 (W=0 reconstructed), not RGBW32. |
-| C3 | CRITICAL | PPP show() has no isUpdating() guard -> torn frames | **Fixed (session 8, architectural)** -- DDP handler never calls `strip.show()` directly. Handler sets `e131NewData` atomic flag; show deferred to main loop. No isUpdating() guard needed. |
-| C4 | CRITICAL | PPP byte-stuffing can overflow UART RX buffer | **Mitigated (session 13)** -- Two-tier UART flow control: yield at >50% buffer fill. RX buffer 8192 bytes (5.5x MTU=1500). Not fully solved for MTU>1500, but MTU>1500 is not achievable with pre-built liblwip.a. |
-| H1 | HIGH | Sequence counter wraps to 0 after 15 packets | **Fixed (session 10)** -- Sequence cycles 1->15->1 via `(ddpLastSeq % 15) + 1`. `ddpSeqGaps` counter tracks out-of-order packets. |
+| C2 | CRITICAL | Transform reads live pixel buffer instead of prevFrame | **Fixed** -- Transform reads `ddpPrevFrame` via `DDP_PF_IDX()`. Partial: reads RGB565 (W=0 reconstructed), not RGBW32. |
+| C3 | CRITICAL | PPP show() has no isUpdating() guard -> torn frames | **Fixed (architectural)** -- DDP handler never calls `strip.show()` directly. Handler sets `e131NewData` atomic flag; show deferred to main loop. No isUpdating() guard needed. |
+| C4 | CRITICAL | PPP byte-stuffing can overflow UART RX buffer | **Mitigated** -- Two-tier UART flow control: yield at >50% buffer fill. RX buffer 8192 bytes (5.5x MTU=1500). Not fully solved for MTU>1500, but MTU>1500 is not achievable with pre-built liblwip.a. |
+| H1 | HIGH | Sequence counter wraps to 0 after 15 packets | **Fixed** -- Sequence cycles 1->15->1 via `(ddpLastSeq % 15) + 1`. `ddpSeqGaps` counter tracks out-of-order packets. |
 | H2 | HIGH | 1-second keyframe gap = garbage on desync | **Not fixed** -- Receiver does not zero prevFrame on sequence gap. Mitigated by: (1) sender keyframe interval (sec 11.1), (2) `ddpFreePrevFrame()` on `exitRealtime()`. Risk: visual glitches on packet loss until next keyframe. |
 
 ### 14.2 Design Decisions
@@ -1001,9 +1005,11 @@ The `/diag` endpoint (HTTP GET) exposes:
 
 **No compression for Art-Net/E1.31**: These are industry standards. Proprietary compression breaks interoperability. DDP's niche ecosystem allows extension.
 
-**2-byte prevFrame (RGB565)**: prevFrame uses 2 bytes/pixel (RGB565 packed format) rather than 4 bytes/pixel (RGBW32). This is a deliberate heap trade-off for no-PSRAM devices (ESP32-PICO-D4, 520KB SRAM): 2Bx800px=1.6KB vs 4Bx800px=3.2KB. Trade-offs accepted: (1) W channel is absent -- delta decode reconstructs W=0, acceptable since WLED effects rarely use the W channel in DDP streams; (2) R/G/B lose 3 bits of precision each due to 565 quantization -- imperceptible at LED brightness levels. The RGB565 format was adopted in session 9 when heap pressure from DDP+TFT+WiFi left insufficient headroom for RGBW32 prevFrame on 800+ pixel configurations.
+**2-byte prevFrame (RGB565)**: prevFrame uses 2 bytes/pixel (RGB565 packed format) rather than 4 bytes/pixel (RGBW32). This is a deliberate heap trade-off for no-PSRAM devices (ESP32-PICO-D4, 520KB SRAM): 2Bx800px=1.6KB vs 4Bx800px=3.2KB. Trade-offs accepted: (1) W channel is absent -- delta decode reconstructs W=0, acceptable since WLED effects rarely use the W channel in DDP streams; (2) R/G/B lose 3 bits of precision each due to 565 quantization -- imperceptible at LED brightness levels. The RGB565 format was adopted when heap pressure from DDP+TFT+WiFi left insufficient headroom for RGBW32 prevFrame on 800+ pixel configurations.
 
 **Transform compression is sender-side only**: The receiver decodes whatever the sender sends. The sender decides when to use transform vs delta+RLE based on content analysis. No negotiation protocol.
+
+**C bit (dataType bit 7) as compression signal**: The DDP spec defines byte 2 bit 7 as "Customer defined". Using this for compression is spec-sanctioned and addresses upstream reviewer concern (softhack007, #5810). Trade-off: dataType carries two concerns (pixel format + compression flag), requiring `& 0x7F` mask before format interpretation.
 
 ### 14.3 Limitations
 
@@ -1091,7 +1097,6 @@ To implement compressed DDP in a new codebase:
 #define DDP_FLAGS_REPLY          0x04
 #define DDP_FLAGS_STORAGE        0x08
 #define DDP_FLAGS_TIME           0x10
-#define DDP_FLAGS_COMPRESSED     0x20  // Extension: compression flag
 
 // Compression types (byte 1, upper nibble)
 #define DDP_COMP_TYPE_NONE       0x00
@@ -1105,8 +1110,12 @@ To implement compressed DDP in a new codebase:
 #define DDP_TRANSFORM_NOP          0x03  // no global op, explicit writes only
 
 // Data types (byte 2)
+// C bit (bit 7, 0x80): payload is compressed. Recover pixel format with dataType & 0x7F.
+#define DDP_TYPE_COMPRESSED      0x80  // C bit: set on dataType when payload is compressed
 #define DDP_TYPE_RGB24           0x0B  // RGB, 8 bits/channel, 3 channels
 #define DDP_TYPE_RGBW32          0x1B  // RGBW, 8 bits/channel, 4 channels
+#define DDP_TYPE_RGB24_COMP      0x8B  // RGB24 with C bit set (compressed)
+#define DDP_TYPE_RGBW32_COMP     0x9B  // RGBW32 with C bit set (compressed)
 #define DDP_TYPE_UNDEF           0x00  // undefined (default to RGB24)
 
 // Destination IDs (byte 3)
@@ -1125,15 +1134,19 @@ DDP_CHANNELS_PER_PACKET = 1440
 
 DDP_FLAGS_VER1 = 0x40
 DDP_FLAGS_PUSH = 0x01
-DDP_FLAGS_COMPRESSED = 0x20
 
 DDP_COMP_NONE = 0x00
 DDP_COMP_DELTA_RLE = 0x10
 DDP_COMP_RLE = 0x20
 DDP_COMP_TRANSFORM = 0x30
 
+# C bit (bit 7, 0x80): set on dataType when payload is compressed.
+# Recover pixel format with dataType & 0x7F.
+DDP_TYPE_COMPRESSED = 0x80
 DDP_TYPE_RGB24 = 0x0B
 DDP_TYPE_RGBW32 = 0x1B
+DDP_TYPE_RGB24_COMP = 0x8B   # RGB24 with C bit
+DDP_TYPE_RGBW32_COMP = 0x9B  # RGBW32 with C bit
 
 DDP_TRANSFORM_SCALE_TOWARD = 0x01
 DDP_TRANSFORM_SCALE_MULT = 0x02
@@ -1142,11 +1155,11 @@ DDP_TRANSFORM_NOP = 0x03
 
 ---
 
-## 17. Wire Format Options (Open)
+## 17. Wire Format Decision Record
 
-The current implementation signals compression via reserved bits in the DDP header. Upstream review raised the concern that borrowing reserved bits risks incompatibility with future DDP spec changes. Three signalling approaches are under consideration.
+Three signalling approaches were considered for the compression extension. Option B was adopted.
 
-### 17.1 Option A: Reserved Flag Bit (current implementation)
+### 17.1 Option A: Reserved Flag Bit (CONSIDERED, REJECTED)
 
 **Byte 0 bit 5 (0x20)**: COMPRESSED flag. Compression type in byte 1 upper nibble.
 
@@ -1156,19 +1169,21 @@ The current implementation signals compression via reserved bits in the DDP head
 | No changes to dataType semantics | No spec precedent for vendor use of flag bits |
 | Compression is a transport concern -- flag byte is the natural location | DDP spec author could collide with this bit in a future revision |
 
-### 17.2 Option B: Custom Data Type (C bit)
+Rejected: upstream reviewer (softhack007, #5810) raised concern about borrowing reserved bits.
 
-**Byte 2 bit 7 (0x80)**: The DDP spec defines this as "1 for Customer defined". Set `dataType = 0x80 | original_type`. Compression type encoded in byte 1 upper nibble (unchanged) or in the remaining dataType bits.
+### 17.2 Option B: Custom Data Type (C bit) -- ADOPTED
+
+**Byte 2 bit 7 (0x80)**: The DDP spec defines this as "1 for Customer defined". Set `dataType = 0x80 | original_type`. Compression type encoded in byte 1 upper nibble (unchanged).
 
 | Pro | Con |
 |-----|-----|
 | Explicitly spec-sanctioned extension mechanism | Compression is a transport property, not a data type property |
 | No risk of future spec collision on the C bit -- it exists for this purpose | Receiver must mask out bit 7 before interpreting the data type for channel count |
-| Existing receivers that validate dataType strictly may reject the packet cleanly | Overloads byte 2 with two unrelated concerns (pixel format + compression) |
+| Existing receivers that validate dataType strictly reject the packet cleanly | Overloads byte 2 with two unrelated concerns (pixel format + compression) |
 
 Wire format change: `0x0B` (RGB24) becomes `0x8B` when compressed. Receiver checks `dataType & 0x80` for compression, `dataType & 0x7F` for pixel format.
 
-### 17.3 Option C: Separate Protocol Discriminator
+### 17.3 Option C: Separate Protocol Discriminator (CONSIDERED, REJECTED)
 
 Define a new port or protocol identifier entirely separate from standard DDP.
 
@@ -1179,11 +1194,11 @@ Define a new port or protocol identifier entirely separate from standard DDP.
 | | Two code paths instead of one flag check |
 | | DDP has no protocol-version negotiation mechanism |
 
-### 17.4 Recommendation (pending upstream consensus)
+Rejected: most disruptive option with no clear benefit over Option B.
 
-Option B (C bit) is the most spec-compliant -- it uses a mechanism the DDP spec explicitly provides for vendor extensions. Option A (current) is the simplest and has been validated on hardware. Option C is the most disruptive with no clear benefit.
+### 17.4 Decision
 
-The wire format should be settled before code PRs land upstream. Both sender and receiver implementations can be trivially updated to use a different signalling bit -- the codec itself is format-agnostic.
+Option B (C bit) adopted. Uses the mechanism the DDP spec explicitly provides for vendor extensions. Hardware-validated on M5StickC via emiemi. Both sender and receiver implementations updated -- the codec itself is format-agnostic.
 
 ---
 
@@ -1266,13 +1281,15 @@ The codec already supports multiple compression types via the upper nibble. Addi
 
 ---
 
-## 19. WebSocket Transport (Open)
+## 19. WebSocket Transport
 
-DDP-over-WebSocket is an existing WLED feature (`common.js`, line ~216). Adding compression support to this path is a natural follow-on.
+DDP-over-WebSocket is an existing WLED feature (`common.js`). Compression support is implemented in the same file alongside the existing `sendDDP()` sender.
 
 ### 19.1 Current DDP-over-WS Path
 
-The WLED frontend can stream pixel data to the device via WebSocket using the same DDP packet format encapsulated in WS binary frames. The receiver side (`handleDDPPacket()`) is transport-agnostic -- it processes the same packet structure regardless of whether it arrived via UDP or WS.
+The WLED frontend streams pixel data to the device via WebSocket using the same DDP packet format encapsulated in WS binary frames. The receiver side (`handleDDPPacket()`) is transport-agnostic -- it processes the same packet structure regardless of whether it arrived via UDP or WS.
+
+Note: WS DDP packets have a 1-byte WLED protocol indicator prefix (`0x02`) before the DDP header, so all DDP header bytes are at offset+1 in the WS frame.
 
 ### 19.2 Interaction with permessage-deflate
 
@@ -1289,47 +1306,21 @@ Possible approaches:
 | Full compressed DDP over WS | Same as UDP path | Same as UDP path | Redundant with deflate | Unnecessary |
 | Delta+RLE over WS without deflate | Full codec | Full codec | Good | Moderate |
 
-### 19.3 Proposed WS-Specific Mode
+### 19.3 WS-Specific Mode
 
 A delta-only mode (new compression type, e.g. `0x40`) that sends the raw XOR delta without RLE encoding. The WS transport layer (with permessage-deflate) handles the entropy removal. This gives the benefit of temporal coherence (delta) without the redundancy of double-compressing.
 
 On transports without permessage-deflate (or where it's disabled), the sender falls back to delta+RLE (`0x10`) as usual.
 
-### 19.4 JS Implementation Surface
+### 19.4 JS Implementation
 
-The PackBits encoder is ~30 lines of JavaScript. The delta XOR is trivial. The JS-side implementation would live in `wled00/data/common.js` alongside the existing DDP-over-WS sender.
+Three functions are implemented in `wled00/data/common.js`:
 
-```javascript
-// PackBits RLE encoder (reference, not final)
-function rleEncode(src) {
-  const out = [];
-  let i = 0;
-  while (i < src.length) {
-    let run = 1;
-    while (i + run < src.length && src[i + run] === src[i] && run < 128) run++;
-    if (run >= 3) {
-      out.push(run - 1, src[i]);
-      i += run;
-    } else {
-      const litStart = i;
-      let litLen = 0;
-      while (i < src.length && litLen < 128) {
-        let ahead = 1;
-        while (i + ahead < src.length && src[i + ahead] === src[i] && ahead < 3) ahead++;
-        if (ahead >= 3) break;
-        i++; litLen++;
-      }
-      if (litLen) {
-        out.push(0x80 | (litLen - 1));
-        for (let j = 0; j < litLen; j++) out.push(src[litStart + j]);
-      }
-    }
-  }
-  return new Uint8Array(out);
-}
-```
+- `rleEncode(src)` -- PackBits byte-level RLE encoder. Takes `Uint8Array`, returns `Uint8Array`.
+- `rleDecode(src, maxOut)` -- Streaming decoder. Takes `Uint8Array` + optional output size cap, returns `Uint8Array`.
+- `sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266)` -- Compressed DDP sender. Tries delta+RLE against `prevFrame`, falls back to RLE-only, falls back to raw if compression ratio >= 90%. Sets C bit (`0x80`) on `dataType` when compressed. Returns `Uint8Array` copy of `colors` for use as `prevFrame` on the next call.
 
-This is provided as a starting point. The final JS implementation should be reviewed as a separate PR since it touches a different codebase surface (frontend JS vs firmware C++).
+The existing `sendDDP()` function is unchanged.
 
 ### 19.5 Open Questions
 
@@ -1361,10 +1352,10 @@ The hardware is gated by `SOC_JPEG_CODEC_SUPPORTED` in ESP-IDF. The driver (`esp
 Compression type `0x50` = JPEG (reserved in upper nibble of byte 1).
 
 ```
-[0x61] [0x5n] [type] [dest] [offset x 4] [len x 2] [JPEG bitstream...]
-  |      |
-  |      \-- upper nibble 0x5 = JPEG
-  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+[0x41] [0x5n] [0x8B] [dest] [offset x 4] [len x 2] [JPEG bitstream...]
+          |      |
+          |      \-- C bit (0x80) set; pixel format = 0x8B & 0x7F = 0x0B (RGB24)
+          \-- upper nibble 0x5 = JPEG
 ```
 
 The `dataType` byte (byte 2) retains its original meaning (RGB24 = 0x0B, RGBW32 = 0x1B) to indicate the decoded pixel format. The receiver decodes the JPEG bitstream to the format specified by dataType.
@@ -1520,12 +1511,12 @@ Implementation would require:
 ### A.2 Compressed Delta+RLE -- 3 unchanged pixels (all zeros after XOR)
 
 ```
-61 11 0B FF 00 00 00 00 00 03 08 00
+41 11 8B FF 00 00 00 00 00 03 08 00
 |  |  |  |  \--offset=0--/ \l=3-/ |  \-- RLE: run of 9 zeros (0x08 = count 9)
 |  |  |  \-- dest=ALL
-|  |  \-- RGB24
+|  |  \-- dataType=0x8B: C bit set (0x80) | RGB24 (0x0B); pixel format = 0x8B & 0x7F = 0x0B
 |  \-- seq=1, comp_type=DELTA_RLE (upper nibble 0x1)
-\-- VER1|COMPRESSED|PUSH (0x61)
+\-- VER1|PUSH (0x41)
 ```
 
 ### A.3 RGBW Raw -- 2 pixels (white, off), single packet
@@ -1592,7 +1583,6 @@ DDP_QUERY           = 0x02
 DDP_REPLY           = 0x04
 DDP_STORAGE         = 0x08
 DDP_TIME            = 0x10
-DDP_COMPRESSED      = 0x20
 
 # Compression types (byte 1, upper nibble)
 COMP_NONE           = 0x00
@@ -1606,8 +1596,12 @@ TRANSFORM_SCALE_MULT   = 0x02  # prev * factor / 255
 TRANSFORM_NOP          = 0x03  # no global op, explicit writes only
 
 # Data types (byte 2)
+# C bit (bit 7, 0x80): payload is compressed. Recover pixel format with dataType & 0x7F.
+TYPE_COMPRESSED     = 0x80   # C bit: set on dataType when payload is compressed
 TYPE_RGB24          = 0x0B   # RGB, 8 bits/channel, 3 channels
 TYPE_RGBW32         = 0x1B   # RGBW, 8 bits/channel, 4 channels
+TYPE_RGB24_COMP     = 0x8B   # RGB24 with C bit set (compressed)
+TYPE_RGBW32_COMP    = 0x9B   # RGBW32 with C bit set (compressed)
 
 # Destination IDs (byte 3)
 DEST_DISPLAY        = 0x01
@@ -1807,11 +1801,10 @@ def make_packets(data: bytes, seq: int = 1, push: bool = True,
         flags = DDP_VER1
         if is_last and push:
             flags |= DDP_PUSH
-        if comp_type != COMP_NONE:
-            flags |= DDP_COMPRESSED
+        pkt_data_type = data_type | TYPE_COMPRESSED if comp_type != COMP_NONE else data_type
 
         seq_byte = (seq & 0x0F) | (comp_type & 0xF0)
-        header = make_header(flags, seq_byte, data_type, dest, offset, chunk)
+        header = make_header(flags, seq_byte, pkt_data_type, dest, offset, chunk)
         packets.append(header + data[offset:offset + chunk])
 
         offset += chunk
@@ -1983,7 +1976,8 @@ class DDPReceiver:
             return
 
         push = bool(flags & DDP_PUSH)
-        compressed = bool(flags & DDP_COMPRESSED)
+        compressed = bool(data_type & TYPE_COMPRESSED)
+        data_type_clean = data_type & 0x7F
         seq = seq_byte & 0x0F
         comp_type = seq_byte & 0xF0
 
@@ -2219,7 +2213,6 @@ extern "C" {
 #define DDP_REPLY             0x04
 #define DDP_STORAGE           0x08
 #define DDP_TIME              0x10
-#define DDP_COMPRESSED        0x20
 
 #define DDP_COMP_NONE         0x00
 #define DDP_COMP_DELTA_RLE    0x10
@@ -2230,8 +2223,13 @@ extern "C" {
 #define DDP_TRANSFORM_MULT    0x02
 #define DDP_TRANSFORM_NOP     0x03
 
+/* C bit (bit 7, 0x80): set on dataType when payload is compressed.
+ * Recover pixel format with dtype & 0x7F. */
+#define DDP_TYPE_COMPRESSED   0x80
 #define DDP_TYPE_RGB24        0x0B
 #define DDP_TYPE_RGBW32       0x1B
+#define DDP_TYPE_RGB24_COMP   0x8B  /* RGB24 with C bit */
+#define DDP_TYPE_RGBW32_COMP  0x9B  /* RGBW32 with C bit */
 
 #define DDP_DEST_DISPLAY      0x01
 #define DDP_DEST_CONTROL      0xF6
@@ -2369,7 +2367,8 @@ static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
         dest == DDP_DEST_STATUS) return;
 
     bool push = flags & DDP_PUSH;
-    bool compressed = flags & DDP_COMPRESSED;
+    bool compressed = dtype & DDP_TYPE_COMPRESSED;
+    uint8_t dtype_clean = dtype & 0x7F;
     int  seq = seq_byte & 0x0F;
     int  comp_type = seq_byte & 0xF0;
 
@@ -2379,7 +2378,7 @@ static inline void ddp_handle_packet(const uint8_t *pkt, size_t pkt_len) {
     if (pkt_len < payload_start + data_len) return;
 
     const uint8_t *data = pkt + payload_start;
-    unsigned channels = (((dtype >> 3) & 0x07) == 3) ? 4 : 3;
+    unsigned channels = (((dtype_clean >> 3) & 0x07) == 3) ? 4 : 3;
     unsigned start = offset / channels;
 
     if (!compressed) {
