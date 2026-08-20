@@ -130,6 +130,7 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
               wsddpDropCount++;
               break;
             }
+            yield(); // scheduling point before DDP processing -- same pattern as service()
             handleE131Packet((e131_packet_t*)&data[offset], client->remoteIP(), P_DDP, len - offset);
           }
         }
