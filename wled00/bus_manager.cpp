@@ -1437,6 +1437,10 @@ void BusSPIMatrix::show() {
     if (!allocateBuffers()) return;  // allocation failed  -- skip this frame, retry next
   }
 
+  // Drain any pending DMA transaction before starting new ones.
+  // Guards against spiBusyCheck being non-zero from a previous interrupted show().
+  _spiDisplay->dmaWait();
+
   recalcActiveRowRange();  // ~5us
 
   uint16_t pushRowMin = _activeRowMin;

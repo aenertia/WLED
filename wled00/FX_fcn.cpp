@@ -1400,7 +1400,9 @@ void WS2812FX::service() {
   if ((_targetFps != FPS_UNLIMITED) && (millis() - nowUp > _frametime)) DEBUG_PRINTF_P(PSTR("Slow effects %u/%d.\n"), (unsigned)(millis()-nowUp), (int)_frametime);
   #endif
   if (doShow && !_suspend) {
-    yield();
+    // yield() removed as diagnostic -- was allowing async_tcp to run during
+    // effects rendering, which at 40fps coincides with TFT SPI DMA and
+    // permanently breaks the DMA ISR. See coredump analysis.
     Segment::handleRandomPalette(); // slowly transition random palette; move it into for loop when each segment has individual random palette
     _lastServiceShow = nowUp; // update timestamp, for precise FPS control
     show();
@@ -1847,11 +1849,13 @@ void WS2812FX::showFrozenSegs() {
   // Case A: all active segments are frozen -> full pipeline needed (DDP to whole strip)
   if ((rtFrozenSegs & allActiveMask) == allActiveMask) { show(); return; }
 
-  // Case D: effect segments running -> full pipeline needed
+  // Case D: effect segments running -- service() will call show() for the full pipeline.
+  // Do NOT call show() here; that would cause a double-show per loop iteration
+  // (handleNotifications + service), which hangs TFT SPI DMA on the second call.
   for (unsigned i = 0; i < _segments.size(); i++) {
-    if (!(allActiveMask & (1u << i))) continue;       // inactive
-    if (rtFrozenSegs & (1u << i)) continue;           // frozen by DDP -- ok
-    if (_segments[i].on && !_segments[i].freeze) { show(); return; } // effect seg -> full pipeline
+    if (!(allActiveMask & (1u << i))) continue;
+    if (rtFrozenSegs & (1u << i)) continue;
+    if (_segments[i].on && !_segments[i].freeze) return; // service() handles show()
   }
 
   // Cases B and C: only frozen segments are active -- fast path
