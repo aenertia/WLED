@@ -717,6 +717,7 @@ void WLED::setup()
     }
     #endif
     findWiFi(true);
+    forceReconnect = true; // trigger initConnection() from main loop after PPP is up
   } else {
     // Fresh install  -- PPP only, no WiFi STA scanning
     DEBUG_PRINTLN(F("PPP+WiFi: fresh NVS, skipping WiFi STA (PPP provides connectivity)"));
