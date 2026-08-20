@@ -1,7 +1,7 @@
 # DDP Protocol Reference -- Specification, Compression Extension, and Validation Suite
 
-**Version**: 2.1 (2026-08-20)
-**Status**: Expanded with upstream review feedback (wire format options, compression variants, WS transport)
+**Version**: 2.2 (2026-08-20)
+**Status**: Added JPEG HW compression analysis for HUB75 LED wall use cases
 **Audience**: Any codebase implementing DDP -- sender, receiver, or both
 
 This document is a standalone reference for implementing the Distributed Display Protocol (DDP) with optional compression extensions for bandwidth-constrained transports. It covers the base protocol specification, comparison with E1.31/Art-Net, the compression wire format, reference implementations in C and Python, a complete validation suite, and known pitfalls.
@@ -29,6 +29,7 @@ This document is a standalone reference for implementing the Distributed Display
 17. [Wire Format Options (Open)](#17-wire-format-options-open)
 18. [Compression Variant Analysis (Open)](#18-compression-variant-analysis-open)
 19. [WebSocket Transport (Open)](#19-websocket-transport-open)
+20. [JPEG Hardware Compression (Reserved)](#20-jpeg-hardware-compression-reserved)
 
 ---
 
@@ -1339,6 +1340,170 @@ This is provided as a starting point. The final JS implementation should be revi
 
 ---
 
+## 20. JPEG Hardware Compression (Reserved)
+
+### 20.1 Motivation
+
+For HUB75 LED wall installations streaming video content at scale (4096+ pixels), lossless compression (delta+RLE) becomes less effective -- video has high inter-frame change rates and the delta stream doesn't compress well. JPEG's lossy DCT approach trades exact colour fidelity for 8-12x bandwidth reduction, which is acceptable when the source is already video.
+
+Two ESP32 variants ship hardware JPEG codecs that run DCT, quantization, and Huffman encode/decode with minimal CPU involvement:
+
+| SoC | JPEG HW | ESP-IDF | Notes |
+|-----|---------|---------|-------|
+| ESP32-P4 | Encode + decode | v5.3+ | 768KB SRAM + PSRAM, 360MHz dual-core RISC-V |
+| ESP32-S3.1 | Encode + decode | v6.x / master | New S3 die revision (2025/2026) |
+| ESP32 / S2 / S3 / C3 / C6 | None | -- | Software JPEG only |
+
+The hardware is gated by `SOC_JPEG_CODEC_SUPPORTED` in ESP-IDF. The driver (`esp_driver_jpeg`) compiles to nothing on unsupported chips.
+
+### 20.2 Proposed Wire Format
+
+Compression type `0x50` = JPEG (reserved in upper nibble of byte 1).
+
+```
+[0x61] [0x5n] [type] [dest] [offset x 4] [len x 2] [JPEG bitstream...]
+  |      |
+  |      \-- upper nibble 0x5 = JPEG
+  \-- VER1(0x40) | COMPRESSED(0x20) | PUSH(0x01)
+```
+
+The `dataType` byte (byte 2) retains its original meaning (RGB24 = 0x0B, RGBW32 = 0x1B) to indicate the decoded pixel format. The receiver decodes the JPEG bitstream to the format specified by dataType.
+
+**JPEG encode parameters** (not in wire format -- sender-side decisions):
+- Quality: 70-85 (application-dependent, not signalled in packet)
+- Subsampling: YUV422 recommended (best encode throughput on P4)
+- Input: RGB888 or RGB565 (hardware accepts both directly)
+
+**Image dimensions**: Derived from the pixel range. The sender reshapes the 1D pixel buffer into a 2D image for JPEG encoding. Receiver knows the expected pixel count from segment configuration. Dimensions are embedded in the JPEG header (SOF0 marker) so the receiver can validate.
+
+### 20.3 Hardware Decode Performance (ESP32-P4, 360MHz)
+
+The P4 JPEG decoder runs at approximately 95 Mpix/s. Decode time for LED wall configurations:
+
+| LED Wall | Pixels | Decode Time | HW Decode FPS Cap |
+|----------|--------|-------------|-------------------|
+| 64x64 (1 panel) | 4,096 | 93us | 10,752 |
+| 128x64 (2 panels) | 8,192 | 136us | 7,353 |
+| 128x128 (4 panels) | 16,384 | 222us | 4,505 |
+| 256x128 (8 panels) | 32,768 | 395us | 2,532 |
+| 256x256 (16 panels) | 65,536 | 740us | 1,351 |
+
+The hardware decoder is never the bottleneck. At every configuration the wire bandwidth is the limiting factor, not decode speed.
+
+### 20.4 Bandwidth and FPS Analysis
+
+Frame sizes and DDP packet counts (1440 bytes max per DDP packet):
+
+| Config | Pixels | Raw RGB888 | JPEG Q85 (8:1) | JPEG Q70 (12:1) | Raw Packets | Q85 Packets |
+|--------|--------|------------|----------------|-----------------|-------------|-------------|
+| 64x64 | 4,096 | 12,288 B | 2,136 B | 1,624 B | 9 | 2 |
+| 128x64 | 8,192 | 24,576 B | 3,672 B | 2,648 B | 18 | 3 |
+| 128x128 | 16,384 | 49,152 B | 6,744 B | 4,696 B | 35 | 5 |
+| 256x128 | 32,768 | 98,304 B | 12,888 B | 8,792 B | 69 | 9 |
+| 256x256 | 65,536 | 196,608 B | 25,176 B | 16,984 B | 137 | 18 |
+
+JPEG sizes include ~600 bytes fixed header overhead (quantization tables, Huffman tables, SOF/SOS markers).
+
+**Maximum FPS over WiFi (20 Mbps effective, 2.3 MB/s):**
+
+| Config | Raw FPS | JPEG Q85 FPS | JPEG Q70 FPS | Speedup (Q85) |
+|--------|---------|--------------|--------------|---------------|
+| 64x64 | 196 | 1,129 | 1,485 | 5.8x |
+| 128x64 | 98 | 657 | 911 | 6.7x |
+| 128x128 | 49 | 358 | 514 | 7.3x |
+| 256x128 | 24 | 187 | 274 | 7.8x |
+| 256x256 | **12** | **96** | **142** | **8.0x** |
+
+**Maximum FPS over 100Mbps Ethernet (11.6 MB/s):**
+
+| Config | Raw FPS | JPEG Q85 FPS | JPEG Q70 FPS |
+|--------|---------|--------------|--------------|
+| 64x64 | 990 | 5,695 | 7,490 |
+| 128x64 | 495 | 3,313 | 4,593 |
+| 128x128 | 247 | 1,803 | 2,590 |
+| 256x128 | 124 | 944 | 1,383 |
+| 256x256 | 62 | 483 | 717 |
+
+**Maximum FPS over PPP 1.5Mbps (172 KB/s):**
+
+| Config | Raw FPS | JPEG Q85 FPS | JPEG Q70 FPS |
+|--------|---------|--------------|--------------|
+| 64x64 | 14 | 82 | 108 |
+| 128x64 | 7 | 48 | 67 |
+| 128x128 | 3.6 | 26 | 38 |
+| 256x128 | 1.8 | 14 | 20 |
+| 256x256 | 0.9 | 7 | 10 |
+
+### 20.5 Crossover: JPEG vs Delta+RLE
+
+For video content, delta+RLE achieves roughly 5:1 compression (high inter-frame change). JPEG Q85 achieves 8:1 with ~600 bytes fixed header overhead.
+
+```
+JPEG compressed size:      pixels x 3 / 8 + 600
+Delta+RLE compressed size: pixels x 3 / 5
+
+JPEG < Delta+RLE when:
+  pixels x 3/8 + 600 < pixels x 3/5
+  600 < pixels x 9/40
+  pixels > 2,667
+```
+
+**JPEG wins on bandwidth above ~2,667 pixels for video content.** A single 64x64 HUB75 panel (4,096 pixels) is already above the crossover.
+
+For LED effects (sparse changes, exact colours), delta+RLE remains superior:
+- Lossless -- no colour artifacts on solid fills or sharp edges
+- Zero fixed overhead -- better for partial segment updates
+- 20:1 to 150:1 ratios on typical LED animations vs JPEG's 8:1
+
+**Recommendation:** JPEG for full-frame video streaming to large LED walls. Delta+RLE for LED effects, UI overlays, partial updates, and any use case requiring exact pixel values.
+
+### 20.6 Receiver Memory Requirements
+
+| Buffer | Size | Location |
+|--------|------|----------|
+| JPEG input (compressed frame) | 2-25 KB (config-dependent) | Internal SRAM or PSRAM |
+| JPEG HW working memory | ~65 KB | Internal SRAM (HW peripheral) |
+| RGB output (decoded frame) | 12 KB (64x64) to 192 KB (256x256) | PSRAM for large configs |
+| **Total (single-buffered)** | **80 KB (64x64) to 282 KB (256x256)** | |
+
+P4 has 768KB internal SRAM + external PSRAM. Single-buffered fits in internal SRAM for all configs up to 256x128. 256x256 output buffer goes to PSRAM (DMA engine supports PSRAM at 200MHz).
+
+### 20.7 Colourspace and Lossiness
+
+JPEG encodes in YCbCr internally. The P4 hardware accepts RGB888 or RGB565 input and handles the RGB->YCbCr conversion in hardware. Decode output is RGB888 or RGB565.
+
+The round-trip RGB->YCbCr->DCT->quantize->Huffman->decode->RGB introduces:
+- Chroma subsampling loss (YUV422: chroma resolution halved horizontally)
+- Quantization loss (DCT coefficients rounded to quantization table values)
+- At Q85: typically +/-2 per channel. On 8-bit LEDs viewed from >1m, imperceptible.
+- At Q70: typically +/-4 per channel. Banding visible on smooth gradients at close range.
+
+**This is acceptable for video-to-LED-wall** where the source material is already lossy (camera, video file, rendered graphics). It is NOT acceptable for LED effects that set exact pixel values.
+
+### 20.8 Use Cases
+
+| Scenario | JPEG Suitable? | Why |
+|----------|---------------|-----|
+| Video mapped to HUB75 LED wall (P4/S3.1) | Yes | Source is already lossy, 8x bandwidth gain, HW decode sub-ms |
+| xLights/LedFX video streaming to large matrix | Yes | Sender does SW encode (trivial on PC), receiver HW decodes |
+| Camera feed to LED display (ESP32-P4 cam) | Yes | HW encode on sender side too, full HW pipeline |
+| Concert/event LED wall over WiFi | Yes | 256x256 goes from 12fps raw to 96fps Q85 -- the difference between unusable and smooth |
+| LED strip effects (WS2812B, SK6812) | No | Exact colours needed, delta+RLE is lossless and compresses better for sparse changes |
+| Small matrix effects (<2000 pixels) | No | JPEG header overhead (600B) dominates, delta+RLE wins |
+| RGBW strips | No | JPEG has no native W channel, would need separate handling |
+
+### 20.9 Implementation Status
+
+**Reserved.** No implementation exists. The compression type `0x50` is reserved in the spec for future use.
+
+Implementation would require:
+- Receiver: route type `0x50` through `jpeg_decoder_process()`, write decoded RGB to HUB75 framebuffer
+- Sender: software JPEG encode on host, set compression type `0x50` in DDP header
+- Build guard: `#if SOC_JPEG_CODEC_SUPPORTED` -- zero cost on chips without hardware JPEG
+- Fallback: sender detects receiver capability via DDP status query or configuration, falls back to delta+RLE on non-P4/S3.1 hardware
+
+---
+
 ## Appendix A: Packet Hexdump Examples
 
 ### A.1 Raw RGB -- 3 pixels (red, green, blue), single packet with push
@@ -2446,3 +2611,4 @@ This implementation was reviewed by a 5-member adversarial team:
 | 2026-08-13 | 1.1 | Added complete standalone implementations (Python library, C header-only receiver, C POSIX sender). Added research citations. Added hexdump examples. |
 | 2026-08-18 | 2.0 | Ground-truth update: MTU=1500 (pre-built liblwip.a constraint), prevFrame=RGB565 (heap trade-off), all defect statuses updated to match implementation, new sec 12.4 Receiver-Side Flow Control, /diag fields corrected, Transform encoder marked not-implemented. Based on sessions 8-17 iterative development and hardware validation. |
 | 2026-08-20 | 2.1 | Added sec 17 Wire Format Options (reserved bit vs C-bit vs separate protocol), sec 18 Compression Variant Analysis (byte-level vs RGB-tuple vs colour planes), sec 19 WebSocket Transport (permessage-deflate interaction, JS encoder, delta-only mode). Added sec 4.5 Sender/Receiver Obligations for worst-case expansion. Renumbered sec 4.5-4.7 to sec 4.6-4.8. Sections 17-19 marked Open -- pending upstream consensus before wire format is locked. Prompted by softhack007 review feedback on #5810. |
+| 2026-08-20 | 2.2 | Added sec 20 JPEG Hardware Compression (Reserved) -- performance analysis for HUB75 LED wall use cases on ESP32-P4/S3.1. Covers HW decode throughput (95 Mpix/s on P4), bandwidth/FPS tables for 4K-65K pixel configs across WiFi/Ethernet/PPP, crossover analysis vs delta+RLE (~2667 pixel threshold), receiver memory requirements, colourspace/lossiness tradeoffs, use case matrix. Compression type 0x50 reserved for future implementation. |
