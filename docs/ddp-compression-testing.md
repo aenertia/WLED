@@ -221,3 +221,84 @@ curl -X POST http://169.254.7.1/json/state -H 'Content-Type: application/json' \
 python3 tools/ddp_ws_test.py --target 169.254.7.1 --segment 2 --leds 256 \
   --fps 30 --duration 8 --max-fps 30
 ```
+
+---
+
+## Generalized DDP Rate Ceiling -- Bus::getShowUs()
+
+### Architecture
+
+Each bus type reports its estimated show() duration via `Bus::getShowUs()`:
+
+| Bus type | Formula | Parameters | Example |
+|----------|---------|------------|---------|
+| BusSPIMatrix | nStrips * (stripDmaUs + 500us) | activeRows, dmaRows, physW, SPI_FREQUENCY | 40x80 2x2 27MHz: 6740us |
+| BusDigital 1-pin | len * bitsPerLed * 1000 / protocolRateKHz | len, 24/32 bits, 800kHz (WS2812) | 256 WS2812: 7680us |
+| BusDigital 2-pin | len * 32 * 1000 / frequencykHz | len, frequencykHz | 100 APA102 2MHz: 1600us |
+| BusHub75/Network/PWM | 0 | -- | non-blocking |
+
+`BusManager::computeSafeDdpFps()` sums getShowUs() across all active buses
+(BusManager::show() is sequential, not parallel) and applies headroom:
+- 50% headroom when any SPI Matrix bus is active (blocking DMA exclusion zone)
+- 70% headroom otherwise (non-blocking buses only)
+
+`ddpCurrentSafeFps` atomic is updated each main loop iteration. Both rate gates
+(e131.cpp UDP, ws.cpp WS) use `min(ddpMaxFps, ddpCurrentSafeFps)` as effective ceiling.
+
+### SPI_FREQUENCY bug fix
+
+platformio_override.ini had SPI_FREQUENCY=20000000 (20MHz) overriding TFT_eSPI's
+recommended 27000000 (27MHz) for ST7735. Fixed to 27MHz -- matches M5Stack's own
+configuration. ESP32 APB=80MHz, divisor=3, actual clock=26.67MHz.
+
+### uint32_t overflow fix
+
+Original formula: `(dmaRows * physW * 2 * 8 * 1000000UL) / SPI_FREQUENCY`
+The intermediate `25 * 80 * 2 * 8 * 1000000 = 32 billion` overflows uint32_t (max 4.29B).
+Fixed: `(dmaRows * physW * 16UL) / (SPI_FREQUENCY / 1000000UL)` -- max intermediate 32000.
+
+### spielig / spifps cfg keys
+
+```json
+{"if":{"live":{"spielig":false,"spifps":0}}}
+```
+
+- `spielig` (bool, default false): opt-in to allow DDP on SPI Matrix segments.
+  When false, rebuildDdpSlots() excludes SPI Matrix segments from ddpEligibleMask.
+  Uses 2D-aware flat pixel index (seg.startY * maxWidth + seg.start) for segment-to-bus
+  mapping, matching busHasActiveSegment() pattern.
+- `spifps` (uint8, default 0): 0=auto-derive ceiling from geometry, >0=manual override.
+  Override only applies when an SPI Matrix bus actually exists.
+
+### /diag output
+
+```
+bus[0].showUs=6740 bus[1].showUs=7680
+ddpSafe: fps=34 sumUs=14420 spielig=0 spifps=0
+```
+
+### Validation results (baseline: 27MHz SPI, 40x80, 2x2 scale)
+
+| Test | FPS | ddpSafe fps | Result | Notes |
+|------|-----|-------------|--------|-------|
+| WS DDP 30fps seg2 | 30 | 34 | FAIL (WDT) | SPI DMA ISR starvation |
+| WS DDP 60fps seg2 | 60 | 34 | FAIL (WDT) | same root cause |
+| UDP DDP flood seg2 | max | 34 | FAIL (WDT) | 126 pkts before crash |
+
+### Root cause: SPI DMA ISR starvation (unresolved)
+
+The auto-ceiling formula is mathematically correct but cannot prevent the crash.
+The crash is a concurrency bug, not a throughput bug: handleDDPPacket() running
+during BusSPIMatrix::show()'s blocking dmaWait() prevents the DMA completion ISR
+from firing. At 30fps with a 6.7ms DMA window in a 33ms frame interval, there is
+a ~20% chance per frame of a packet landing during the window. Over 900 frames
+(30s test), at least one collision is virtually certain.
+
+The auto-ceiling is correct and useful for non-blocking bus configurations (WS
+strip only, no TFT). For SPI Matrix configs, spielig=false (default) is the only
+safe option until the blocking DMA is replaced with non-blocking polling.
+
+Potential fixes (future work):
+1. Non-blocking BusSPIMatrix::show() -- poll SPI completion instead of dmaWait()
+2. Core isolation -- run DDP processing and show() on different cores
+3. DMA-aware packet deferral -- check SPI busy flag before processing DDP
