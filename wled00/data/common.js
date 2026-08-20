@@ -224,6 +224,102 @@ function sendDDP(ws, start, len, colors, isESP8266=false) {
 	return true;
 }
 
+// PackBits-inspired byte-level RLE encoder.
+// src: Uint8Array; returns Uint8Array.
+function rleEncode(src) {
+	var out = [];
+	var i = 0, n = src.length;
+	while (i < n) {
+		var cur = src[i], run = 1;
+		while (i + run < n && src[i + run] === cur && run < 128) run++;
+		if (run >= 3) {
+			out.push(run - 1, cur);
+			i += run;
+		} else {
+			var litStart = i, litLen = 0;
+			while (litLen < 128 && i + litLen < n) {
+				var ahead = 1;
+				while (i + litLen + ahead < n && src[i + litLen + ahead] === src[i + litLen] && ahead < 128) ahead++;
+				if (ahead >= 3) break;
+				litLen++;
+			}
+			if (litLen === 0) litLen = 1;
+			out.push(0x80 | (litLen - 1));
+			for (var j = 0; j < litLen; j++) out.push(src[i + j]);
+			i += litLen;
+		}
+	}
+	return new Uint8Array(out);
+}
+
+// PackBits-inspired byte-level RLE decoder.
+// src: Uint8Array, maxOut: optional output size cap; returns Uint8Array.
+function rleDecode(src, maxOut) {
+	var out = [];
+	var i = 0;
+	while (i < src.length) {
+		var ctrl = src[i++];
+		if (ctrl === undefined) break;
+		if (ctrl & 0x80) {
+			var count = (ctrl & 0x7F) + 1;
+			for (var j = 0; j < count && i < src.length; j++) {
+				out.push(src[i++]);
+				if (maxOut && out.length >= maxOut) return new Uint8Array(out);
+			}
+		} else {
+			var count = ctrl + 1;
+			if (i >= src.length) break;
+			var val = src[i++];
+			for (var j = 0; j < count; j++) {
+				out.push(val);
+				if (maxOut && out.length >= maxOut) return new Uint8Array(out);
+			}
+		}
+	}
+	return new Uint8Array(out);
+}
+
+// Send compressed DDP frame over WebSocket.
+// ws: WebSocket, start: start pixel, len: pixel count, colors: Uint8Array (RGB, 3*len bytes),
+// prevFrame: Uint8Array from previous call (or null for keyframe), isESP8266: bool.
+// Returns new Uint8Array copy of colors for use as prevFrame on next call.
+function sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266) {
+	if (!colors || colors.length < len * 3) return null;
+	if (!ws || ws.readyState !== WebSocket.OPEN) return null;
+	var raw = colors.subarray(0, len * 3);
+	var payload, compType;
+	if (prevFrame && prevFrame.length === raw.length) {
+		var delta = new Uint8Array(raw.length);
+		for (var i = 0; i < raw.length; i++) delta[i] = raw[i] ^ prevFrame[i];
+		var enc = rleEncode(delta);
+		if (enc.length < raw.length * 0.9) { payload = enc; compType = 0x10; }
+	}
+	if (!payload) {
+		var enc = rleEncode(raw);
+		if (enc.length < raw.length * 0.9) { payload = enc; compType = 0x20; }
+	}
+	if (!payload) { payload = raw; compType = 0x00; }
+	var maxPx = isESP8266 ? 172 : 472;
+	var maxBytes = maxPx * 3;
+	var off = start * 3;
+	var dataType = 0x0B | (compType !== 0x00 ? 0x80 : 0x00);
+	var pkt = new Uint8Array(11 + payload.length);
+	pkt[0] = 0x02;
+	pkt[1] = 0x41;
+	pkt[2] = (compType & 0xF0);
+	pkt[3] = dataType;
+	pkt[4] = 0x01;
+	pkt[5] = (off >> 24) & 255;
+	pkt[6] = (off >> 16) & 255;
+	pkt[7] = (off >> 8) & 255;
+	pkt[8] = off & 255;
+	pkt[9] = (payload.length >> 8) & 255;
+	pkt[10] = payload.length & 255;
+	pkt.set(payload, 11);
+	try { ws.send(pkt.buffer); } catch(e) { console.error(e); return null; }
+	return new Uint8Array(raw);
+}
+
 // Pin utilities
 function getOwnerName(o,t,n) {
 	// Use firmware-provided name if available
