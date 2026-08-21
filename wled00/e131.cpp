@@ -23,6 +23,7 @@ std::atomic<bool> loopPriorityBoosted{false};
 // tcpip_thread-only state (no atomics needed  -- single writer/reader)
 static uint32_t ddpLastFrameUs = 0;
 static bool ddpDropCurrentFrame = false;
+static uint8_t starvationSkip = 0;
 
 #ifdef ARDUINO_ARCH_ESP32
 extern TaskHandle_t loopTaskHandle;
@@ -158,11 +159,12 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
         loopPriorityBoosted.store(true, std::memory_order_release);
       }
 #endif
-      static uint8_t starvationSkip = 0;
       if (++starvationSkip < 10) {
         ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
         return;
       }
+      starvationSkip = 0;
+    } else {
       starvationSkip = 0;
     }
   }
