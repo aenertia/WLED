@@ -208,7 +208,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       freezeEligibleSegs();
     }
   }
-  realtimeLock(2500, REALTIME_MODE_DDP);
+  realtimeLock(realtimeTimeoutMs, REALTIME_MODE_DDP);
 
   // Heap guard: skip pixel writes if heap is critically low.
   // Graceful degradation: skip pixel writes but still process push flag
