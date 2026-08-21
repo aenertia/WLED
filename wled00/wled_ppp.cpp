@@ -400,7 +400,7 @@ static void ppp_rx_task(void *arg)
         // The ISR writes continuously at 1.5Mbps; if esp_netif_receive()
         // blocks (tcpip_thread mailbox full), the ring buffer fills.
         // Tier 1 (>50%): yield to let tcpip_thread drain.
-        // Tier 2 (>85%): emergency flush  -- drop bytes rather than let
+        // Tier 2 (>75% of ring): emergency flush  -- drop bytes rather than let
         // the ISR overrun into adjacent DRAM (FreeRTOS TCBs).
         uart_get_buffered_data_len(PPP_UART_NUM, &buffered);
         if (buffered > (PPP_RX_BUF_SIZE * 3 / 2)) {  // >75% of 2x alloc
