@@ -536,12 +536,8 @@ void initServer()
           sumUs += us;
         }
       }
-      response->printf("\nddpSafe: fps=%u sumUs=%u",
+      response->printf("\nddpSafe: fps=%u sumUs=%u\n",
         (unsigned)ddpCurrentSafeFps.load(std::memory_order_relaxed), (unsigned)sumUs);
-#ifdef WLED_ENABLE_SPI_MATRIX
-      response->printf(" spielig=%u spifps=%u", (unsigned)ddpSpiEligible, (unsigned)ddpSpiFps);
-#endif
-      response->printf("\n");
     }
     response->printf("\n--- pixels ---\n");
     if (totalLen > 0) {

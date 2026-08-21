@@ -616,10 +616,6 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   CJSON(ddpEligibleMask, if_live[F("ddpelig")]);
   rebuildDdpSlots();
   CJSON(ddpMaxFps, if_live[F("ddpfps")]);
-#ifdef WLED_ENABLE_SPI_MATRIX
-  CJSON(ddpSpiEligible, if_live[F("spielig")]);
-  CJSON(ddpSpiFps,      if_live[F("spifps")]);
-#endif
   CJSON(realtimeRespectLedMaps, if_live[F("rlm")]);
   CJSON(e131Port, if_live["port"]); // 5568
   if (e131Port == DDP_DEFAULT_PORT) e131Port = E131_DEFAULT_PORT; // prevent double DDP port allocation
@@ -1160,10 +1156,6 @@ void serializeConfig(JsonObject root) {
   if_live[F("mso")] = (ddpEligibleMask != 0); // backwards compat
   if_live[F("ddpelig")] = ddpEligibleMask;
   if_live[F("ddpfps")] = ddpMaxFps;
-#ifdef WLED_ENABLE_SPI_MATRIX
-  if_live[F("spielig")] = ddpSpiEligible;
-  if_live[F("spifps")]  = ddpSpiFps;
-#endif
   if_live[F("rlm")] = realtimeRespectLedMaps;
   if_live["port"] = e131Port;
   if_live[F("mc")] = e131Multicast;

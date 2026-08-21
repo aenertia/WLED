@@ -112,21 +112,7 @@ void WLED::loop()
   #endif
   handleImprovWifiScan();
   handleNotifications();
-#ifdef WLED_ENABLE_SPI_MATRIX
-  {
-    bool hasSpiMatrixBus = false;
-    for (size_t i = 0; i < BusManager::getNumBusses(); i++) {
-      Bus* b = BusManager::getBus(i);
-      if (b && Bus::isSPIMatrix(b->getType())) { hasSpiMatrixBus = true; break; }
-    }
-    if (hasSpiMatrixBus && ddpSpiFps > 0)
-      ddpCurrentSafeFps.store(ddpSpiFps, std::memory_order_relaxed);
-    else
-      ddpCurrentSafeFps.store(BusManager::computeSafeDdpFps(), std::memory_order_relaxed);
-  }
-#else
   ddpCurrentSafeFps.store(BusManager::computeSafeDdpFps(), std::memory_order_relaxed);
-#endif
   #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
   handleARGBPassthrough();
   #endif

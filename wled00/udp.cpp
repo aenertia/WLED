@@ -405,8 +405,10 @@ static void parseNotifyPacket(const uint8_t *udpIn) {
 }
 
 void rebuildDdpSlots() {
+  // exclude display-bus segments (SPI Matrix) from DDP eligibility unconditionally
+  // -- display buses render effects locally, DDP pixel data would conflict
 #ifdef WLED_ENABLE_SPI_MATRIX
-  if (!ddpSpiEligible) {
+  {
     const bool is2D = (Segment::maxHeight > 1);
     const uint16_t mw = Segment::maxWidth;
     for (unsigned i = 0; i < strip.getSegmentsNum() && i < 32; i++) {

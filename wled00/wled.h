@@ -759,9 +759,7 @@ void freezeEligibleSegs();                                               // free
 
 // DDP rate limiter (Issue #2)
 #ifdef WLED_ENABLE_SPI_MATRIX
-WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // max accepted DDP frames/sec (0=unlimited). TFT SPI DMA ~24ms  -> 40fps ceiling
-WLED_GLOBAL bool    ddpSpiEligible _INIT(false);
-WLED_GLOBAL uint8_t ddpSpiFps      _INIT(0);
+WLED_GLOBAL uint8_t ddpMaxFps _INIT(40);                                 // max accepted DDP frames/sec (0=unlimited). SPI Matrix builds default lower
 #else
 WLED_GLOBAL uint8_t ddpMaxFps _INIT(60);                                 // max accepted DDP frames/sec (0=unlimited)
 #endif
