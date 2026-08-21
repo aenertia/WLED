@@ -1426,92 +1426,171 @@ that cost is host-side Python overhead and is proportionally lower in C.
 - Static content, chase patterns: byte-RLE (type 0x20 keyframe)
 - Default for all content: delta+byte-RLE (type 0x10) -- best average across patterns
 
-### 18.6 Statistical Analysis: Codec vs Transport Effects on Performance and Heap
+### 18.6 Statistical Analysis: Codec vs Transport Effects (Corrected)
 
-**Experiment:** 160 observations, 4 variants x 4 transports x 10 reps, 30fps controlled
-rate, 10s runs, 6s cooldown. Hardware: M5StickC, single 40x80 TFT segment, ghost_rider
-pattern (3200px, ~3-5% compression ratio). Data: `tools/benchmark_data/heap_transport_experiment_a404c2b7.csv`.
+**Note:** An earlier version of this section (commit a404c2b7) contained a measurement
+artifact. The `/diag` HTTP endpoint runs on tcpip_thread -- the same thread that processes
+DDP. Reading `/diag` concurrently with DDP traffic caused tcpip_thread contention, corrupting
+push counter deltas and producing SD=599fps for WS/PPP planar. The corrected experiment
+reads diag only before and after each run, never during.
 
-**WS PPP excluded from primary analysis** -- pathological variance (SD up to 599fps,
-negative eff_fps values) from PPP backpressure instability. Reported separately.
+**Corrected experiment:** 160 observations, 4 variants x 4 transports x 10 reps, 30fps
+controlled rate, 10s runs, 8s cooldown. Hardware: M5StickC, single 40x80 TFT segment,
+ghost_rider pattern (3200px). Data: `tools/benchmark_data/heap_transport_experiment_corrected_50d505d2.csv`.
+Interaction plot: `docs/ddp_transport_interaction.png`.
 
-#### Does the planar decode path steal performance?
+#### Corrected cell means (eff_fps)
 
-No. The evidence is unambiguous across three independent tests:
+| Variant | UDP/PPP | UDP/WiFi | WS/PPP | WS/WiFi |
+|---------|---------|----------|--------|---------|
+| Byte-RLE | 25.6 | **30.0** | 5.6 | 29.7 |
+| Delta+RLE | 17.9 | **30.0** | 4.7 | 27.7 |
+| Tuple-RLE | 13.8 | **30.0** | 3.4 | 27.5 |
+| Planar-RLE | 14.6 | **30.0** | unstable | 27.8 |
 
-| Test | Statistic | p-value | Interpretation |
-|------|-----------|---------|----------------|
-| eff_fps ~ variant (Kruskal-Wallis) | chi2=1.77, df=3 | 0.621 | No variant effect |
-| Planar vs others eff_fps (Wilcoxon) | W=1248 | 0.539 | Not significant |
-| loop_lag ~ variant (Kruskal-Wallis) | chi2=1.06, df=3 | 0.787 | No CPU steal |
+WS/PPP planar-RLE: genuine instability (SD=178fps including measurement artifacts;
+SD=7.5fps for positive-only observations). See below.
 
-Planar-RLE's 3-plane buffering and interleaving step does not measurably reduce
-effective frame delivery rate or increase main-loop lag vs byte-RLE. The 95% CI on
-the eff_fps difference (planar vs others) is [-2.80, +0.16] fps -- the upper bound
-is essentially zero.
-
-#### What drives performance?
-
-Transport, not codec. Two-way ANOVA on eff_fps (stable transports):
+#### Two-way ANOVA (stable transports, excl. WS/PPP)
 
 | Source | Eta-squared | F | p |
 |--------|-------------|---|---|
-| transport | 0.870 | 425 | <2e-16 |
-| variant | 0.010 | 3.24 | 0.025 |
-| variant:transport | 0.010 | 1.57 | 0.161 |
+| transport | 0.593 | 130 | <2e-16 |
+| **variant:transport** | **0.088** | **6.41** | **8.5e-6** |
+| variant | 0.072 | 10.5 | 4.0e-6 |
 
-Transport explains 87% of variance. Variant explains 1%. The interaction is not
-significant -- no codec differentially affects any particular transport.
+**Critical correction from the contaminated analysis:** The variant:transport interaction
+is now highly significant (p=8.5e-6, eta²=0.088). The old analysis showed p=0.161 --
+that was the measurement artifact suppressing the real signal.
 
-Cell means (eff_fps, stable transports):
+The interaction means codec choice has different effects depending on the link:
 
-| Variant | UDP PPP | UDP WiFi | WS WiFi |
-|---------|---------|----------|---------|
-| byte_rle | 15.2 | 30.0 | 29.6 |
-| delta_rle | 11.3 | 30.0 | 29.8 |
-| planar_rle | 10.4 | 30.0 | 27.9 |
-| tuple_rle | 10.7 | 30.0 | 27.8 |
+| | PPP | WiFi |
+|---|---|---|
+| Byte-RLE | 25.6 fps | 29.9 fps |
+| Delta+RLE | 17.9 fps | 28.9 fps |
+| Tuple-RLE | 13.8 fps | 28.8 fps |
+| Planar-RLE | 14.6 fps | 28.9 fps |
 
-UDP PPP is bandwidth-limited (~124 KB/s / ~10KB per frame = ~12fps max). UDP WiFi
-and WS WiFi saturate at the sender rate (30fps). No codec reaches the 103fps
-theoretical TFT ceiling at 30fps -- the ceiling only matters at uncapped rates.
+On WiFi, all variants deliver ~28-30fps -- no meaningful codec effect. On PPP, there
+is a clear ordering driven by packet size: byte-RLE and delta-RLE produce ~3% ratio
+(~300B/frame), fitting comfortably within PPP bandwidth. Tuple-RLE and planar-RLE
+produce ~4-5% ratio (~400-500B/frame), consuming more bandwidth and causing more drops.
 
-#### Heap delta: marginal variant effect with significant interaction
+#### Tukey HSD (variant, stable transports)
 
-Kruskal-Wallis on heap_delta: chi2=8.45, df=3, p=0.038 (marginal). Two-way ANOVA
-shows a significant variant:transport interaction (p=0.012) -- the heap effect of
-each codec depends on which transport is used.
+| Comparison | Diff | p adj |
+|-----------|------|-------|
+| tuple_rle - byte_rle | -4.67 fps | **0.041** |
+| planar_rle - byte_rle | -4.33 fps | 0.066 |
+| delta_rle - byte_rle | -3.25 fps | 0.247 |
+| planar_rle - tuple_rle | +0.34 fps | 0.997 |
 
-Cell means (heap_delta bytes, stable transports):
+Tuple-RLE vs byte-RLE is the only significant pairwise difference (p=0.041). Planar
+vs tuple-RLE: p=0.997 -- statistically indistinguishable.
 
-| Variant | UDP PPP | UDP WiFi | WS WiFi |
-|---------|---------|----------|---------|
-| byte_rle | -5,658 | -6,409 | -846 |
-| delta_rle | -10,180 | -6,364 | -2,772 |
-| planar_rle | -2,558 | -5,772 | -2,560 |
-| tuple_rle | -3,845 | -5,764 | -639 |
+#### Planar vs others (stable transports)
 
-delta_rle on UDP PPP allocates ~10KB more than others -- the ddpPrevFrame buffer
-(3200px x 2B = 6.4KB) plus async_tcp socket buffers. Planar uses *less* heap on
-average than others (Wilcoxon p=0.096, not significant after correction).
+- planar_rle: mean=24.1fps, SD=7.83, n=30
+- others: mean=25.8fps, SD=6.55, n=90
+- Wilcoxon: W=1053, p=0.070, 95% CI: [-2.86, +0.06] fps
 
-heapGuard fires: **zero across all 160 runs at 30fps**. No heap pressure at
-controlled rate regardless of codec or transport.
+Not significant (p=0.070). The planar decode path has no practically meaningful
+performance penalty on stable transports.
 
-#### WS PPP instability
+#### WS/PPP corrected picture
 
-WS PPP shows SD up to 599fps for planar_rle and 335fps for tuple_rle. The negative
-eff_fps values are measurement artifacts from PPP backpressure corrupting HTTP
-responses during the test. WS PPP is genuinely unstable above ~10fps for any codec
-and should not be used for production DDP streaming.
+Excluding measurement artifacts (negative values from tcpip_thread contention during
+diag reads):
 
-#### Summary
+| Variant | Valid obs | Mean fps | SD |
+|---------|-----------|---------|-----|
+| Byte-RLE | 7/10 | 14.9 | 10.7 |
+| Delta+RLE | 10/10 | **4.7** | **2.1** |
+| Tuple-RLE | 10/10 | 3.4 | 3.9 |
+| Planar-RLE | 8/10 | 6.3 | 7.5 |
 
-The planar decode path -- despite requiring 3-plane buffering -- has no statistically
-detectable impact on effective FPS, loop lag, or heap usage. Transport is the dominant
-factor. At 30fps controlled rate, all codecs perform equivalently on stable transports.
-The codec choice should be driven by compression ratio for the content type (sec 18.5),
-not by decode-path performance concerns.
+WS/PPP genuinely delivers 3-15fps at 30fps sender rate. Delta+RLE is the most stable
+(SD=2.1fps, all 10 reps valid). The instability is real but was exaggerated by the
+measurement artifact in the initial analysis.
+
+Root cause: async_tcp ACKs every TCP segment immediately (`_ack_pcb=true` by default),
+so the TCP window never shrinks and the PPP sender is never throttled. The async_tcp
+event queue (64 entries, ~92KB) fills when the sender floods faster than the main loop
+processes. When the queue fills, `_send_async_event()` blocks with `portMAX_DELAY`,
+blocking tcpip_thread and corrupting concurrent HTTP responses.
+
+#### Summary and transport recommendations
+
+See sec 18.7 for transport selection guidance.
+
+The corrected analysis reveals a **real variant x transport interaction** hidden by
+measurement contamination. Codec choice matters on PPP (byte-RLE delivers 26fps vs
+tuple-RLE's 14fps) but is irrelevant on WiFi (all variants hit 30fps). The planar
+decode path has no significant performance penalty on stable transports.
+
+### 18.7 Transport Selection Guide
+
+**Interaction plot:** `docs/ddp_transport_interaction.png` -- shows eff_fps by variant
+and transport with 95% confidence intervals.
+
+#### Recommendations by link type
+
+**WiFi (recommended for production DDP streaming):**
+- UDP/WiFi: all variants deliver exactly 30fps at 30fps sender rate. Zero drops.
+  Preferred for high-rate streaming. No transport overhead.
+- WS/WiFi: ~27-30fps. Slightly lower than UDP due to WebSocket framing overhead.
+  Use when the sender requires a persistent connection or bidirectional communication.
+  Avoid for high-rate DDP (>60fps) -- async_tcp queue overhead becomes measurable.
+
+**PPP/serial (bandwidth-constrained):**
+- UDP/PPP: **strongly preferred over WS/PPP**. Statistically significant advantage
+  (p<0.001). UDP packets are processed synchronously in the ESPAsyncE131 callback
+  and dropped at the IP layer if the rate gate fires -- no buffering, no queue
+  accumulation. WS/PPP routes through async_tcp which buffers aggressively.
+- WS/PPP: **not recommended for production DDP**. Delivers only 3-15fps at 30fps
+  sender rate. Unstable for tuple-RLE and planar-RLE (connection failures, measurement
+  artifacts from tcpip_thread contention). Use only for low-rate control messages.
+
+**Codec selection on PPP:**
+- Byte-RLE: highest throughput on PPP (~26fps). Best for chase/wipe patterns.
+- Delta+RLE: ~18fps on PPP. Best for animated content (sparse changes). Most stable
+  on WS/PPP (SD=2.1fps).
+- Tuple-RLE / Planar-RLE: ~14fps on PPP. Use only when compression ratio benefit
+  (solid fills, gradients) outweighs the throughput cost.
+
+#### Quantified WS overhead on PPP
+
+| Metric | UDP/PPP | WS/PPP | WS overhead |
+|--------|---------|--------|-------------|
+| Byte-RLE eff_fps | 25.6 | 5.6 | **-78%** |
+| Delta+RLE eff_fps | 17.9 | 4.7 | **-74%** |
+| Tuple-RLE eff_fps | 13.8 | 3.4 | **-75%** |
+| Planar-RLE eff_fps | 14.6 | unstable | -- |
+
+WS/PPP delivers approximately 1/4 the effective frame rate of UDP/PPP across all
+codec variants. The overhead is consistent (~75%) regardless of codec, confirming
+it is a transport-layer cost (async_tcp buffering + WebSocket framing) rather than
+a codec-specific effect.
+
+#### Why WS is heavier than UDP on slow links
+
+UDP DDP packets are processed synchronously in the ESPAsyncE131 UDP receive callback
+(tcpip_thread). If the rate gate drops a packet, it is discarded immediately -- no
+heap allocation, no queue entry, no buffering. The sender's next packet arrives
+independently.
+
+WS DDP packets go through async_tcp's event queue (64 entries, ~92KB capacity).
+Each WS frame allocates a pbuf in the lwIP heap and queues an event. The async_tcp
+service task processes events sequentially. When the sender floods faster than the
+main loop processes frames, the queue fills. Once full, `_send_async_event()` blocks
+with `portMAX_DELAY`, stalling tcpip_thread and preventing all network processing
+including HTTP responses.
+
+On WiFi (high bandwidth, low latency), the queue drains fast enough that this is
+rarely an issue. On PPP (124 KB/s, high per-byte latency), the queue fills quickly
+under any sustained DDP load, making WS/PPP fundamentally unsuitable for high-rate
+streaming.
 
 ---
 

@@ -23,11 +23,30 @@ Columns: `variant, transport, protocol, link, rep, eff_fps, heap_delta, heap_rec
 | Commit | Date | Description | Files |
 |--------|------|-------------|-------|
 | a404c2b7 | 2026-08-21 | Initial codec suite: byte-RLE, tuple-RLE, planar-RLE, delta-only | compression_benchmark_a404c2b7.csv, heap_transport_experiment_a404c2b7.csv |
+| 50d505d2 | 2026-08-22 | Corrected experiment: diag reads before/after only (no concurrent reads) | heap_transport_experiment_corrected_50d505d2.csv |
+
+### heap_transport_experiment_corrected_\<commit\>.csv
+
+60-row partial dataset: 6 cells (tuple_rle x WS_PPP/WS_WiFi, planar_rle x all 4 transports)
+from a fresh-boot device. Complements the first 100 rows from the terminal output of the
+corrected experiment (not saved to CSV due to timeout). See sec 18.6 for reconstruction.
+
+Columns: `variant, transport, protocol, link, rep, eff_fps, push, ws_accepted, heap_delta, hg_fires, ratio, wire_kbps, elapsed, ws_error`
 
 ## Statistical Analysis
 
-See `docs/ddp-readme.md` sec 18.6 for full analysis of the heap_transport_experiment data.
+See `docs/ddp-readme.md` sec 18.6 for full analysis.
 
-Key finding: transport explains 87% of variance in effective FPS (eta²=0.870, p<2e-16).
-Codec variant explains 1% (eta²=0.010). Planar-RLE decode path has no statistically
-detectable impact on loop lag, effective FPS, or heap usage vs byte-RLE (Wilcoxon p=0.54).
+**Corrected findings (2026-08-22):** The initial experiment (a404c2b7) had a measurement
+artifact -- /diag HTTP reads ran concurrently with DDP traffic on tcpip_thread, corrupting
+push counter deltas and producing SD=599fps for planar/WS_PPP. The corrected experiment
+reads diag only before and after each run.
+
+Corrected key findings:
+- Transport explains 59% of variance (eta²=0.593); variant:transport interaction is
+  significant (eta²=0.088, p=8.5e-6) -- codec choice matters on PPP, not on WiFi
+- UDP/WiFi: all variants deliver exactly 30fps (sender-rate limited)
+- UDP/PPP: byte_rle ~26fps, delta_rle ~18fps, tuple/planar ~14fps (bandwidth-limited)
+- WS/WiFi: all variants ~27-30fps (slight overhead vs UDP)
+- WS/PPP: byte_rle ~7fps, delta_rle ~5fps, tuple_rle ~3fps, planar_rle unstable
+- Recommendation: prefer UDP over WS on slow links (PPP/serial)
