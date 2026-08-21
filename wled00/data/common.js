@@ -277,10 +277,108 @@ function rleDecode(src, maxOut) {
 	return new Uint8Array(out);
 }
 
+// PackBits-style tuple-level RLE encoder. src: Uint8Array, channels: 3 or 4.
+function rleTupleEncode(src, channels) {
+	var out = [], n = src.length / channels | 0, i = 0;
+	while (i < n) {
+		var run = 1;
+		while (i + run < n && run < 128) {
+			var match = true;
+			for (var c = 0; c < channels; c++) {
+				if (src[(i+run)*channels+c] !== src[i*channels+c]) { match = false; break; }
+			}
+			if (!match) break;
+			run++;
+		}
+		if (run >= 3) {
+			out.push(run - 1);
+			for (var c = 0; c < channels; c++) out.push(src[i*channels+c]);
+			i += run;
+		} else {
+			var litStart = i, litLen = 0;
+			while (litLen < 128 && i + litLen < n) {
+				var ahead = 1;
+				while (i + litLen + ahead < n && ahead < 3) {
+					var m = true;
+					for (var c = 0; c < channels; c++) {
+						if (src[(i+litLen+ahead)*channels+c] !== src[(i+litLen)*channels+c]) { m = false; break; }
+					}
+					if (!m) break;
+					ahead++;
+				}
+				if (ahead >= 3) break;
+				litLen++;
+			}
+			if (litLen === 0) litLen = 1;
+			out.push(0x80 | (litLen - 1));
+			for (var j = 0; j < litLen; j++)
+				for (var c = 0; c < channels; c++) out.push(src[(litStart+j)*channels+c]);
+			i += litLen;
+		}
+	}
+	return new Uint8Array(out);
+}
+
+// PackBits-style tuple-level RLE decoder. src: Uint8Array, channels: 3 or 4.
+function rleTupleDecode(src, channels) {
+	var out = [], i = 0;
+	while (i < src.length) {
+		var ctrl = src[i++];
+		if (ctrl & 0x80) {
+			var count = (ctrl & 0x7F) + 1;
+			for (var j = 0; j < count; j++)
+				for (var c = 0; c < channels; c++) out.push(src[i + j*channels + c]);
+			i += count * channels;
+		} else {
+			var count = ctrl + 1;
+			for (var j = 0; j < count; j++)
+				for (var c = 0; c < channels; c++) out.push(src[i + c]);
+			i += channels;
+		}
+	}
+	return new Uint8Array(out);
+}
+
+// Colour-plane RLE encoder. src: Uint8Array (interleaved RGB), channels: 3 or 4.
+function rlePlanarEncode(src, channels) {
+	var planes = [];
+	for (var c = 0; c < channels; c++) {
+		var plane = new Uint8Array(src.length / channels | 0);
+		for (var i = 0; i < plane.length; i++) plane[i] = src[i*channels+c];
+		planes.push(rleEncode(plane));
+	}
+	var total = channels * 2;
+	for (var c = 0; c < channels; c++) total += planes[c].length;
+	var out = new Uint8Array(total), off = 0;
+	for (var c = 0; c < channels; c++) {
+		var len = planes[c].length;
+		out[off++] = len & 0xFF; out[off++] = (len >> 8) & 0xFF;
+		out.set(planes[c], off); off += len;
+	}
+	return out;
+}
+
+// Colour-plane RLE decoder. src: Uint8Array (encoded), channels: 3 or 4.
+function rlePlanarDecode(src, channels) {
+	var planes = [], off = 0;
+	for (var c = 0; c < channels; c++) {
+		var len = src[off] | (src[off+1] << 8); off += 2;
+		planes.push(rleDecode(src.subarray(off, off+len)));
+		off += len;
+	}
+	var n = planes[0].length;
+	var out = new Uint8Array(n * channels);
+	for (var i = 0; i < n; i++)
+		for (var c = 0; c < channels; c++) out[i*channels+c] = planes[c][i];
+	return out;
+}
+
 // Send compressed DDP frame over WebSocket. Returns colors copy for use as next prevFrame.
 function sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266) {
 	if (!colors || colors.length < len * 3) return null;
 	if (!ws || ws.readyState !== WebSocket.OPEN) return null;
+	var maxPx = isESP8266 ? 172 : 472;
+	if (len > maxPx) { console.warn("sendDDPCompressed: len exceeds single-frame limit"); return null; }
 	var raw = colors.subarray(0, len * 3);
 	var payload, compType;
 	if (prevFrame && prevFrame.length === raw.length) {
@@ -294,8 +392,6 @@ function sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266) {
 		if (enc.length < raw.length * 0.9) { payload = enc; compType = 0x20; }
 	}
 	if (!payload) { payload = raw; compType = 0x00; }
-	var maxPx = isESP8266 ? 172 : 472;
-	var maxBytes = maxPx * 3;
 	var off = start * 3;
 	var dataType = 0x0B | (compType !== 0x00 ? 0x80 : 0x00);
 	var pkt = new Uint8Array(11 + payload.length);
@@ -310,6 +406,34 @@ function sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266) {
 	pkt[8] = off & 255;
 	pkt[9] = (payload.length >> 8) & 255;
 	pkt[10] = payload.length & 255;
+	pkt.set(payload, 11);
+	try { ws.send(pkt.buffer); } catch(e) { console.error(e); return null; }
+	return new Uint8Array(raw);
+}
+
+var COMP_DELTA_ONLY = 0x40;
+
+// Send delta-only DDP frame -- XOR delta without RLE. Benchmark use only.
+function sendDDPDeltaOnly(ws, start, len, colors, prevFrame, isESP8266) {
+	if (!colors || colors.length < len * 3) return null;
+	if (!ws || ws.readyState !== WebSocket.OPEN) return null;
+	var maxPx = isESP8266 ? 172 : 472;
+	if (len > maxPx) { console.warn("sendDDPDeltaOnly: len exceeds single-frame limit"); return null; }
+	var raw = colors.subarray(0, len * 3);
+	var payload, compType;
+	if (prevFrame && prevFrame.length === raw.length) {
+		var delta = new Uint8Array(raw.length);
+		for (var i = 0; i < raw.length; i++) delta[i] = raw[i] ^ prevFrame[i];
+		payload = delta; compType = COMP_DELTA_ONLY;
+	} else {
+		payload = raw; compType = 0x00;
+	}
+	var off = start * 3;
+	var dataType = 0x0B | (compType !== 0x00 ? 0x80 : 0x00);
+	var pkt = new Uint8Array(11 + payload.length);
+	pkt[0] = 0x02; pkt[1] = 0x41; pkt[2] = (compType & 0xF0); pkt[3] = dataType; pkt[4] = 0x01;
+	pkt[5] = (off >> 24) & 255; pkt[6] = (off >> 16) & 255; pkt[7] = (off >> 8) & 255; pkt[8] = off & 255;
+	pkt[9] = (payload.length >> 8) & 255; pkt[10] = payload.length & 255;
 	pkt.set(payload, 11);
 	try { ws.send(pkt.buffer); } catch(e) { console.error(e); return null; }
 	return new Uint8Array(raw);

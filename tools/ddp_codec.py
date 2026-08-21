@@ -21,6 +21,8 @@ DDP_RGB = 0x0B
 COMP_NONE = 0x00
 COMP_DELTA_RLE = 0x10
 COMP_RLE = 0x20
+COMP_TUPLE_RLE = 0x30  # Python-only for benchmarking, no firmware type code
+COMP_DELTA_ONLY = 0x40  # raw XOR delta without RLE -- benchmark baseline
 
 MAX_PAYLOAD = 4086
 MAX_COMPRESSED_PAYLOAD = 2048
@@ -109,8 +111,131 @@ def rle_decode(src: bytes | bytearray) -> bytes:
     return bytes(out)
 
 
+def rle_planar_encode(src: bytes | bytearray, channels: int = 3) -> bytes:
+    """RLE-encode after splitting interleaved pixel data into per-channel planes.
+
+    Wire format: for each channel, a 2-byte little-endian length prefix
+    followed by the RLE-encoded plane data.
+    """
+    n = len(src)
+    if n == 0:
+        return b"\x00\x00" * channels
+
+    planes = [bytes(src[ch::channels]) for ch in range(channels)]
+    out = bytearray()
+    for plane in planes:
+        enc = rle_encode(plane)
+        out.extend(struct.pack("<H", len(enc)))
+        out.extend(enc)
+    return bytes(out)
+
+
+def rle_planar_decode(src: bytes | bytearray, channels: int = 3) -> bytes:
+    """Decode planar-RLE back to interleaved pixel data."""
+    pos = 0
+    planes: list[bytes] = []
+    for _ in range(channels):
+        if pos + 2 > len(src):
+            break
+        plen = struct.unpack_from("<H", src, pos)[0]
+        pos += 2
+        planes.append(rle_decode(src[pos:pos + plen]))
+        pos += plen
+
+    if not planes or all(len(p) == 0 for p in planes):
+        return b""
+
+    pixel_count = max(len(p) for p in planes)
+    out = bytearray(pixel_count * channels)
+    for ch, plane in enumerate(planes):
+        for i, val in enumerate(plane):
+            out[i * channels + ch] = val
+    return bytes(out)
+
+
+def rle_tuple_encode(src: bytes | bytearray, channels: int = 3) -> bytes:
+    """Encode *src* with tuple-level RLE (channels bytes per run unit).
+
+    Same control-byte format as byte-level RLE but operates on
+    fixed-width tuples (e.g. 3 for RGB, 4 for RGBW).
+    """
+    out = bytearray()
+    n = len(src)
+    if n == 0:
+        return b""
+    if n % channels:
+        raise ValueError(f"length {n} not a multiple of {channels}")
+
+    nt = n // channels
+    i = 0
+
+    while i < nt:
+        off = i * channels
+        cur = src[off : off + channels]
+        run = 1
+        while i + run < nt and src[(i + run) * channels : (i + run + 1) * channels] == cur and run < 128:
+            run += 1
+
+        if run >= 3:
+            out.append(run - 1)
+            out.extend(cur)
+            i += run
+        else:
+            lit_start = i
+            lit_len = 0
+            while i < nt and lit_len < 128:
+                toff = i * channels
+                tup = src[toff : toff + channels]
+                ahead = 1
+                while i + ahead < nt and src[(i + ahead) * channels : (i + ahead + 1) * channels] == tup and ahead < 3:
+                    ahead += 1
+                if ahead >= 3:
+                    break
+                i += 1
+                lit_len += 1
+            if lit_len:
+                out.append(0x80 | (lit_len - 1))
+                out.extend(src[lit_start * channels : (lit_start + lit_len) * channels])
+
+    return bytes(out)
+
+
+def rle_tuple_decode(src: bytes | bytearray, channels: int = 3) -> bytes:
+    """Decode tuple-level RLE back to interleaved pixel data."""
+    out = bytearray()
+    pos, n = 0, len(src)
+
+    while pos < n:
+        ctrl = src[pos]
+        pos += 1
+        count = (ctrl & 0x7F) + 1
+
+        if ctrl & 0x80:
+            # LITERAL -- copy *count* tuples verbatim
+            nbytes = count * channels
+            out.extend(src[pos : pos + nbytes])
+            pos += nbytes
+        else:
+            # RUN -- repeat next tuple *count* times
+            if pos + channels > n:
+                break
+            tup = src[pos : pos + channels]
+            pos += channels
+            out.extend(tup * count)
+
+    return bytes(out)
+
+
 def xor_delta(cur: bytes | bytearray, prev: bytes | bytearray) -> bytes:
     return bytes(a ^ b for a, b in zip(cur, prev))
+
+
+def compress_delta_only(cur: bytes, prev: bytes) -> tuple[bytes, int]:
+    """XOR delta without RLE -- benchmark baseline for delta+RLE comparison."""
+    if not prev or len(prev) != len(cur):
+        return cur, COMP_NONE
+    delta = xor_delta(cur, prev)
+    return delta, COMP_DELTA_ONLY
 
 
 # ── Adaptive compression ───────────────────────────────────────────
