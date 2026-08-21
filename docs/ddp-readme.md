@@ -202,6 +202,9 @@ Compression types:
   0x10  Delta+RLE -- XOR with previous frame, then RLE encode
   0x20  RLE only -- no delta, direct RLE (used for keyframes)
   0x30  Transform -- global operation + sparse explicit pixel writes
+  0x40  Delta-only -- raw XOR delta, no RLE (benchmark/measurement use)
+  0x50  Tuple-RLE -- same PackBits control bytes as 0x20, unit = channels bytes
+  0x60  Planar-RLE -- per-channel byte-RLE planes, wire: [Rlen:2LE][R-rle][G...][B...]
 ```
 
 ### 3.3 Wire Format Examples
@@ -1127,12 +1130,21 @@ def frame_budget(bandwidth_bytes_sec, target_fps):
 |-----------|----------|----------|--------|
 | DDP receiver (raw + compressed) | C/C++ | `wled00/e131.cpp` | Production |
 | RLE codec (streaming decoder) | C | `wled00/ddp_compress.h` | Production |
+| Delta+RLE decoder (0x10) | C/C++ | `wled00/e131.cpp` | Production |
+| RLE-only decoder (0x20) | C/C++ | `wled00/e131.cpp` | Production |
+| Transform decoder (0x30) | C/C++ | `wled00/e131.cpp` | Production -- decoder only; encoder not implemented |
+| Delta-only decoder (0x40) | C/C++ | `wled00/e131.cpp` | Production |
+| Tuple-RLE decoder (0x50) | C/C++ | `wled00/e131.cpp` | Production |
+| Planar-RLE decoder (0x60) | C/C++ | `wled00/e131.cpp` | Production |
 | DDP sender (raw only) | C/C++ | `wled00/udp.cpp` (`realtimeBroadcast()`) | Production |
 | DDP encoder + benchmark | Python | `tools/ddp_bench.py` | Production |
-| Transform encoder | C/C++ | `wled00/e131.cpp` | Not implemented -- decoder only. `rle_encode_adaptive()` in `ddp_compress.h` implements RLE and delta+RLE only. |
 | RLE codec (encode + decode) | Python | `tools/ddp_codec.py` | Production |
+| Tuple-RLE encoder (0x50) | Python | `tools/ddp_codec.py`, `tools/ddp_bench.py` | Production |
+| Planar-RLE encoder (0x60) | Python | `tools/ddp_codec.py`, `tools/ddp_bench.py` | Production |
 | Validation suite | Python/pytest | `tools/tests/test_rle.py` | Production |
 | RLE codec (encode + decode) | JavaScript | `wled00/data/common.js` | Production |
+| Tuple-RLE encoder (0x50) | JavaScript | `wled00/data/common.js` | Production |
+| Planar-RLE encoder (0x60) | JavaScript | `wled00/data/common.js` | Production |
 | JS validation suite | Node.js | `tools/tests/test_js_rle.mjs` | Production |
 | Ghost Rider DDP pattern | Python | `tools/ddp_bench.py` | Production |
 
@@ -1169,6 +1181,9 @@ To implement compressed DDP in a new codebase:
 #define DDP_COMP_TYPE_DELTA_RLE  0x10  // XOR delta + PackBits RLE
 #define DDP_COMP_TYPE_RLE        0x20  // PackBits RLE only (keyframe)
 #define DDP_COMP_TYPE_TRANSFORM  0x30  // Global operation + sparse writes
+#define DDP_COMP_TYPE_DELTA_ONLY 0x40  // Raw XOR delta, no RLE (benchmark)
+#define DDP_COMP_TYPE_TUPLE_RLE  0x50  // PackBits per-tuple: unit = channels bytes
+#define DDP_COMP_TYPE_PLANAR_RLE 0x60  // Per-channel planes: [Rlen:2LE][R-rle][G...][B...]
 
 // Transform operations
 #define DDP_TRANSFORM_SCALE_TOWARD 0x01  // lerp(prev, target, alpha)
@@ -1205,6 +1220,9 @@ DDP_COMP_NONE = 0x00
 DDP_COMP_DELTA_RLE = 0x10
 DDP_COMP_RLE = 0x20
 DDP_COMP_TRANSFORM = 0x30
+DDP_COMP_DELTA_ONLY = 0x40
+DDP_COMP_TUPLE_RLE = 0x50
+DDP_COMP_PLANAR_RLE = 0x60
 
 # C bit (bit 7, 0x80): set on dataType when payload is compressed.
 # Recover pixel format with dataType & 0x7F.
