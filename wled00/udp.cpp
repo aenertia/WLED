@@ -477,9 +477,6 @@ void exitRealtime() {
   } else {
     strip.show();
   }
-#ifdef WLED_ENABLE_DDP_COMPRESSION
-  ddpFreePrevFrame();
-#endif
   updateInterfaces(CALL_MODE_WS_SEND);
 }
 
