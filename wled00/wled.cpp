@@ -112,7 +112,6 @@ void WLED::loop()
   #endif
   handleImprovWifiScan();
   handleNotifications();
-  ddpCurrentSafeFps.store(BusManager::computeSafeDdpFps(), std::memory_order_relaxed);
   #ifdef WLED_ENABLE_ARGB_PASSTHROUGH
   handleARGBPassthrough();
   #endif
@@ -213,6 +212,9 @@ void WLED::loop()
   }
   // Safety net: exit realtime if timeout expired (backup for handleNotifications check)
   if (realtimeMode && millis() > realtimeTimeout) exitRealtime();
+
+  // Update auto-ceiling after show() so bus state (_activeRowMax, _buffersAllocated) is current
+  ddpCurrentSafeFps.store(BusManager::computeSafeDdpFps(), std::memory_order_relaxed);
 
   // Update RTC crash snapshot every 500ms.
   // Frozen after PANIC/WDT reboot until /diag reads it (clears magic).
