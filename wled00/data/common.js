@@ -224,8 +224,7 @@ function sendDDP(ws, start, len, colors, isESP8266=false) {
 	return true;
 }
 
-// PackBits-inspired byte-level RLE encoder.
-// src: Uint8Array; returns Uint8Array.
+// PackBits-style byte-level RLE encoder.
 function rleEncode(src) {
 	var out = [];
 	var i = 0, n = src.length;
@@ -252,8 +251,7 @@ function rleEncode(src) {
 	return new Uint8Array(out);
 }
 
-// PackBits-inspired byte-level RLE decoder.
-// src: Uint8Array, maxOut: optional output size cap; returns Uint8Array.
+// PackBits-style byte-level RLE decoder.
 function rleDecode(src, maxOut) {
 	var out = [];
 	var i = 0;
@@ -279,10 +277,7 @@ function rleDecode(src, maxOut) {
 	return new Uint8Array(out);
 }
 
-// Send compressed DDP frame over WebSocket.
-// ws: WebSocket, start: start pixel, len: pixel count, colors: Uint8Array (RGB, 3*len bytes),
-// prevFrame: Uint8Array from previous call (or null for keyframe), isESP8266: bool.
-// Returns new Uint8Array copy of colors for use as prevFrame on next call.
+// Send compressed DDP frame over WebSocket. Returns colors copy for use as next prevFrame.
 function sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266) {
 	if (!colors || colors.length < len * 3) return null;
 	if (!ws || ws.readyState !== WebSocket.OPEN) return null;

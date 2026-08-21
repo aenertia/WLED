@@ -213,7 +213,7 @@ void WLED::loop()
   // Safety net: exit realtime if timeout expired (backup for handleNotifications check)
   if (realtimeMode && millis() > realtimeTimeout) exitRealtime();
 
-  // Update auto-ceiling after show() so bus state (_activeRowMax, _buffersAllocated) is current
+  // Recompute after show() when bus state is settled
   ddpCurrentSafeFps.store(BusManager::computeSafeDdpFps(), std::memory_order_relaxed);
 
   // Update RTC crash snapshot every 500ms.

@@ -17,8 +17,7 @@ constexpr uint8_t BINARY_PROTOCOL_DDP     = P_DDP; // = 2
 static uint16_t wsLiveClientId = 0;
 static unsigned long wsLastLiveTime = 0;
 
-// WS DDP rate gate -- independent per-transport state, mirrors e131.cpp UDP gate.
-// Written only from async_tcp context (single-threaded there, no mutex needed).
+// WS DDP rate gate -- mirrors e131.cpp UDP gate; async_tcp is single-threaded, no mutex.
 static uint32_t wsddpLastFrameUs  = 0;
 static bool     wsddpDropCurrent  = false;
 uint32_t wsddpPktCount     = 0;
@@ -100,10 +99,7 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
             handleE131Packet((e131_packet_t*)&data[offset], client->remoteIP(), P_ARTNET, len - offset);
             break;
           case BINARY_PROTOCOL_DDP: {
-            // Rate gate: drop frames above ddpMaxFps ceiling before buffering.
-            // Mirrors e131.cpp UDP gate but with WS-local state (no shared atomics needed).
-            // Frame start = channelOffset==0 or PUSH flag set (single-packet frame).
-            // DDP header at data[offset]: flags(1) seq(1) dataType(1) dest(1) chanOff(4) dataLen(2) data...
+            // Rate gate (mirrors e131.cpp UDP gate with WS-local state)
             bool isPush = (len > (size_t)offset) && (data[offset] & DDP_FLAGS_PUSH);
             uint32_t chanOff = 0;
             if (len >= (size_t)(offset + 8)) {
