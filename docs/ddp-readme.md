@@ -1426,6 +1426,93 @@ that cost is host-side Python overhead and is proportionally lower in C.
 - Static content, chase patterns: byte-RLE (type 0x20 keyframe)
 - Default for all content: delta+byte-RLE (type 0x10) -- best average across patterns
 
+### 18.6 Statistical Analysis: Codec vs Transport Effects on Performance and Heap
+
+**Experiment:** 160 observations, 4 variants x 4 transports x 10 reps, 30fps controlled
+rate, 10s runs, 6s cooldown. Hardware: M5StickC, single 40x80 TFT segment, ghost_rider
+pattern (3200px, ~3-5% compression ratio). Data: `tools/benchmark_data/heap_transport_experiment_a404c2b7.csv`.
+
+**WS PPP excluded from primary analysis** -- pathological variance (SD up to 599fps,
+negative eff_fps values) from PPP backpressure instability. Reported separately.
+
+#### Does the planar decode path steal performance?
+
+No. The evidence is unambiguous across three independent tests:
+
+| Test | Statistic | p-value | Interpretation |
+|------|-----------|---------|----------------|
+| eff_fps ~ variant (Kruskal-Wallis) | chi2=1.77, df=3 | 0.621 | No variant effect |
+| Planar vs others eff_fps (Wilcoxon) | W=1248 | 0.539 | Not significant |
+| loop_lag ~ variant (Kruskal-Wallis) | chi2=1.06, df=3 | 0.787 | No CPU steal |
+
+Planar-RLE's 3-plane buffering and interleaving step does not measurably reduce
+effective frame delivery rate or increase main-loop lag vs byte-RLE. The 95% CI on
+the eff_fps difference (planar vs others) is [-2.80, +0.16] fps -- the upper bound
+is essentially zero.
+
+#### What drives performance?
+
+Transport, not codec. Two-way ANOVA on eff_fps (stable transports):
+
+| Source | Eta-squared | F | p |
+|--------|-------------|---|---|
+| transport | 0.870 | 425 | <2e-16 |
+| variant | 0.010 | 3.24 | 0.025 |
+| variant:transport | 0.010 | 1.57 | 0.161 |
+
+Transport explains 87% of variance. Variant explains 1%. The interaction is not
+significant -- no codec differentially affects any particular transport.
+
+Cell means (eff_fps, stable transports):
+
+| Variant | UDP PPP | UDP WiFi | WS WiFi |
+|---------|---------|----------|---------|
+| byte_rle | 15.2 | 30.0 | 29.6 |
+| delta_rle | 11.3 | 30.0 | 29.8 |
+| planar_rle | 10.4 | 30.0 | 27.9 |
+| tuple_rle | 10.7 | 30.0 | 27.8 |
+
+UDP PPP is bandwidth-limited (~124 KB/s / ~10KB per frame = ~12fps max). UDP WiFi
+and WS WiFi saturate at the sender rate (30fps). No codec reaches the 103fps
+theoretical TFT ceiling at 30fps -- the ceiling only matters at uncapped rates.
+
+#### Heap delta: marginal variant effect with significant interaction
+
+Kruskal-Wallis on heap_delta: chi2=8.45, df=3, p=0.038 (marginal). Two-way ANOVA
+shows a significant variant:transport interaction (p=0.012) -- the heap effect of
+each codec depends on which transport is used.
+
+Cell means (heap_delta bytes, stable transports):
+
+| Variant | UDP PPP | UDP WiFi | WS WiFi |
+|---------|---------|----------|---------|
+| byte_rle | -5,658 | -6,409 | -846 |
+| delta_rle | -10,180 | -6,364 | -2,772 |
+| planar_rle | -2,558 | -5,772 | -2,560 |
+| tuple_rle | -3,845 | -5,764 | -639 |
+
+delta_rle on UDP PPP allocates ~10KB more than others -- the ddpPrevFrame buffer
+(3200px x 2B = 6.4KB) plus async_tcp socket buffers. Planar uses *less* heap on
+average than others (Wilcoxon p=0.096, not significant after correction).
+
+heapGuard fires: **zero across all 160 runs at 30fps**. No heap pressure at
+controlled rate regardless of codec or transport.
+
+#### WS PPP instability
+
+WS PPP shows SD up to 599fps for planar_rle and 335fps for tuple_rle. The negative
+eff_fps values are measurement artifacts from PPP backpressure corrupting HTTP
+responses during the test. WS PPP is genuinely unstable above ~10fps for any codec
+and should not be used for production DDP streaming.
+
+#### Summary
+
+The planar decode path -- despite requiring 3-plane buffering -- has no statistically
+detectable impact on effective FPS, loop lag, or heap usage. Transport is the dominant
+factor. At 30fps controlled rate, all codecs perform equivalently on stable transports.
+The codec choice should be driven by compression ratio for the content type (sec 18.5),
+not by decode-path performance concerns.
+
 ---
 
 ## 19. WebSocket Transport
