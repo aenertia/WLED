@@ -51,6 +51,7 @@ _ddp_destination = 0xFF
 DDP_VER1 = 0x40; DDP_PUSH = 0x01; DDP_TYPE_COMPRESSED = 0x80; DDP_RGB = 0x0B
 DDP_TYPE_RGBW32 = 0x1B  # 00 011 011  -- RGBW, 8 bits per channel, 4 channels
 COMP_NONE = 0x00; COMP_DELTA_RLE = 0x10; COMP_RLE = 0x20
+COMP_TUPLE_RLE = 0x50; COMP_PLANAR_RLE = 0x60
 MAX_PAYLOAD = 1200  # sized for PPP MRU 1500: 1500-IP(20)-UDP(8)-DDP(10)=1462, use 1200 for safety
 
 def rle_encode(src):
@@ -79,6 +80,34 @@ def compress_adaptive(cur, prev=None):
         drle = rle_encode(delta)
         if len(drle) < len(best): best, btype = drle, COMP_DELTA_RLE
     return best, btype
+
+def rle_tuple_encode(src, channels=3):
+    out, nt, i = bytearray(), len(src)//channels, 0
+    while i < nt:
+        cur = src[i*channels:(i+1)*channels]
+        run = 1
+        while i+run < nt and src[(i+run)*channels:(i+run+1)*channels] == cur and run < 128: run += 1
+        if run >= 3:
+            out.append(run-1); out.extend(cur); i += run
+        else:
+            ls, ll = i, 0
+            while i < nt and ll < 128:
+                t = src[i*channels:(i+1)*channels]
+                a = 1
+                while i+a < nt and src[(i+a)*channels:(i+a+1)*channels] == t and a < 3: a += 1
+                if a >= 3: break
+                i += 1; ll += 1
+            if ll: out.append(0x80|(ll-1)); out.extend(src[ls*channels:(ls+ll)*channels])
+    return bytes(out)
+
+def rle_planar_encode(src, channels=3):
+    import struct
+    out = bytearray()
+    for ch in range(channels):
+        plane = bytes(src[i*channels+ch] for i in range(len(src)//channels))
+        enc = rle_encode(plane)
+        out.extend(struct.pack('<H', len(enc))); out.extend(enc)
+    return bytes(out)
 
 def make_packets(data, seq=1, push=True, comp=COMP_NONE, data_type=DDP_RGB, max_payload=MAX_PAYLOAD, channel_offset=0):
     pkts, off = [], 0
@@ -463,25 +492,41 @@ def _generate_frame(pattern, num_leds, t, prev, rgbw):
         elif pattern.startswith("ifs_"): return render_ifs_frame(pattern[4:], _bench_width, _bench_height, t * 10.0)
         else: return rainbow(num_leds, t)
 
-def run_phase(sock, target, port, num_leds, fps, dur, pattern, compressed, label, data_type=DDP_RGB, rgbw=False, keyframe_interval=10, max_payload=MAX_PAYLOAD, inter_pkt_delay=0, rate_limiter=None, channel_offset=0):
+def run_phase(sock, target, port, num_leds, fps, dur, pattern, compressed, label, data_type=DDP_RGB, rgbw=False, keyframe_interval=10, max_payload=MAX_PAYLOAD, inter_pkt_delay=0, rate_limiter=None, channel_offset=0, codec=None):
     iv = 1.0/fps; sent=0; raw_b=0; wire_b=0; prev=None; seq=1
+    bpp = 4 if rgbw else 3
     start = time.monotonic(); nxt = start
     mode_str = "RGBW" if rgbw else "RGB"
-    print(f"\n--- {label}: {fps}fps {pattern} {'COMP' if compressed else 'RAW'} ({mode_str}) ---")
+    codec_str = {COMP_TUPLE_RLE: "tuple", COMP_PLANAR_RLE: "planar"}.get(codec, "COMP" if compressed else "RAW")
+    print(f"\n--- {label}: {fps}fps {pattern} {codec_str} ({mode_str}) ---")
     while time.monotonic()-start < dur:
         now = time.monotonic()
         if now < nxt: time.sleep(max(0, nxt-now-0.0005)); continue
         t = (now-start)/dur
         px = _generate_frame(pattern, num_leds, t, prev, rgbw)
         raw_b += len(px)
-        if compressed:
+        if codec == COMP_TUPLE_RLE:
+            cd = rle_tuple_encode(px, bpp)
+            if len(cd) < len(px):
+                pkts, seq = make_packets(cd, seq, comp=COMP_TUPLE_RLE, data_type=data_type|DDP_TYPE_COMPRESSED, max_payload=max_payload, channel_offset=channel_offset)
+            else:
+                pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset); cd = px
+            wire_b += len(cd)
+        elif codec == COMP_PLANAR_RLE:
+            cd = rle_planar_encode(px, bpp)
+            if len(cd) < len(px):
+                pkts, seq = make_packets(cd, seq, comp=COMP_PLANAR_RLE, data_type=data_type|DDP_TYPE_COMPRESSED, max_payload=max_payload, channel_offset=channel_offset)
+            else:
+                pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset); cd = px
+            wire_b += len(cd)
+        elif compressed:
             cd, ct = compress_adaptive(px, prev)
             pkts, seq = make_packets(cd, seq, comp=ct, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset); wire_b += len(cd)
         else:
             pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset); wire_b += len(px)
         prev = px
         if keyframe_interval > 0 and sent % keyframe_interval == 0:
-            prev = None  # force keyframe for error recovery
+            prev = None
         try:
             for ii, p in enumerate(pkts):
                 if rate_limiter: rate_limiter.wait_and_consume(len(p))
@@ -563,11 +608,12 @@ def run_diagnostic(target, port, num_leds, width, rgbw=False, max_payload=MAX_PA
 
     print("\nDone. Check TFT display for marker positions.")
 
-def run_debug(target, port, num_leds, rgbw=False, max_payload=MAX_PAYLOAD, inter_pkt_delay=0, channel_offset=0):
-    """Interactive rainbow at 10fps until Ctrl+C."""
+def run_debug(target, port, num_leds, rgbw=False, max_payload=MAX_PAYLOAD, inter_pkt_delay=0, channel_offset=0, codec=None):
     data_type = DDP_TYPE_RGBW32 if rgbw else DDP_RGB
+    bpp = 4 if rgbw else 3
     mode_str = "RGBW" if rgbw else "RGB"
-    print(f"Debug ({mode_str}): rainbow at 10fps to {target}:{port}, {num_leds} LEDs. Ctrl+C to stop.")
+    codec_str = {COMP_TUPLE_RLE: "tuple", COMP_PLANAR_RLE: "planar"}.get(codec, "raw")
+    print(f"Debug ({mode_str}/{codec_str}): rainbow at 10fps to {target}:{port}, {num_leds} LEDs. Ctrl+C to stop.")
     try:
         req = urllib.request.Request(f"http://{target}/json/state",
             data=b'{"on":true,"bri":128,"live":true}',
@@ -580,11 +626,21 @@ def run_debug(target, port, num_leds, rgbw=False, max_payload=MAX_PAYLOAD, inter
     try:
         while True:
             t = (time.monotonic() - start) / 10.0
-            if rgbw:
-                px = rainbow_rgbw(num_leds, t, 1.0)
+            px = rainbow_rgbw(num_leds, t, 1.0) if rgbw else rainbow(num_leds, t, 1.0)
+            if codec == COMP_TUPLE_RLE:
+                cd = rle_tuple_encode(px, bpp)
+                if len(cd) < len(px):
+                    pkts, seq = make_packets(cd, seq, comp=COMP_TUPLE_RLE, data_type=data_type|DDP_TYPE_COMPRESSED, max_payload=max_payload, channel_offset=channel_offset)
+                else:
+                    pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
+            elif codec == COMP_PLANAR_RLE:
+                cd = rle_planar_encode(px, bpp)
+                if len(cd) < len(px):
+                    pkts, seq = make_packets(cd, seq, comp=COMP_PLANAR_RLE, data_type=data_type|DDP_TYPE_COMPRESSED, max_payload=max_payload, channel_offset=channel_offset)
+                else:
+                    pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
             else:
-                px = rainbow(num_leds, t, 1.0)
-            pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
+                pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
             for p in pkts:
                 sock.sendto(p, (target, port))
             time.sleep(0.1)
@@ -617,6 +673,7 @@ def main():
     parser.add_argument("--inter-packet-ms", type=float, default=0, help="Delay between packets within a frame (ms). Use 5-30 for PPP links.")
     parser.add_argument("--offset", type=int, default=0, help="Pixel offset for DDP data (default: 0). Converted to channel offset internally.")
     parser.add_argument("--segment", type=int, default=-1, help="Target a specific segment by ID. Queries device for pixel range, overrides --offset/--width/--height/--leds.")
+    parser.add_argument("--codec", choices=["adaptive", "tuple", "planar"], default="adaptive", help="Compression codec for --debug and single-pattern runs (default: adaptive)")
     args = parser.parse_args()
 
     global _bench_width, _bench_height
@@ -660,8 +717,11 @@ def main():
         run_diagnostic(target, port, num_leds, _bench_width, rgbw=args.rgbw, max_payload=mtu, inter_pkt_delay=inter_pkt_delay, channel_offset=channel_offset)
         return
 
+    codec_map = {"tuple": COMP_TUPLE_RLE, "planar": COMP_PLANAR_RLE}
+    codec = codec_map.get(args.codec)
+
     if args.debug:
-        run_debug(target, port, num_leds, rgbw=args.rgbw, max_payload=mtu, inter_pkt_delay=inter_pkt_delay, channel_offset=channel_offset)
+        run_debug(target, port, num_leds, rgbw=args.rgbw, max_payload=mtu, inter_pkt_delay=inter_pkt_delay, channel_offset=channel_offset, codec=codec)
         return
 
     mode_str = "RGBW" if args.rgbw else "RGB"

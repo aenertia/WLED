@@ -412,6 +412,8 @@ function sendDDPCompressed(ws, start, len, colors, prevFrame, isESP8266) {
 }
 
 var COMP_DELTA_ONLY = 0x40;
+var COMP_TUPLE_RLE  = 0x50;
+var COMP_PLANAR_RLE = 0x60;
 
 // Send delta-only DDP frame -- XOR delta without RLE. Benchmark use only.
 function sendDDPDeltaOnly(ws, start, len, colors, prevFrame, isESP8266) {

@@ -21,7 +21,8 @@ DDP_RGB = 0x0B
 COMP_NONE = 0x00
 COMP_DELTA_RLE = 0x10
 COMP_RLE = 0x20
-COMP_TUPLE_RLE = 0x30  # Python-only for benchmarking, no firmware type code
+COMP_TUPLE_RLE = 0x50   # tuple-level RLE, firmware decoder in e131.cpp
+COMP_PLANAR_RLE = 0x60  # per-channel plane RLE, firmware decoder in e131.cpp
 COMP_DELTA_ONLY = 0x40  # raw XOR delta without RLE -- benchmark baseline
 
 MAX_PAYLOAD = 4086

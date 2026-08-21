@@ -380,6 +380,81 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
         ddpCompWritePixel(px, RGBW32(r, g, b, w));
         c += ddpChannelsPerLed;
       }
+    } else if (compType == DDP_COMP_TYPE_TUPLE_RLE) {
+      // Same PackBits control bytes as 0x20, but unit = ddpChannelsPerLed bytes.
+      const uint8_t *src = data + c;
+      size_t srcLen = dataLen;
+      size_t pos = 0;
+      unsigned pixel = start;
+      while (pos < srcLen && pixel < totalLen) {
+        uint8_t ctrl = src[pos++];
+        unsigned count = (ctrl & 0x7F) + 1;
+        if (ctrl & 0x80) {
+          for (unsigned i = 0; i < count && pixel < totalLen; i++) {
+            if (pos + ddpChannelsPerLed > srcLen) goto tuple_done;
+            uint8_t r = src[pos], g = src[pos+1], b = src[pos+2];
+            uint8_t w = (ddpChannelsPerLed > 3) ? src[pos+3] : 0;
+            ddpCompWritePixel(pixel++, RGBW32(r, g, b, w));
+            pos += ddpChannelsPerLed;
+          }
+        } else {
+          if (pos + ddpChannelsPerLed > srcLen) break;
+          uint8_t r = src[pos], g = src[pos+1], b = src[pos+2];
+          uint8_t w = (ddpChannelsPerLed > 3) ? src[pos+3] : 0;
+          pos += ddpChannelsPerLed;
+          for (unsigned i = 0; i < count && pixel < totalLen; i++)
+            ddpCompWritePixel(pixel++, RGBW32(r, g, b, w));
+        }
+      }
+      tuple_done:;
+    } else if (compType == DDP_COMP_TYPE_PLANAR_RLE) {
+      // Wire: [Rlen:2LE][R-rle][Glen:2LE][G-rle][Blen:2LE][B-rle]
+      // Cannot stream -- decode all planes before interleaving.
+      const uint8_t *src = data + c;
+      size_t srcLen = dataLen;
+      unsigned numPx = min((unsigned)(dataLen / ddpChannelsPerLed), totalLen - start);
+      // Hoist before any goto to avoid jumping over initializations.
+      uint8_t *planes = nullptr;
+      size_t pos = 0;
+      planes = (uint8_t*)malloc(numPx * ddpChannelsPerLed);
+      if (!planes) goto ddp_push;
+      memset(planes, 0, numPx * ddpChannelsPerLed);
+
+      for (unsigned ch = 0; ch < (unsigned)ddpChannelsPerLed && ch < 3; ch++) {
+        if (pos + 2 > srcLen) break;
+        uint16_t plen = src[pos] | ((uint16_t)src[pos+1] << 8);
+        pos += 2;
+        if (pos + plen > srcLen) break;
+        uint8_t *dst = planes + ch * numPx;
+        const uint8_t *psrc = src + pos;
+        size_t pp = 0, op = 0;
+        while (pp < plen && op < numPx) {
+          uint8_t ctrl = psrc[pp++];
+          unsigned cnt = (ctrl & 0x7F) + 1;
+          if (ctrl & 0x80) {
+            for (unsigned i = 0; i < cnt && op < numPx; i++) {
+              if (pp >= plen) break;
+              dst[op++] = psrc[pp++];
+            }
+          } else {
+            if (pp >= plen) break;
+            uint8_t val = psrc[pp++];
+            unsigned end = op + cnt < numPx ? op + cnt : numPx;
+            while (op < end) dst[op++] = val;
+          }
+        }
+        pos += plen;
+      }
+
+      for (unsigned i = 0; i < numPx && (start + i) < totalLen; i++) {
+        uint8_t r = planes[0 * numPx + i];
+        uint8_t g = planes[1 * numPx + i];
+        uint8_t b = planes[2 * numPx + i];
+        uint8_t w = (ddpChannelsPerLed > 3) ? planes[3 * numPx + i] : 0;
+        ddpCompWritePixel(start + i, RGBW32(r, g, b, w));
+      }
+      free(planes);
+      planes = nullptr;
     }
   } else
 #endif
