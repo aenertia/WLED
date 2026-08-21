@@ -412,10 +412,33 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       // Cannot stream -- decode all planes before interleaving.
       const uint8_t *src = data + c;
       size_t srcLen = dataLen;
-      unsigned numPx = totalLen - start;
       // Hoist before any goto to avoid jumping over initializations.
       uint8_t *planes = nullptr;
       size_t pos = 0;
+      // Derive pixel count from R-plane RLE output, not dataLen (which is
+      // compressed size) or totalLen (which would over-allocate for the strip).
+      unsigned numPx = 0;
+      if (srcLen >= 2) {
+        uint16_t rPlaneRleLen = src[0] | ((uint16_t)src[1] << 8);
+        if (rPlaneRleLen > 0 && rPlaneRleLen <= srcLen - 2) {
+          const uint8_t *rp = src + 2;
+          size_t pp = 0;
+          while (pp < rPlaneRleLen) {
+            uint8_t ctrl = rp[pp++];
+            unsigned cnt = (ctrl & 0x7F) + 1;
+            numPx += cnt;
+            if (ctrl & 0x80) {
+              if (pp + cnt > rPlaneRleLen) break;
+              pp += cnt;
+            } else {
+              if (pp >= rPlaneRleLen) break;
+              pp++;
+            }
+          }
+          numPx = min(numPx, totalLen - start);
+        }
+      }
+      if (numPx == 0) goto ddp_push;
       planes = (uint8_t*)malloc(numPx * ddpChannelsPerLed);
       if (!planes) goto ddp_push;
       memset(planes, 0, numPx * ddpChannelsPerLed);
