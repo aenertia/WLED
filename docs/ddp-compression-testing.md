@@ -257,24 +257,18 @@ Original formula: `(dmaRows * physW * 2 * 8 * 1000000UL) / SPI_FREQUENCY`
 The intermediate `25 * 80 * 2 * 8 * 1000000 = 32 billion` overflows uint32_t (max 4.29B).
 Fixed: `(dmaRows * physW * 16UL) / (SPI_FREQUENCY / 1000000UL)` -- max intermediate 32000.
 
-### spielig / spifps cfg keys
+### spielig / spifps cfg keys (REMOVED 2026-08-21)
 
-```json
-{"if":{"live":{"spielig":false,"spifps":0}}}
-```
-
-- `spielig` (bool, default false): opt-in to allow DDP on SPI Matrix segments.
-  When false, rebuildDdpSlots() excludes SPI Matrix segments from ddpEligibleMask.
-  Uses 2D-aware flat pixel index (seg.startY * maxWidth + seg.start) for segment-to-bus
-  mapping, matching busHasActiveSegment() pattern.
-- `spifps` (uint8, default 0): 0=auto-derive ceiling from geometry, >0=manual override.
-  Override only applies when an SPI Matrix bus actually exists.
+The separate `ddpSpiEligible` / `ddpSpiFps` cfg keys were redundant with
+`ddpEligibleMask`. Removed from wled.h, cfg.cpp, udp.cpp, wled.cpp, wled_server.cpp.
+SPI Matrix exclusion is now unconditional in `rebuildDdpSlots()` -- no opt-in needed
+because non-blocking DMA eliminates the crash risk.
 
 ### /diag output
 
 ```
 bus[0].showUs=6740 bus[1].showUs=7680
-ddpSafe: fps=34 sumUs=14420 spielig=0 spifps=0
+ddpSafe: fps=34 sumUs=14420
 ```
 
 ### Validation results (baseline: 27MHz SPI, 40x80, 2x2 scale)
@@ -285,23 +279,17 @@ ddpSafe: fps=34 sumUs=14420 spielig=0 spifps=0
 | WS DDP 60fps seg2 | 60 | 34 | FAIL (WDT) | same root cause |
 | UDP DDP flood seg2 | max | 34 | FAIL (WDT) | 126 pkts before crash |
 
-### Root cause: SPI DMA ISR starvation (unresolved)
+### Root cause: SPI DMA ISR starvation (RESOLVED 2026-08-21)
 
-The auto-ceiling formula is mathematically correct but cannot prevent the crash.
-The crash is a concurrency bug, not a throughput bug: handleDDPPacket() running
-during BusSPIMatrix::show()'s blocking dmaWait() prevents the DMA completion ISR
-from firing. At 30fps with a 6.7ms DMA window in a 33ms frame interval, there is
-a ~20% chance per frame of a packet landing during the window. Over 900 frames
-(30s test), at least one collision is virtually certain.
+The auto-ceiling formula was mathematically correct but could not prevent the crash.
+The crash was a concurrency bug, not a throughput bug: handleDDPPacket() running
+during BusSPIMatrix::show()'s blocking dmaWait() prevented the DMA completion ISR
+from firing.
 
-The auto-ceiling is correct and useful for non-blocking bus configurations (WS
-strip only, no TFT). For SPI Matrix configs, spielig=false (default) is the only
-safe option until the blocking DMA is replaced with non-blocking polling.
-
-Potential fixes (future work):
-1. Non-blocking BusSPIMatrix::show() -- poll SPI completion instead of dmaWait()
-2. Core isolation -- run DDP processing and show() on different cores
-3. DMA-aware packet deferral -- check SPI busy flag before processing DDP
+**Fix**: Non-blocking BusSPIMatrix::show() via deferred dmaWait/endWrite. The final
+`dmaWait()` and `endWrite()` at end of show() are skipped. `drainDma()` at the start
+of the NEXT show() collects the DMA result. See "Non-blocking SPI DMA validation"
+section below for test results.
 
 ---
 
@@ -363,3 +351,122 @@ The spielig refactor (unconditional SPI Matrix exclusion) is validated:
 - SPI Matrix segments unconditionally excluded from DDP eligibility
 - 670fps flood soak passes (60s, ~40K packets)
 - No regressions from the spielig/spifps variable removal
+
+---
+
+## Non-blocking SPI DMA validation (2026-08-21)
+
+Firmware: dev/ddp-spec (deferred dmaWait/endWrite in BusSPIMatrix::show())
+Hardware: M5StickC baseline 40x80 @ 27MHz SPI, 3-segment layout
+Config: ddpMaxFps=0 (unlimited, auto-ceiling only), ddpelig=4 (seg2/WS only)
+
+### Problem
+
+Any DDP at any rate with TFT active caused instant TASK_WDT crash. Root cause:
+`BusSPIMatrix::show()` called `dmaWait()` (blocking `spi_device_get_trans_result`
+with `portMAX_DELAY`) at end of frame. If `handleDDPPacket()` ran during that
+~1-4ms window, the DMA completion ISR was starved.
+
+### Failed approach: dmaBusy() skip-frame
+
+Tried using `TFT_eSPI::dmaBusy()` (non-blocking poll, `spi_device_get_trans_result`
+with timeout=0) to skip show() when DMA was still running. Result: frames dropped
+continuously, TFT never updated. The poll-and-skip model doesn't work because
+show() must eventually drain the DMA to make progress.
+
+### Solution: deferred dmaWait/endWrite
+
+- Skip final `dmaWait()` and `endWrite()` at end of `show()`
+- Set `_dmaInFlight = true` and `_writeOpen = true` flags
+- `drainDma()` called at start of NEXT `show()` -- collects DMA result + closes write
+- CS is software-controlled (`spics_io_num=-1`), so `endWrite()` safe while DMA runs
+- Inter-strip `dmaWait()` inside `pushImageDMA()` remains (setAddrWindow is sync SPI)
+
+### Validation results
+
+| Test | FPS | Duration | Result | Notes |
+|------|-----|----------|--------|-------|
+| UDP DDP flood (670fps) | 670 | 60s | PASS | no WDT, TFT active throughout |
+| UDP DDP 60fps seg2 | 60 | 30s | PASS | previously instant crash |
+| WS DDP 30fps seg2 | 30 | 30s | PASS | stable |
+| Ghost Rider WiFi UDP | 439 send | 30s | PASS | 83fps effective to TFT |
+| Ghost Rider PPP UDP | 439 send | 30s | PASS | 76fps effective to TFT |
+
+---
+
+## Generalized skip-show validation (2026-08-21)
+
+### Problem
+
+`hasIdleSkip()` was an opt-in virtual override pattern. `BusDigital` was missing
+the override, so idle WS strips wasted 7.7ms/frame on unnecessary show() calls.
+
+### Fix
+
+Removed `hasIdleSkip()` entirely. `busHasActiveSegment()` now checks `seg.isActive()`
+to skip ghost segment slots. All bus types benefit from skip-show without opt-in.
+
+### Impact on auto-ceiling
+
+| WS strip state | bus[1].showUs | ddpSafe fps |
+|----------------|--------------|-------------|
+| Active (effect running) | 7680 | 34 |
+| Idle (skip-show) | 0 | 91-103 |
+
+---
+
+## Ghost Rider transport matrix (2026-08-21)
+
+Ghost Rider animation, 40x80 TFT + WS2812B 8x32, 3200px total, compressed DDP.
+Device: M5StickC, firmware dev/ddp-spec with non-blocking DMA.
+
+### Compressed DDP (delta+RLE, 97% compression ratio)
+
+| Transport | Send FPS | Eff FPS to TFT | Compress | Stability |
+|-----------|----------|----------------|----------|-----------|
+| UDP WiFi  | 439      | 83             | 97%      | stable 30s |
+| UDP PPP   | 439      | 76             | 97%      | stable 30s |
+| WS WiFi   | 199      | 53             | 97%      | stable 30s |
+| WS PPP    | 376      | 51             | 97%      | died at 5.4s |
+
+WS PPP instability: WebSocket framing overhead + PPP byte-stuffing + serial
+latency creates backpressure that the async WS stack cannot drain fast enough.
+UDP PPP at the same effective rate is stable.
+
+### Raw DDP throughput (3200px, 8 pkts/frame, no compression)
+
+| Transport | Target FPS | Delivery % | Quality |
+|-----------|-----------|------------|---------|
+| WiFi 10fps | 10 | 97% | smooth |
+| WiFi 20fps | 20 | 52% | skippy (burst packet loss) |
+| WiFi 30fps | 30 | 33% | very skippy |
+| PPP | max | ~13fps | bandwidth-limited |
+
+WiFi packet loss at higher rates is burst-correlated (WiFi TX contention), not
+random. Compression eliminates this by reducing per-frame packet count from 8 to 1.
+
+---
+
+## Internal FX benchmarks (2026-08-21)
+
+No DDP -- device-local effect rendering only. Measures raw bus throughput.
+
+| Config | Effect | FPS | Notes |
+|--------|--------|-----|-------|
+| TFT-only (WS idle, skip-show) | Rainbow | 47 uncapped | skip-show saves 7.7ms/frame |
+| TFT-only (WS idle, skip-show) | Solid | 51 uncapped | |
+| TFT + WS both active | Mixed 2D effects | 43-45 | sequential show() |
+| TFT idle (skip-show) | -- | ddpSafe 91-103fps | WS strip determines ceiling |
+
+### Uncapped throughput comparison (raw vs compressed DDP)
+
+3200 pixels, 8 packets/frame raw, 1 packet/frame compressed (97% ratio):
+
+| Mode | Packets/frame | Bandwidth/frame | Max FPS (WiFi) | Max FPS (PPP) |
+|------|--------------|-----------------|----------------|---------------|
+| Raw | 8 | 9.6 KB | ~20 (52% delivery) | ~13 |
+| Compressed (97%) | 1 | ~290 B | 439+ (97% delivery) | 439+ (76fps eff) |
+
+Compression reduces WiFi packet loss from 48% (at 20fps raw) to 3% (at 439fps
+compressed) by fitting each frame in a single UDP packet below WiFi burst loss
+threshold.

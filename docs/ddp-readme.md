@@ -1,7 +1,7 @@
 # DDP Protocol Reference -- Specification, Compression Extension, and Validation Suite
 
-**Version**: 2.3 (2026-08-20)
-**Status**: Adopted C bit (dataType bit 7) as compression signal; added JS RLE codec and compressed DDP sender
+**Version**: 2.4 (2026-08-21)
+**Status**: Non-blocking SPI DMA, generalized skip-show, spielig removed, multi-IP, transport benchmarks
 **Audience**: Any codebase implementing DDP -- sender, receiver, or both
 
 This document is a standalone reference for implementing the Distributed Display Protocol (DDP) with optional compression extensions for bandwidth-constrained transports. It covers the base protocol specification, comparison with E1.31/Art-Net, the compression wire format, reference implementations in C and Python, a complete validation suite, and known pitfalls.
@@ -839,12 +839,13 @@ flood conditions (uncapped sender, network burst, or slow consumer):
 falls below 20KB. Prevents OOM crashes under sustained flood. Counter:
 `ddpHeapGuardDrops` (atomic, visible in `/diag`).
 
-**Layer 2 -- Rate limiter** (e131.cpp): `ddpMaxFps` cap (default: 40fps when
-TFT bus is active, 60fps otherwise). Micros-based gate using `ddpLastFrameUs`.
-Excess frames dropped silently. Counter: `ddpRateLimitDrops` (atomic, visible
-in `/diag`). Rationale: TFT SPI DMA takes ~24ms per frame at 40x80 virtual
-pixels -- accepting DDP faster than the display can render wastes CPU and
-starves the main loop.
+**Layer 2 -- Rate limiter** (e131.cpp): Effective ceiling is
+`min(ddpMaxFps, ddpCurrentSafeFps)`. `ddpMaxFps` is user-configured (default
+40 for SPI Matrix builds, 60 otherwise). `ddpCurrentSafeFps` is auto-derived
+each main loop iteration from `BusManager::computeSafeDdpFps()` -- sums
+`Bus::getShowUs()` across all active buses with 70% headroom. When buses go
+idle (skip-show), their showUs drops to zero and the ceiling rises
+automatically. Excess frames dropped silently. Counter: `ddpRateLimitDrops`.
 
 **Layer 3 -- Main loop starvation detector** (e131.cpp): When the main loop
 hasn't run for >100ms (detected via `lastLoopMs` atomic), the PPP RX task
@@ -873,6 +874,47 @@ buffer overrun under sustained high-rate DDP.
 - `frozen`: `rtFrozenSegs` bitmask of segments frozen by realtime
 - RTC crash snapshot: `crashHeap`, `crashMinHeap`, `crashDmaHeap`, `crashUptime`
   (preserved across resets via RTC memory, useful for post-crash diagnosis)
+
+### 12.5 Transport Benchmark Results (M5StickC, 40x80 TFT, 2026-08-21)
+
+Hardware: ESP32-PICO-D4, ST7735S 80x160 TFT at 27MHz SPI, single TFT bus
+(WS strip removed). Non-blocking DMA active. Firmware: dev/ddp-spec @ 0b062fad.
+
+**Ghost Rider compressed DDP (97% compression, ~300B/frame, uncapped sender):**
+
+| Transport | Sent FPS | Eff FPS to TFT | Drops | Stability |
+|-----------|---------|----------------|-------|-----------|
+| UDP WiFi | 439 | 83 | 4626 | stable 30s |
+| UDP PPP | 439 | 76 | 6075 | stable 30s |
+| WS WiFi | 199 | 53 | 3408 | stable 30s, heap low |
+| WS PPP | 376 | 51 | 1017 | WS died at 5.4s |
+
+**Raw (uncompressed) DDP to TFT (3200px = 9600B/frame = 8 UDP packets):**
+
+| Transport | Target FPS | Packets Received | Eff FPS | Bottleneck |
+|-----------|-----------|-----------------|---------|------------|
+| WiFi UDP | 10 | 97% | 10 | works |
+| WiFi UDP | 20 | 52% | 10.5 | WiFi TX queue overflow (8-pkt burst) |
+| WiFi UDP | 30 | 33% | 9.8 | same, worse at higher rate |
+| PPP UDP | any | bandwidth-limited | ~13 max | 124 KB/s / 9.68KB per frame |
+
+**Internal FX (no DDP):**
+
+| Config | Effect | FPS |
+|--------|--------|-----|
+| TFT-only, WS skip-show | Solid (fx=0) | 51 |
+| TFT-only, WS skip-show | Rainbow (fx=9) | 44 |
+| TFT + WS both active | Rainbow | 43-45 |
+| TFT idle (skip-show) | n/a | ddpSafe rises to 103 |
+
+**Auto-ceiling tracking:**
+
+| Bus state | bus[0] showUs | bus[1] showUs | sumUs | ddpSafe |
+|-----------|-------------|-------------|-------|---------|
+| TFT + WS active | 6740 | 7680 | 14420 | 48 |
+| TFT only (WS skip) | 6740 | 0 | 6740 | 103 |
+| TFT idle | 0 | 7680 | 7680 | 91 |
+| Both idle | 0 | 0 | 0 | 255 |
 
 
 ---
@@ -1011,6 +1053,27 @@ The `/diag` endpoint (HTTP GET) exposes:
 
 **C bit (dataType bit 7) as compression signal**: The DDP spec defines byte 2 bit 7 as "Customer defined". Using this for compression is spec-sanctioned and addresses upstream reviewer concern (softhack007, #5810). Trade-off: dataType carries two concerns (pixel format + compression flag), requiring `& 0x7F` mask before format interpretation.
 
+**Non-blocking SPI DMA (deferred dmaWait)**: The final `dmaWait()` at end of
+`BusSPIMatrix::show()` is deferred to the start of the next `show()` call via
+`drainDma()`. This eliminates the ~1-4ms blocking window that caused SPI DMA
+ISR starvation when DDP packets arrived during it. The `dmaBusy()` poll-and-skip
+approach was tried first and reverted -- it caused continuous frame drops because
+show() must eventually drain the DMA to make progress.
+
+**spielig/spifps removal**: The separate `ddpSpiEligible` and `ddpSpiFps` cfg
+keys were redundant with `ddpEligibleMask`. SPI Matrix segments are now
+unconditionally excluded from DDP eligibility in `rebuildDdpSlots()`. With
+non-blocking DMA, the crash risk that motivated the opt-in gate no longer exists.
+
+**Generalized skip-show**: The `hasIdleSkip()` virtual override pattern was
+removed. `busHasActiveSegment()` now checks `seg.isActive()` to skip ghost
+segment slots. All bus types benefit from skip-show without opt-in. BusDigital
+was previously missing the override, wasting 7.7ms/frame on idle WS strips.
+
+**Multi-IP /json/info**: Added `"nifs"` JSON array to `/json/info` enumerating
+all `esp_netif` interfaces (PPP, WiFi STA, AP, Ethernet). Each entry contains
+ip, mask, and interface description. Legacy `"ip"` field preserved.
+
 ### 14.3 Limitations
 
 - **CCT via DDP**: Not supported. CCT is a per-segment property in WLED, not a per-pixel DDP channel. Use JSON API for CCT control.
@@ -1067,8 +1130,11 @@ def frame_budget(bandwidth_bytes_sec, target_fps):
 | DDP sender (raw only) | C/C++ | `wled00/udp.cpp` (`realtimeBroadcast()`) | Production |
 | DDP encoder + benchmark | Python | `tools/ddp_bench.py` | Production |
 | Transform encoder | C/C++ | `wled00/e131.cpp` | Not implemented -- decoder only. `rle_encode_adaptive()` in `ddp_compress.h` implements RLE and delta+RLE only. |
-| RLE codec (encode + decode) | Python | `tools/ddp_codec.py` | In progress |
-| Validation suite | Python/pytest | `tools/tests/test_rle.py` | In progress |
+| RLE codec (encode + decode) | Python | `tools/ddp_codec.py` | Production |
+| Validation suite | Python/pytest | `tools/tests/test_rle.py` | Production |
+| RLE codec (encode + decode) | JavaScript | `wled00/data/common.js` | Production |
+| JS validation suite | Node.js | `tools/tests/test_js_rle.mjs` | Production |
+| Ghost Rider DDP pattern | Python | `tools/ddp_bench.py` | Production |
 
 ### 16.2 Porting to Other Codebases
 
