@@ -260,14 +260,13 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     // When exactly one segment is DDP-frozen, allocate only for that
     // segment's pixel count (~512B for 256px) instead of the full strip
     // (~8960B for 4480px), saving ~8.4KB heap in the common case.
-    // Tuple and planar decoders don't reference prevFrame -- skip alloc.
-    // Free it if a prior delta/RLE session left it allocated.
+    // Tuple and planar decoders don't use prevFrame -- skip alloc for them.
+    // Do NOT free on type switch: delta-RLE may resume next packet and needs
+    // the existing baseline. Allocate only when a delta-capable type arrives.
     bool needsPrevFrame = (compType == DDP_COMP_TYPE_DELTA_RLE ||
                            compType == DDP_COMP_TYPE_RLE       ||
                            compType == DDP_COMP_TYPE_DELTA_ONLY);
-    if (!needsPrevFrame) {
-      if (ddpPrevFrame) { ddpFreePrevFrame(); }
-    } else if (totalLen <= 12800) {
+    if (needsPrevFrame && totalLen <= 12800) {
       unsigned wantSize = totalLen;
       uint8_t  wantSegId = 0xFF;
       uint16_t wantSegStart = 0;
