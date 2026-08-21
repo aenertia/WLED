@@ -409,7 +409,10 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       tuple_done:;
     } else if (compType == DDP_COMP_TYPE_PLANAR_RLE) {
       // Wire: [Rlen:2LE][R-rle][Glen:2LE][G-rle][Blen:2LE][B-rle]
-      // Cannot stream -- decode all planes before interleaving.
+      // Whole-frame codec -- plane headers are only valid at start==0.
+      // Continuation packets (start>0) carry raw plane data with no header;
+      // silently skip them rather than misparse mid-stream bytes as lengths.
+      if (start != 0) goto ddp_push;
       const uint8_t *src = data + c;
       size_t srcLen = dataLen;
       // Hoist before any goto to avoid jumping over initializations.

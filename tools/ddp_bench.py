@@ -514,10 +514,14 @@ def run_phase(sock, target, port, num_leds, fps, dur, pattern, compressed, label
             wire_b += len(cd)
         elif codec == COMP_PLANAR_RLE:
             cd = rle_planar_encode(px, bpp)
-            if len(cd) < len(px):
+            # Planar is whole-frame: plane headers only valid at offset 0.
+            # Fall back to adaptive if payload exceeds one packet -- splitting
+            # would cause firmware to misparse continuation bytes as headers.
+            if len(cd) < len(px) and len(cd) <= max_payload:
                 pkts, seq = make_packets(cd, seq, comp=COMP_PLANAR_RLE, data_type=data_type|DDP_TYPE_COMPRESSED, max_payload=max_payload, channel_offset=channel_offset)
             else:
-                pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset); cd = px
+                cd, ct = compress_adaptive(px, prev)
+                pkts, seq = make_packets(cd, seq, comp=ct, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
             wire_b += len(cd)
         elif compressed:
             cd, ct = compress_adaptive(px, prev)
@@ -635,10 +639,11 @@ def run_debug(target, port, num_leds, rgbw=False, max_payload=MAX_PAYLOAD, inter
                     pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
             elif codec == COMP_PLANAR_RLE:
                 cd = rle_planar_encode(px, bpp)
-                if len(cd) < len(px):
+                if len(cd) < len(px) and len(cd) <= max_payload:
                     pkts, seq = make_packets(cd, seq, comp=COMP_PLANAR_RLE, data_type=data_type|DDP_TYPE_COMPRESSED, max_payload=max_payload, channel_offset=channel_offset)
                 else:
-                    pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
+                    cd2, ct = compress_adaptive(px)
+                    pkts, seq = make_packets(cd2, seq, comp=ct, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
             else:
                 pkts, seq = make_packets(px, seq, data_type=data_type, max_payload=max_payload, channel_offset=channel_offset)
             for p in pkts:
