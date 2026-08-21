@@ -1268,7 +1268,7 @@ static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
-      segPixEnd   = (uint16_t)seg.stopY  * mw;
+      segPixEnd   = (uint16_t)(seg.stopY - 1) * mw + seg.stop;
     } else {
       segPixStart = seg.start;
       segPixEnd   = seg.stop;
@@ -1566,7 +1566,7 @@ void BusSPIMatrix::recalcActiveRowRange() {
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
-      segPixEnd   = (uint16_t)seg.stopY * mw;
+      segPixEnd   = (uint16_t)(seg.stopY - 1) * mw + seg.stop;
     } else {
       segPixStart = seg.start;
       segPixEnd   = seg.stop;
