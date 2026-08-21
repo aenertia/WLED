@@ -1440,9 +1440,16 @@ uint32_t BusSPIMatrix::getPixelColor(unsigned pix) const {
   return strip.getPixelColorNoMap(_start + pix);
 }
 
+void BusSPIMatrix::drainDma() {
+  if (!_spiDisplay) return;
+  if (_dmaInFlight) { _spiDisplay->dmaWait(); _dmaInFlight = false; }
+  if (_writeOpen)   { _spiDisplay->endWrite(); _writeOpen = false; }
+}
+
 void BusSPIMatrix::show() {
   if (!_valid || !_spiDisplay) return;
   if (_skipShow) {
+    drainDma();
     if (_buffersAllocated) deallocateBuffers();  // reclaim ~28KB while idle
     return;
   }
@@ -1450,9 +1457,9 @@ void BusSPIMatrix::show() {
     if (!allocateBuffers()) return;  // allocation failed  -- skip this frame, retry next
   }
 
-  // Drain any pending DMA transaction before starting new ones.
-  // Guards against spiBusyCheck being non-zero from a previous interrupted show().
-  _spiDisplay->dmaWait();
+  // Collect deferred DMA from previous frame + close SPI transaction.
+  // Non-blocking between frames: DDP/WiFi packets processed while DMA runs.
+  drainDma();
 
   recalcActiveRowRange();  // ~5us
 
@@ -1518,10 +1525,9 @@ void BusSPIMatrix::show() {
     _activeBuf ^= 1;
   }
 
-  if (dmaStarted) {
-    _spiDisplay->dmaWait();
-  }
-  _spiDisplay->endWrite();
+  // Defer final DMA wait + endWrite to next show() -- frees main loop for DDP/WiFi
+  _dmaInFlight = dmaStarted;
+  _writeOpen = true;
 }
 
 void BusSPIMatrix::setBrightness(uint8_t b) {
@@ -1635,6 +1641,7 @@ bool BusSPIMatrix::allocateBuffers() {
 // Free DMA/snap buffers when idle; re-allocated on next active show().
 void BusSPIMatrix::deallocateBuffers() {
   if (!_buffersAllocated) return;
+  drainDma();  // must complete in-flight DMA before freeing its target buffer
   heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
   heap_caps_free(_dmaBuf[1]); _dmaBuf[1] = nullptr;
   free(_snapBuf); _snapBuf = nullptr;
@@ -1644,6 +1651,7 @@ void BusSPIMatrix::deallocateBuffers() {
 
 void BusSPIMatrix::cleanup() {
   DEBUGBUS_PRINTLN(F("SPI Matrix Cleanup."));
+  drainDma();
   deallocateBuffers();
   _valid = false;
 }

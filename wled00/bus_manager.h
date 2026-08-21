@@ -499,6 +499,9 @@ class BusSPIMatrix : public Bus {
     uint16_t  _activeRowMin = 0;         // first virtual row with active segment (inclusive)
     uint16_t  _activeRowMax = 0;         // last virtual row with active segment (exclusive), 0 = fully idle
     uint16_t  _prevActiveRowMax = 0;     // previous range max  -- for blank-push on deactivation
+    bool      _dmaInFlight = false;      // last strip DMA deferred to next show()
+    bool      _writeOpen = false;        // startWrite() active, endWrite() deferred
+    void      drainDma();                // collect deferred DMA + close SPI transaction
     bool allocateBuffers();
     void deallocateBuffers();            // frees DMA/snap bufs when skip-show activates
     void recalcActiveRowRange();
