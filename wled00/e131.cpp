@@ -365,6 +365,21 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
         uint8_t eW = ddpChannelsPerLed > 3 ? tdata[off + 5] : 0;
         ddpCompWritePixel(pxIdx, RGBW32(eR, eG, eB, eW));
       }
+    } else if (compType == DDP_COMP_TYPE_DELTA_ONLY) {
+      // raw XOR delta, no RLE -- benchmark mode
+      unsigned stop = start + dataLen / ddpChannelsPerLed;
+      for (unsigned px = start; px < stop && px < totalLen; px++) {
+        uint8_t r = data[c], g = data[c+1], b = data[c+2];
+        uint8_t w = (ddpChannelsPerLed > 3) ? data[c+3] : 0;
+        if (ddpPrevFrame && DDP_PF_IDX(px) < ddpPrevFrameSize) {
+          uint16_t prev565 = ddpPrevFrame[DDP_PF_IDX(px)];
+          r ^= PF_R565(prev565);
+          g ^= PF_G565(prev565);
+          b ^= PF_B565(prev565);
+        }
+        ddpCompWritePixel(px, RGBW32(r, g, b, w));
+        c += ddpChannelsPerLed;
+      }
     }
   } else
 #endif
