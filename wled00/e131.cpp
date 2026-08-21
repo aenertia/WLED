@@ -412,7 +412,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       // Cannot stream -- decode all planes before interleaving.
       const uint8_t *src = data + c;
       size_t srcLen = dataLen;
-      unsigned numPx = min((unsigned)(dataLen / ddpChannelsPerLed), totalLen - start);
+      unsigned numPx = min((unsigned)(dataLen / ddpChannelsPerLed), (unsigned)(totalLen - start));
       // Hoist before any goto to avoid jumping over initializations.
       uint8_t *planes = nullptr;
       size_t pos = 0;
