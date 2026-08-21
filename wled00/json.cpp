@@ -1,6 +1,7 @@
 #include "wled.h"
 #ifdef ARDUINO_ARCH_ESP32
 #include "esp_system.h"
+#include "esp_netif.h"
 #endif
 
 #define JSON_PATH_STATE      1
@@ -955,6 +956,25 @@ void serializeInfo(JsonObject root)
     sprintf(s, "%d.%d.%d.%d", localIP[0], localIP[1], localIP[2], localIP[3]);
   }
   root["ip"] = s;
+
+#ifdef ARDUINO_ARCH_ESP32
+  // enumerate all network interfaces -- PPP, WiFi STA, WiFi AP, Ethernet
+  JsonArray nifs = root.createNestedArray("nifs");
+  esp_netif_t *netif = nullptr;
+  while ((netif = esp_netif_next_unsafe(netif)) != nullptr) {
+    esp_netif_ip_info_t ipInfo;
+    if (esp_netif_get_ip_info(netif, &ipInfo) != ESP_OK || ipInfo.ip.addr == 0)
+      continue;
+    JsonObject entry = nifs.createNestedObject();
+    char ipBuf[16], maskBuf[16];
+    sprintf(ipBuf, IPSTR, IP2STR(&ipInfo.ip));
+    sprintf(maskBuf, IPSTR, IP2STR(&ipInfo.netmask));
+    entry["ip"] = String(ipBuf);
+    entry["mask"] = String(maskBuf);
+    const char *desc = esp_netif_get_desc(netif);
+    if (desc) entry["if"] = String(desc);
+  }
+#endif
 }
 
 static void setPaletteColors(JsonArray json, CRGBPalette16 palette)
