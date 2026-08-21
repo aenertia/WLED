@@ -234,6 +234,81 @@ def render_ifs_frame(preset_name, width, height, phase):
     return bytes(pixels)
 
 
+_gr_particles = []
+_gr_angle = 0.0
+_gr_angle_step = 0.04
+_gr_hue = 0.0
+_gr_src_x = 0.5
+_gr_src_y = 0.5
+_gr_vx = 0.012
+_gr_vy = 0.008
+
+def ghost_rider(n, t, prev=None):
+    """Spiraling emitter with fading particle trail -- mimics PS Ghost Rider."""
+    global _gr_particles, _gr_angle, _gr_angle_step, _gr_hue
+    global _gr_src_x, _gr_src_y, _gr_vx, _gr_vy
+    w, h = _bench_width, _bench_height
+
+    _gr_angle += _gr_angle_step
+    _gr_angle_step += math.sin(t * 0.7) * 0.002
+    _gr_angle_step = max(-0.15, min(0.15, _gr_angle_step))
+
+    speed = 0.018
+    _gr_vx = math.cos(_gr_angle) * speed
+    _gr_vy = math.sin(_gr_angle) * speed
+    _gr_src_x += _gr_vx
+    _gr_src_y += _gr_vy
+
+    margin = 0.05
+    if _gr_src_x < margin or _gr_src_x > 1.0 - margin:
+        _gr_angle = math.pi - _gr_angle + random.uniform(-0.5, 0.5)
+        _gr_src_x = max(margin, min(1.0 - margin, _gr_src_x))
+    if _gr_src_y < margin or _gr_src_y > 1.0 - margin:
+        _gr_angle = -_gr_angle + random.uniform(-0.5, 0.5)
+        _gr_src_y = max(margin, min(1.0 - margin, _gr_src_y))
+
+    _gr_hue = (t * 40) % 360
+    for _ in range(2):
+        _gr_particles.append([_gr_src_x, _gr_src_y, _gr_hue, 255])
+
+    alive = []
+    for p in _gr_particles:
+        p[3] -= 4
+        if p[3] > 0:
+            alive.append(p)
+    _gr_particles = alive
+
+    d = bytearray(n * 3)
+    for px, py, hue, ttl in _gr_particles:
+        ix = int(px * w) % w
+        iy = int(py * h) % h
+        idx = iy * w + ix
+        if idx >= n:
+            continue
+        hh = (hue / 60.0) % 6
+        c = int(hh); f = hh - c
+        bri = ttl
+        q = int(bri * (1 - f)); tv = int(bri * f)
+        if c == 0:   r, g, b = bri, tv, 0
+        elif c == 1: r, g, b = q, bri, 0
+        elif c == 2: r, g, b = 0, bri, tv
+        elif c == 3: r, g, b = 0, q, bri
+        elif c == 4: r, g, b = tv, 0, bri
+        else:        r, g, b = bri, 0, q
+        o = idx * 3
+        d[o]   = min(255, d[o]   + r)
+        d[o+1] = min(255, d[o+1] + g)
+        d[o+2] = min(255, d[o+2] + b)
+
+    hx = int(_gr_src_x * w) % w
+    hy = int(_gr_src_y * h) % h
+    ho = (hy * w + hx) * 3
+    if ho + 2 < len(d):
+        d[ho] = d[ho+1] = d[ho+2] = 255
+
+    return bytes(d)
+
+
 def diagnostic_pattern(n, width):
     """Marker pixels at key positions, rest dim blue background."""
     d = bytearray([0, 0, 20] * n)  # dim blue background
@@ -384,6 +459,7 @@ def _generate_frame(pattern, num_leds, t, prev, rgbw):
         if pattern == "rainbow": return rainbow(num_leds, t, 2.0)
         elif pattern == "solid_pulse": return solid_pulse(num_leds, t)
         elif pattern == "sparse_twinkle": return sparse_twinkle(num_leds, t, prev)
+        elif pattern == "ghost_rider": return ghost_rider(num_leds, t, prev)
         elif pattern.startswith("ifs_"): return render_ifs_frame(pattern[4:], _bench_width, _bench_height, t * 10.0)
         else: return rainbow(num_leds, t)
 
