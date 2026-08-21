@@ -1455,8 +1455,6 @@ void BusSPIMatrix::show() {
     if (!allocateBuffers()) return;  // allocation failed  -- skip this frame, retry next
   }
 
-  // Collect deferred DMA from previous frame + close SPI transaction.
-  // Non-blocking between frames: DDP/WiFi packets processed while DMA runs.
   drainDma();
 
   recalcActiveRowRange();  // ~5us
