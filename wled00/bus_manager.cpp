@@ -1260,11 +1260,11 @@ size_t BusHub75Matrix::getPins(uint8_t* pinArray) const {
 // buses with no live output.
 static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
   const uint16_t busEnd = busStart + busLen;
-  // 2D: seg.start/stop are column coords; convert to flat pixel range via maxWidth.
   const bool is2D = (Segment::maxHeight > 1);
   const uint16_t mw = Segment::maxWidth;
   for (unsigned i = 0; i < strip.getSegmentsNum(); i++) {
     const Segment &seg = strip.getSegment(i);
+    if (!seg.isActive()) continue;  // ghost slots (stop=0) have stale coords
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
@@ -1274,8 +1274,6 @@ static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
       segPixEnd   = seg.stop;
     }
     if (segPixEnd <= busStart || segPixStart >= busEnd) continue;
-    // blendSegment() runs for transitioning segs even when on=false, so don't
-    // skip during a transition.
     if (seg.on && !seg.freeze) return true;
     if (realtimeMode != REALTIME_MODE_INACTIVE && (rtFrozenSegs & (1u << i))) return true;
   }
@@ -1866,16 +1864,12 @@ void BusManager::off() {
 void BusManager::show() {
   applyABL(); // apply brightness limit, updates _gMilliAmpsUsed
   for (auto &bus : busses) {
-    // Blank-then-skip: first idle frame runs show() to blank the display,
-    // subsequent idle frames skip entirely.
-    if (bus->hasIdleSkip()) {
-      const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
-      if (!hasActive) {
-        if (bus->isSkipShow()) continue;
-        bus->setSkipShow(true);
-      } else {
-        bus->setSkipShow(false);
-      }
+    const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
+    if (!hasActive) {
+      if (bus->isSkipShow()) continue;
+      bus->setSkipShow(true);  // first idle frame blanks, subsequent frames skip
+    } else {
+      bus->setSkipShow(false);
     }
     bus->show();
   }

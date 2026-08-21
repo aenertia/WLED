@@ -405,26 +405,6 @@ static void parseNotifyPacket(const uint8_t *udpIn) {
 }
 
 void rebuildDdpSlots() {
-  // exclude display-bus segments (SPI Matrix) from DDP eligibility unconditionally
-  // -- display buses render effects locally, DDP pixel data would conflict
-#ifdef WLED_ENABLE_SPI_MATRIX
-  {
-    const bool is2D = (Segment::maxHeight > 1);
-    const uint16_t mw = Segment::maxWidth;
-    for (unsigned i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
-      if (!(ddpEligibleMask & (1UL << i))) continue;
-      const Segment& seg = strip.getSegment(i);
-      uint16_t segPixStart = is2D ? ((uint16_t)seg.startY * mw + seg.start) : seg.start;
-      for (size_t bi = 0; bi < BusManager::getNumBusses(); bi++) {
-        Bus* b = BusManager::getBus(bi);
-        if (b && b->containsPixel(segPixStart) && Bus::isSPIMatrix(b->getType())) {
-          ddpEligibleMask &= ~(1UL << i);
-          break;
-        }
-      }
-    }
-  }
-#endif
   ddpSlotCount = 0;
   ddpTotalEligible = 0;
   for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {

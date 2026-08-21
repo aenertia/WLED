@@ -532,7 +532,7 @@ void initServer()
         Bus* b = BusManager::getBus(i);
         if (b && b->isOk()) {
           uint32_t us = b->getShowUs();
-          response->printf("bus[%u].showUs=%u ", (unsigned)i, (unsigned)us);
+          response->printf("bus[%u].showUs=%u skip=%u ", (unsigned)i, (unsigned)us, (unsigned)b->isSkipShow());
           sumUs += us;
         }
       }

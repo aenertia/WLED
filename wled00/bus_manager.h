@@ -147,8 +147,6 @@ class Bus {
     virtual uint8_t  getDriverType() const                      { return 0; } // Default to RMT (0) for non-digital buses
     virtual size_t   getBusSize() const                         { return sizeof(Bus); } // currently unused
     virtual const String getCustomText() const                  { return String(); }
-    // true  -> BusManager::show() skips this bus when no segment is active
-    virtual bool     hasIdleSkip() const                        { return false; }
     inline  bool     isSkipShow() const                         { return _skipShow; }
     inline  void     setSkipShow(bool s)                        { _skipShow = s; }
 
@@ -234,7 +232,7 @@ class Bus {
       bool _hasWhite;//     : 1;
       bool _hasCCT;//       : 1;
     //} __attribute__ ((packed));
-    bool _skipShow = false;  // managed by BusManager::show() idle-skip gate
+    bool _skipShow = false;  // set by BusManager::show() when no segment maps to this bus
     static uint8_t _gAWM;
     // _cct has the following meanings (see calculateCCT() & BusManager::setSegmentCCT()):
     //    -1 means to extract approximate CCT value in K from RGB (in calcualteCCT())
@@ -365,7 +363,6 @@ class BusNetwork : public Bus {
     ~BusNetwork() { cleanup(); }
 
     bool canShow() const override  { return !_broadcastLock; } // this should be a return value from UDP routine if it is still sending data out
-    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     size_t getPins(uint8_t* pinArray = nullptr) const override;
@@ -429,7 +426,6 @@ class BusPlaceholder : public Bus {
 class BusHub75Matrix : public Bus {
   public:
     BusHub75Matrix(const BusConfig &bc);
-    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
@@ -468,7 +464,6 @@ class BusSPIMatrix : public Bus {
   public:
     BusSPIMatrix(const BusConfig &bc);
     ~BusSPIMatrix() { cleanup(); }
-    bool hasIdleSkip() const override { return true; }
     void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
