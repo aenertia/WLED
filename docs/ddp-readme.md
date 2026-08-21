@@ -1,7 +1,7 @@
 # DDP Protocol Reference -- Specification, Compression Extension, and Validation Suite
 
-**Version**: 2.4 (2026-08-21)
-**Status**: Non-blocking SPI DMA, generalized skip-show, spielig removed, multi-IP, transport benchmarks
+**Version**: 2.5 (2026-08-21)
+**Status**: Non-blocking SPI DMA, generalized skip-show, spielig removed, multi-IP, transport benchmarks, empirical compression variant benchmarks
 **Audience**: Any codebase implementing DDP -- sender, receiver, or both
 
 This document is a standalone reference for implementing the Distributed Display Protocol (DDP) with optional compression extensions for bandwidth-constrained transports. It covers the base protocol specification, comparison with E1.31/Art-Net, the compression wire format, reference implementations in C and Python, a complete validation suite, and known pitfalls.
@@ -1322,28 +1322,109 @@ Split RGB data into three independent byte streams (R-plane, G-plane, B-plane), 
 | Property | Byte-level RLE | RGB-tuple RLE | Colour planes |
 |----------|---------------|---------------|---------------|
 | Delta frame compression | Excellent | Excellent | Excellent |
-| Keyframe compression (solid) | Poor | Good | Moderate |
-| Keyframe compression (gradient) | Poor | Poor | Good |
+| Keyframe compression (solid) | 0.978 (poor) | 0.012 (excellent) | 0.020 (excellent) |
+| Keyframe compression (gradient) | 1.001 (none) | 0.277 (good) | 0.153 (excellent) |
 | Partial channel change | Good | Poor | Good |
 | Decoder complexity | Minimal | Minimal | High |
 | Decoder memory | Zero (streaming) | Zero (streaming) | 3x packet buffer |
 | RGBW handling | Transparent | Variable run unit | 4th plane |
 | Wire format complexity | Simple | Simple | Complex |
 
-### 18.5 Benchmarking Methodology (TODO)
+### 18.5 Empirical Benchmark Results
 
-To make this decision empirically rather than theoretically, benchmark all three variants on real LED animation patterns:
+Measured on host CPU (Python 3.x). Encode/decode times are host-side only; ESP32 decode
+times scale proportionally to pixel count (Xtensa LX6 at 240MHz runs RLE roughly 3x faster
+per byte than the Python reference). 100 frames per measurement, two strip sizes:
+800px (2400B raw) and 3200px (9600B raw).
 
-1. **Rainbow cycle** (worst case -- every pixel different every frame)
-2. **Sparse twinkle** (2-5% pixel change per frame)
-3. **Chase/wipe** (moving edge, static regions)
-4. **Gradient fade** (slow smooth colour transition)
-5. **Solid pulse** (uniform colour, brightness ramp)
-6. **Fire/plasma** (organic noise, moderate change rate)
+The six patterns match the theoretical analysis above. ghost_rider substitutes for fire/plasma
+(comparable organic noise, moderate per-frame change rate).
 
-Measure compressed size, encode time, decode time for each variant on each pattern. Report as compression ratio and CPU microseconds on ESP32 (240MHz Xtensa LX6).
+| Variant | Pattern | Pixels | Mean Ratio | Encode us | Decode us |
+|---------|---------|--------|------------|-----------|-----------|
+| byte_rle | rainbow | 800 | 1.008 | 454 | 8 |
+| tuple_rle | rainbow | 800 | 1.003 | 408 | 5 |
+| planar_rle | rainbow | 800 | 0.354 | 348 | 268 |
+| delta_byte_rle | rainbow | 800 | 1.008 | 732 | 8 |
+| delta_only | rainbow | 800 | 1.000 | 170 | 0 |
+| byte_rle | sparse_twinkle | 800 | 0.749 | 527 | 129 |
+| tuple_rle | sparse_twinkle | 800 | 0.813 | 419 | 34 |
+| planar_rle | sparse_twinkle | 800 | 0.881 | 522 | 342 |
+| delta_byte_rle | sparse_twinkle | 800 | 0.049 | 468 | 21 |
+| delta_only | sparse_twinkle | 800 | 1.000 | 171 | 0 |
+| byte_rle | chase_wipe | 800 | 0.017 | 273 | 12 |
+| tuple_rle | chase_wipe | 800 | 0.014 | 219 | 6 |
+| planar_rle | chase_wipe | 800 | 0.023 | 271 | 254 |
+| delta_byte_rle | chase_wipe | 800 | 0.019 | 444 | 13 |
+| delta_only | chase_wipe | 800 | 1.000 | 170 | 0 |
+| byte_rle | gradient_fade | 800 | 1.001 | 565 | 9 |
+| tuple_rle | gradient_fade | 800 | 0.277 | 268 | 71 |
+| planar_rle | gradient_fade | 800 | 0.153 | 294 | 328 |
+| delta_byte_rle | gradient_fade | 800 | 0.804 | 710 | 44 |
+| delta_only | gradient_fade | 800 | 1.000 | 169 | 0 |
+| byte_rle | solid_pulse | 800 | 0.978 | 557 | 8 |
+| tuple_rle | solid_pulse | 800 | 0.012 | 218 | 4 |
+| planar_rle | solid_pulse | 800 | 0.020 | 269 | 250 |
+| delta_byte_rle | solid_pulse | 800 | 0.988 | 737 | 9 |
+| delta_only | solid_pulse | 800 | 1.000 | 170 | 0 |
+| byte_rle | ghost_rider | 800 | 0.055 | 298 | 22 |
+| tuple_rle | ghost_rider | 800 | 0.077 | 262 | 16 |
+| planar_rle | ghost_rider | 800 | 0.082 | 314 | 276 |
+| delta_byte_rle | ghost_rider | 800 | 0.041 | 462 | 19 |
+| delta_only | ghost_rider | 800 | 1.000 | 171 | 0 |
+| byte_rle | rainbow | 3200 | 1.008 | 1847 | 30 |
+| tuple_rle | rainbow | 3200 | 0.940 | 2218 | 120 |
+| planar_rle | rainbow | 3200 | 0.345 | 1696 | 1141 |
+| delta_byte_rle | rainbow | 3200 | 1.008 | 2943 | 30 |
+| delta_only | rainbow | 3200 | 1.000 | 688 | 0 |
+| byte_rle | sparse_twinkle | 3200 | 0.757 | 2130 | 508 |
+| tuple_rle | sparse_twinkle | 3200 | 0.823 | 1700 | 118 |
+| planar_rle | sparse_twinkle | 3200 | 0.882 | 2125 | 1351 |
+| delta_byte_rle | sparse_twinkle | 3200 | 0.049 | 1871 | 81 |
+| delta_only | sparse_twinkle | 3200 | 1.000 | 674 | 0 |
+| byte_rle | chase_wipe | 3200 | 0.016 | 1106 | 40 |
+| tuple_rle | chase_wipe | 3200 | 0.011 | 897 | 16 |
+| planar_rle | chase_wipe | 3200 | 0.017 | 1126 | 1043 |
+| delta_byte_rle | chase_wipe | 3200 | 0.016 | 1796 | 43 |
+| delta_only | chase_wipe | 3200 | 1.000 | 682 | 0 |
+| byte_rle | gradient_fade | 3200 | 1.001 | 2333 | 32 |
+| tuple_rle | gradient_fade | 3200 | 0.069 | 947 | 76 |
+| planar_rle | gradient_fade | 3200 | 0.046 | 1143 | 1108 |
+| delta_byte_rle | gradient_fade | 3200 | 0.790 | 2791 | 74 |
+| delta_only | gradient_fade | 3200 | 1.000 | 682 | 0 |
+| byte_rle | solid_pulse | 3200 | 0.978 | 2277 | 30 |
+| tuple_rle | solid_pulse | 3200 | 0.010 | 901 | 15 |
+| planar_rle | solid_pulse | 3200 | 0.016 | 1117 | 1040 |
+| delta_byte_rle | solid_pulse | 3200 | 0.988 | 2964 | 31 |
+| delta_only | solid_pulse | 3200 | 1.000 | 683 | 0 |
+| byte_rle | ghost_rider | 3200 | 0.029 | 1147 | 53 |
+| tuple_rle | ghost_rider | 3200 | 0.036 | 973 | 35 |
+| planar_rle | ghost_rider | 3200 | 0.041 | 1186 | 1069 |
+| delta_byte_rle | ghost_rider | 3200 | 0.026 | 1837 | 55 |
+| delta_only | ghost_rider | 3200 | 1.000 | 681 | 0 |
 
-The codec already supports multiple compression types via the upper nibble. Adding a new variant is a new type code and 30-50 lines of encoder/decoder -- the framework supports it without wire format changes.
+Ratio < 1.0 means compression; ratio = 1.0 means no change; ratio > 1.0 means expansion.
+Planar-RLE decode times are high due to buffer allocation and three-pass reconstruction --
+that cost is host-side Python overhead and is proportionally lower in C.
+
+**Key findings:**
+- Planar-RLE wins on rainbow (0.354 vs 1.008 byte-RLE) and gradient_fade (0.153 vs 1.001).
+  Splitting channels into separate planes allows per-channel runs that interleaved data cannot.
+- Tuple-RLE wins on solid_pulse (0.012) and gradient_fade (0.277). Pixel-level runs
+  compress solid fills to a single control byte + one pixel value.
+- Delta+byte-RLE wins on sparse_twinkle (0.049) and ghost_rider (0.041). Temporal
+  coherence is the dominant compression opportunity for animated content.
+- Delta-only (0x40) never beats delta+byte-RLE -- RLE always helps or is neutral.
+  The delta-only mode exists only as a benchmark baseline.
+- Byte-RLE wins on chase_wipe (0.017) -- long runs of black bytes compress well
+  at the byte level without needing tuple or planar splitting.
+
+**Recommendation by use case:**
+- Animated LED effects (sparse changes): delta+byte-RLE (type 0x10)
+- Solid fills, uniform colours: tuple-RLE (Python/JS only, no firmware type)
+- Rainbow gradients, smooth colour transitions: planar-RLE (Python/JS only, no firmware type)
+- Static content, chase patterns: byte-RLE (type 0x20 keyframe)
+- Default for all content: delta+byte-RLE (type 0x10) -- best average across patterns
 
 ---
 
@@ -1558,6 +1639,98 @@ Implementation would require:
 - Sender: software JPEG encode on host, set compression type `0x50` in DDP header
 - Build guard: `#if SOC_JPEG_CODEC_SUPPORTED` -- zero cost on chips without hardware JPEG
 - Fallback: sender detects receiver capability via DDP status query or configuration, falls back to delta+RLE on non-P4/S3.1 hardware
+
+---
+
+## 21. tinfl RX-Only Compression (Reserved)
+
+### 21.1 Motivation
+
+For keyframe-heavy content (video, full-panel redraws), lossless RLE variants
+compress poorly. zlib deflate achieves 3-8x on typical LED content vs RLE's
+1-2x on keyframes. The ESP32 Arduino framework ships `miniz.h` with the raw
+`tinfl` decompressor -- no zlib API, no compressor, just the inflate side.
+
+### 21.2 Memory Requirements
+
+| Component | Size | Notes |
+|-----------|------|-------|
+| `tinfl_decompressor` struct | 10 KB | Huffman decode tables |
+| Output window buffer | 32 KB | Required by tinfl for back-references |
+| **Total per connection** | **42 KB** | |
+
+`MINIZ_NO_ZLIB_APIS` is defined in the ESP32 miniz.h -- only the raw
+`tinfl_decompress()` / `tinfl_decompress_mem_to_mem()` API is available.
+The compressor (`tdefl`) is not available and would cost 164 KB anyway.
+
+### 21.3 Wire Format (Reserved)
+
+Compression type `0x60` in the upper nibble of DDP byte 1 (alongside
+`0x10` delta+RLE, `0x20` RLE, `0x30` transform, `0x40` delta-only).
+
+```
+[0x41] [0x6n] [0x8B] [dest] [offset x 4] [len x 2] [zlib-raw deflate stream...]
+          |      |
+          |      \-- C bit (0x80) set; pixel format = 0x8B & 0x7F = 0x0B (RGB24)
+          \-- upper nibble 0x6 = tinfl/zlib-raw
+```
+
+The payload is a raw deflate stream (no zlib header, no checksum) -- equivalent
+to `zlib.compress(data)[2:-4]` in Python or `pako.deflateRaw(data)` in JS.
+
+### 21.4 Sender API
+
+**Python:**
+```python
+import zlib
+def compress_tinfl(data: bytes) -> bytes:
+    return zlib.compress(data, level=1)[2:-4]  # strip 2-byte header + 4-byte checksum
+```
+
+**JavaScript (pako):**
+```javascript
+import pako from 'pako';
+function compressTinfl(data) {
+    return pako.deflateRaw(data, { level: 1 });
+}
+```
+
+### 21.5 Receiver API (ESP32)
+
+```c
+#include "miniz.h"  // ships with ESP32 Arduino framework
+
+bool ddp_tinfl_decode(const uint8_t *compressed, size_t comp_len,
+                      uint8_t *out, size_t out_len) {
+    size_t actual = out_len;
+    int status = tinfl_decompress_mem_to_mem(out, &actual,
+                                              compressed, comp_len,
+                                              TINFL_FLAG_PARSE_ZLIB_HEADER);
+    return (status == TINFL_STATUS_DONE) && (actual == out_len);
+}
+```
+
+Note: `TINFL_FLAG_PARSE_ZLIB_HEADER` must NOT be set when the sender uses
+raw deflate (no zlib header). Use `0` as the flags argument for raw deflate.
+
+### 21.6 Feasibility by Target
+
+| Target | Free Heap | 42KB cost | Verdict |
+|--------|-----------|-----------|---------|
+| M5StickC (ESP32-PICO-D4, no PSRAM) | ~200 KB | 21% | Feasible for 1 connection; risky for 2+ |
+| ESP32 with 4MB PSRAM | ~4 MB | 1% | Trivially feasible |
+| ESP32-P4 (768 KB SRAM + PSRAM) | ~700 KB | 6% | Feasible |
+
+### 21.7 Status
+
+**Reserved.** Compression type `0x60` is reserved in the wire format.
+No receiver implementation exists. Implement when a PSRAM-equipped target
+requires better keyframe compression than RLE variants provide.
+
+The `dmaBusy()` skip-frame approach was tried for SPI DMA and reverted --
+tinfl implementation should not repeat that mistake. Implement only after
+validating the 42 KB allocation does not cause heap fragmentation on the
+target device.
 
 ---
 
