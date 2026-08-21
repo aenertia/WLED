@@ -435,7 +435,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
               pp++;
             }
           }
-          numPx = min(numPx, totalLen - start);
+          numPx = min(numPx, (unsigned)(totalLen - start));
         }
       }
       if (numPx == 0) goto ddp_push;
