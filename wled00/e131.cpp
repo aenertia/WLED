@@ -79,7 +79,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
-  static bool ddpSeenPush = false;
+  static bool ddpSeenPush = false;  // reset on mode entry; stale true across reconnects is benign
   ddpPktCount++;
   static uint8_t ddpLastSeq = 0;
   static uint32_t ddpSeqGaps = 0;
@@ -338,7 +338,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       size_t explicitStart = hdrLen + 2;
 
       // Step A: apply uniform transform to all pixels in range
-      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;
+      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;  // numExplicit: count from start, not absolute
       if (tOp == DDP_TRANSFORM_SCALE_TOWARD) {
         for (unsigned px = start; px < transformEnd; px++) {
           uint32_t prev = 0;
@@ -484,7 +484,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
         uint8_t r = planes[0 * numPx + i];
         uint8_t g = planes[1 * numPx + i];
         uint8_t b = planes[2 * numPx + i];
-        uint8_t w = (ddpChannelsPerLed > 3) ? planes[3 * numPx + i] : 0;
+        uint8_t w = (ddpChannelsPerLed > 3) ? planes[3 * numPx + i] : 0;  // W channel: 4th plane not decoded, always 0
         ddpCompWritePixel(start + i, RGBW32(r, g, b, w));
       }
       free(planes);
