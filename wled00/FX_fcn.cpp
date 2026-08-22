@@ -1889,7 +1889,8 @@ void WS2812FX::showFrozenSegs() {
       const Segment &seg = _segments[slot.segId];
       if (!seg.isActive() || !seg.pixels) continue;
       uint16_t segPixStart = is2D ? (uint16_t)seg.startY * mw + seg.start : seg.start;
-      for (unsigned i = 0; i < slot.length; i++) {
+      unsigned len = min((unsigned)slot.length, (unsigned)seg.length()); // cap: segment may shrink after rebuildDdpSlots()
+      for (unsigned i = 0; i < len; i++) {
         uint32_t c = seg.pixels[i];
         if (c && useGamma) c = gamma32(c);
         BusManager::setPixelColor(getMappedPixelIndex(segPixStart + i), c);
