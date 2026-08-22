@@ -411,6 +411,17 @@ void rebuildDdpSlots() {
     if (!(ddpEligibleMask & (1UL << i))) continue;
     Segment &seg = strip.getSegment(i);
     if (!seg.isActive()) continue;
+    // skip segments on SPI Matrix buses (TFT display, not addressable LEDs)
+    uint16_t sStart = seg.start, sEnd = sStart + seg.length();
+    bool onSpiMatrix = false;
+    for (size_t b = 0; b < BusManager::getNumBusses(); b++) {
+      Bus *bus = BusManager::getBus(b);
+      if (bus && bus->getType() >= TYPE_SPI_MATRIX_MIN && bus->getType() <= TYPE_SPI_MATRIX_MAX) {
+        uint16_t bStart = bus->getStart(), bEnd = bStart + bus->getLength();
+        if (sStart < bEnd && bStart < sEnd) { onSpiMatrix = true; break; }
+      }
+    }
+    if (onSpiMatrix) continue;
     DdpSegSlot &slot = ddpSlots[ddpSlotCount++];
     slot.segId = i;
     slot.globalStart = ddpTotalEligible;
