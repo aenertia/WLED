@@ -1471,14 +1471,14 @@ void BusSPIMatrix::show() {
     _prevActiveRowMax = _activeRowMax;  // don't re-expand next frame
   }
 
-  // Snapshot only the rows being pushed; barrier ensures Core 0 DDP writes are visible.
   __sync_synchronize();
-  {
+  if (_snapBuf) {
     unsigned snapStart = pushRowMin * _panelWidth;
     unsigned snapLen   = (pushRowMax - pushRowMin) * _panelWidth;
     memcpy(_snapBuf + snapStart, strip.getPixelsRaw() + _start + snapStart, snapLen * sizeof(uint32_t));
+    __sync_synchronize();
   }
-  __sync_synchronize();
+  const uint32_t *srcPix = _snapBuf ? _snapBuf : (strip.getPixelsRaw() + _start);
 
   const uint16_t physW = _panelWidth * _scaleX;
   const uint16_t numStrips = (_panelHeight + _dmaRows - 1) / _dmaRows;
@@ -1507,7 +1507,7 @@ void BusSPIMatrix::show() {
       for (uint8_t sy = 0; sy < _scaleY; sy++) {
         unsigned outOff = (row * _scaleY + sy) * physW;
         for (uint16_t x = 0; x < _panelWidth; x++) {
-          uint32_t c = color_fade(_snapBuf[rowBase + x], _bri, true);
+          uint32_t c = color_fade(srcPix[rowBase + x], _bri, true);
           uint16_t px = ((R(c) & 0xF8) << 8) | ((G(c) & 0xFC) << 3) | (B(c) >> 3);
           uint16_t swapped = (px >> 8) | (px << 8);
           for (uint8_t sx = 0; sx < _scaleX; sx++) {
@@ -1616,15 +1616,14 @@ bool BusSPIMatrix::allocateBuffers() {
     _dmaBuf[1] = (uint16_t*)heap_caps_malloc(_dmaStripBytes, MALLOC_CAP_DMA);
   }
 
-  _snapBuf = (uint32_t*)calloc(_len, sizeof(uint32_t));  // zeroed  -- inactive rows are black
-
-  if (!_dmaBuf[0] || !_dmaBuf[1] || !_snapBuf) {
+  if (!_dmaBuf[0] || !_dmaBuf[1]) {
     DEBUGBUS_PRINTLN(F("TFT allocateBuffers() failed  -- will retry next frame"));
     heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
     heap_caps_free(_dmaBuf[1]); _dmaBuf[1] = nullptr;
-    free(_snapBuf); _snapBuf = nullptr;
     return false;
   }
+  if (_scaleX > 1 || _scaleY > 1)
+    _snapBuf = (uint32_t*)calloc(_len, sizeof(uint32_t));
 
   _buffersAllocated = true;
   DEBUGBUS_PRINTF_P(PSTR("TFT allocateBuffers(): %u + %u + %u = %u bytes\n"),
@@ -1678,6 +1677,9 @@ size_t BusPlaceholder::getPins(uint8_t* pinArray) const {
 
 //utility to get the approx. memory usage of a given BusConfig inclduding segmentbuffer and global buffer (4 bytes per pixel)
 size_t BusConfig::memUsage() const {
+#ifdef WLED_ENABLE_SPI_MATRIX
+  if (Bus::isSPIMatrix(type)) return sizeof(BusSPIMatrix);
+#endif
   size_t mem = (count + skipAmount) * 8; // 8 bytes per pixel for segment + global buffer
   if (Bus::isVirtual(type)) {
     mem += sizeof(BusNetwork) + (count * Bus::getNumberOfChannels(type)); // note: getNumberOfChannels() includes CCT channel if applicable but virtual buses do not use CCT channel buffer
@@ -1688,7 +1690,7 @@ size_t BusConfig::memUsage() const {
     mem += sizeof(BusOnOff);
 #ifdef WLED_ENABLE_SPI_MATRIX
   } else if (Bus::isSPIMatrix(type)) {
-    mem += sizeof(BusSPIMatrix) + count * sizeof(uint32_t);  // _snapBuf (DMA buffers allocated from DMA-capable heap separately)
+    mem += sizeof(BusSPIMatrix);
 #endif
   } else {
     mem += sizeof(BusPwm);
