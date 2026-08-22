@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """DDP over UART PPP throughput benchmark  -- raw vs compressed.
 
-Usage:
-  ddp_bench.py                              # full benchmark (800 LEDs)
-  ddp_bench.py --width 20 --height 40       # 20x40 matrix
-  ddp_bench.py --diagnostic                 # send marker pixels, hold 10s
+Modes:
+  ddp_bench.py                              # full benchmark (default)
+  ddp_bench.py --diagnostic                 # send marker pixels, hold 15s
   ddp_bench.py --debug                      # interactive: rainbow at 10fps
-  ddp_bench.py --target <device-wifi-ip>     # use WiFi STA IP
+  ddp_bench.py --ifs                        # IFS fractal live loop (planar-RLE)
+  ddp_bench.py --sweep                      # FPS sweep across codec x pattern
+  ddp_bench.py --target <ip>                # target device IP
   ddp_bench.py --rgbw                       # 4-channel RGBW mode (SK6812/TM1814)
 """
 
-import argparse, socket, struct, time, sys, math, random
+import argparse, socket, struct, time, sys, math, random, json
 import urllib.request
 
 DDP_DEFAULT_PORT = 4048
@@ -52,7 +53,13 @@ DDP_VER1 = 0x40; DDP_PUSH = 0x01; DDP_TYPE_COMPRESSED = 0x80; DDP_RGB = 0x0B
 DDP_TYPE_RGBW32 = 0x1B  # 00 011 011  -- RGBW, 8 bits per channel, 4 channels
 COMP_NONE = 0x00; COMP_DELTA_RLE = 0x10; COMP_RLE = 0x20
 COMP_TUPLE_RLE = 0x50; COMP_PLANAR_RLE = 0x60
+COMP_PLANAR = COMP_PLANAR_RLE  # alias used by encode_frame / sweep
 MAX_PAYLOAD = 1200  # sized for PPP MRU 1500: 1500-IP(20)-UDP(8)-DDP(10)=1462, use 1200 for safety
+PLANAR_MAX = 1460   # planar-RLE must fit in one UDP packet
+
+# ---------------------------------------------------------------------------
+# Encoding functions
+# ---------------------------------------------------------------------------
 
 def rle_encode(src):
     out, i, n = bytearray(), 0, len(src)
@@ -101,7 +108,6 @@ def rle_tuple_encode(src, channels=3):
     return bytes(out)
 
 def rle_planar_encode(src, channels=3):
-    import struct
     out = bytearray()
     for ch in range(channels):
         plane = bytes(src[i*channels+ch] for i in range(len(src)//channels))
@@ -122,7 +128,73 @@ def make_packets(data, seq=1, push=True, comp=COMP_NONE, data_type=DDP_RGB, max_
         seq = (seq % 15) + 1  # wrap 1-15, never 0
     return pkts, seq
 
-# --- RGB pattern generators (3 bytes/pixel) ---
+# ---------------------------------------------------------------------------
+# Planar-RLE with fallback (from ifs_ppp.py) + sweep codec dispatcher
+# ---------------------------------------------------------------------------
+
+# PackBits-style per-channel RLE -- same algorithm as rle_encode
+_plane_rle = rle_encode
+
+def planar_rle_encode(rgb_bytes):
+    """Deinterleave RGB into 3 planes, RLE each, prefix with 2LE length.
+    Returns (encoded, COMP_PLANAR) if result fits one packet, else
+    (rgb_bytes, COMP_NONE) fallback."""
+    n = len(rgb_bytes) // 3
+    r = bytearray(n); g = bytearray(n); b = bytearray(n)
+    for i in range(n):
+        r[i] = rgb_bytes[i*3]; g[i] = rgb_bytes[i*3+1]; b[i] = rgb_bytes[i*3+2]
+    out = bytearray()
+    for plane in (r, g, b):
+        enc = _plane_rle(plane)
+        out += struct.pack('<H', len(enc))
+        out += enc
+    if len(out) <= PLANAR_MAX:
+        return bytes(out), COMP_PLANAR
+    return rgb_bytes, COMP_NONE
+
+def encode_frame(codec, cur, prev):
+    """Encode a frame with the named codec. Returns (payload, comp_type).
+    prev may be None (keyframe)."""
+    if codec == 'raw':
+        return cur, COMP_NONE
+    if codec == 'rle':
+        enc = rle_encode(cur)
+        return (enc, COMP_RLE) if len(enc) < len(cur) else (cur, COMP_NONE)
+    if codec == 'delta-rle':
+        if prev and len(prev) == len(cur):
+            delta = bytes(a ^ b for a, b in zip(cur, prev))
+            drle = rle_encode(delta)
+            rle = rle_encode(cur)
+            if len(drle) <= len(rle) and len(drle) < len(cur):
+                return drle, COMP_DELTA_RLE
+            if len(rle) < len(cur):
+                return rle, COMP_RLE
+        enc = rle_encode(cur)
+        return (enc, COMP_RLE) if len(enc) < len(cur) else (cur, COMP_NONE)
+    if codec == 'planar-rle':
+        return planar_rle_encode(cur)
+    return cur, COMP_NONE
+
+def udp_packets(payload, comp, seq, destination=None, max_chunk=MAX_PAYLOAD):
+    """Generator yielding (pkt_bytes, new_seq). Advances channelOffset per chunk."""
+    if destination is None:
+        destination = _ddp_destination
+    dtype = DDP_RGB | DDP_TYPE_COMPRESSED if comp != COMP_NONE else DDP_RGB
+    off = 0
+    while off < len(payload):
+        chunk = min(max_chunk, len(payload) - off)
+        last = (off + chunk) >= len(payload)
+        flags = DDP_VER1 | (DDP_PUSH if last else 0)
+        hdr = struct.pack('!BBBBIH',
+                          flags, (seq & 0x0F) | (comp & 0xF0),
+                          dtype, destination, off, chunk)
+        yield hdr + payload[off:off + chunk], (seq % 15) + 1
+        off += chunk
+        seq = (seq % 15) + 1
+
+# ---------------------------------------------------------------------------
+# RGB pattern generators (3 bytes/pixel)
+# ---------------------------------------------------------------------------
 
 def rainbow(n, t, spd=1.0):
     d = bytearray(n*3)
@@ -148,9 +220,10 @@ def sparse_twinkle(n, t, prev=None, density=0.02):
         d[x]=random.randint(0,255); d[x+1]=random.randint(0,255); d[x+2]=random.randint(0,255)
     return bytes(d)
 
-# ── IFS 2D Fractal Renderer ──────────────────────────────────────────
-# Proper 2D attractor rendering mapped to (width x height) pixel grid.
-# Ported from tools/ifs_ddp.py  -- matches xscreensaver-style IFS output.
+# ---------------------------------------------------------------------------
+# IFS 2D Fractal Renderer
+# ---------------------------------------------------------------------------
+# Bounds are (xmin, xmax, ymin, ymax) in IFS coordinate space.
 
 IFS_PRESETS = {
     "fern": {
@@ -161,7 +234,7 @@ IFS_PRESETS = {
             (0.20, -0.26,  0.23,  0.22, 0.00, 1.60, 0.07),
             (-0.15, 0.28,  0.26,  0.24, 0.00, 0.44, 0.07),
         ],
-        "bounds": (-2.5, 10.5, -0.5, 2.8),
+        "bounds": (-2.5, 2.5, 0.0, 10.0),
         "color": (0, 255, 80),
         "iterations": 50000,
     },
@@ -172,7 +245,7 @@ IFS_PRESETS = {
             (0.5, 0.0, 0.0, 0.5, 0.5,   0.0,   1/3),
             (0.5, 0.0, 0.0, 0.5, 0.25,  0.433, 1/3),
         ],
-        "bounds": (-0.05, 0.95, -0.05, 0.55),
+        "bounds": (-0.05, 1.05, -0.05, 0.55),
         "color": (255, 100, 0),
         "iterations": 30000,
     },
@@ -205,7 +278,7 @@ IFS_PRESETS = {
             (0.42, 0.42, -0.42, 0.42, 0.00, 0.20, 0.40),
             (0.10, 0.00, 0.00, 0.10, 0.00, 0.20, 0.15),
         ],
-        "bounds": (-0.6, 1.1, -1.0, 1.0),
+        "bounds": (-0.6, 1.1, -0.1, 1.0),
         "color": (60, 200, 60),
         "iterations": 40000,
     },
@@ -215,7 +288,7 @@ def render_ifs_frame(preset_name, width, height, phase):
     """Render an IFS attractor frame as RGB bytes (width*height*3)."""
     cfg = IFS_PRESETS[preset_name]
     transforms = cfg["transforms"]
-    ymin, ymax, xmin, xmax = cfg["bounds"]
+    xmin, xmax, ymin, ymax = cfg["bounds"]
     base_r, base_g, base_b = cfg["color"]
     fracW, fracH = xmax - xmin, ymax - ymin
     dispAspect = width / height
@@ -262,6 +335,9 @@ def render_ifs_frame(preset_name, width, height, phase):
                 pixels[i*3+2] = int(base_b + (255 - base_b) * t)
     return bytes(pixels)
 
+# ---------------------------------------------------------------------------
+# Ghost Rider particle effect
+# ---------------------------------------------------------------------------
 
 _gr_particles = []
 _gr_angle = 0.0
@@ -271,6 +347,19 @@ _gr_src_x = 0.5
 _gr_src_y = 0.5
 _gr_vx = 0.012
 _gr_vy = 0.008
+
+def _gr_reset():
+    """Reset ghost_rider particle state (call between sweep cells)."""
+    global _gr_particles, _gr_angle, _gr_angle_step, _gr_hue
+    global _gr_src_x, _gr_src_y, _gr_vx, _gr_vy
+    _gr_particles = []
+    _gr_angle = 0.0
+    _gr_angle_step = 0.04
+    _gr_hue = 0.0
+    _gr_src_x = 0.5
+    _gr_src_y = 0.5
+    _gr_vx = 0.012
+    _gr_vy = 0.008
 
 def ghost_rider(n, t, prev=None):
     """Spiraling emitter with fading particle trail -- mimics PS Ghost Rider."""
@@ -300,12 +389,10 @@ def ghost_rider(n, t, prev=None):
     for _ in range(2):
         _gr_particles.append([_gr_src_x, _gr_src_y, _gr_hue, 255])
 
-    alive = []
+    # Decrement TTL then filter -- correct order
     for p in _gr_particles:
         p[3] -= 4
-        if p[3] > 0:
-            alive.append(p)
-    _gr_particles = alive
+    _gr_particles = [p for p in _gr_particles if p[3] > 0]
 
     d = bytearray(n * 3)
     for px, py, hue, ttl in _gr_particles:
@@ -316,7 +403,7 @@ def ghost_rider(n, t, prev=None):
             continue
         hh = (hue / 60.0) % 6
         c = int(hh); f = hh - c
-        bri = ttl
+        bri = int(ttl)
         q = int(bri * (1 - f)); tv = int(bri * f)
         if c == 0:   r, g, b = bri, tv, 0
         elif c == 1: r, g, b = q, bri, 0
@@ -337,6 +424,9 @@ def ghost_rider(n, t, prev=None):
 
     return bytes(d)
 
+# ---------------------------------------------------------------------------
+# Diagnostic and RGBW pattern generators
+# ---------------------------------------------------------------------------
 
 def diagnostic_pattern(n, width):
     """Marker pixels at key positions, rest dim blue background."""
@@ -434,9 +524,55 @@ def diagnostic_pattern_rgbw(n, width):
                 d[x], d[x+1], d[x+2], d[x+3] = 255, 0, 255, 96
     return bytes(d)
 
+# ---------------------------------------------------------------------------
+# Device communication helpers
+# ---------------------------------------------------------------------------
+
 def get_diag(target):
     try: return urllib.request.urlopen(f"http://{target}/diag", timeout=3).read().decode().strip()
     except: return "UNREACHABLE"
+
+def _get_diag_retry(target, retries=3):
+    """Fetch /diag with retries until heap= is present."""
+    for _ in range(retries):
+        try:
+            txt = urllib.request.urlopen(
+                f"http://{target}/diag", timeout=3).read().decode().strip()
+            if 'heap=' in txt:
+                return txt
+        except:
+            pass
+        time.sleep(0.5)
+    return ""
+
+def parse_diag(txt):
+    """Parse /diag key=value tokens into dict. Strips (suffix) and ms unit."""
+    vals = {}
+    for tok in txt.split():
+        if '=' in tok:
+            k, _, v = tok.partition('=')
+            v = v.split('(')[0].rstrip('ms')
+            try:    vals[k] = int(v)
+            except: vals[k] = v
+    return vals
+
+def _set_live(target, on=True):
+    """Enable or disable realtime live mode on the device."""
+    body = b'{"on":true,"bri":255,"live":true}' if on else b'{"live":false}'
+    try:
+        req = urllib.request.Request(f"http://{target}/json/state",
+            data=body, headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5)
+    except:
+        pass
+
+def _sweep_frame(pat_name, n, t, prev):
+    """Generate a frame for sweep/ifs mode pattern names."""
+    if pat_name == 'rainbow': return rainbow(n, t, 2.0)
+    if pat_name == 'pulse': return solid_pulse(n, t)
+    if pat_name == 'twinkle': return sparse_twinkle(n, t, prev)
+    if pat_name == 'ghost_rider': return ghost_rider(n, t, prev)
+    return rainbow(n, t, 2.0)
 
 def resolve_segment(target, seg_id):
     """Query device for segment pixel range. Returns (start_pixel, num_leds, width, height, bpp)."""
@@ -491,6 +627,10 @@ def _generate_frame(pattern, num_leds, t, prev, rgbw):
         elif pattern == "ghost_rider": return ghost_rider(num_leds, t, prev)
         elif pattern.startswith("ifs_"): return render_ifs_frame(pattern[4:], _bench_width, _bench_height, t * 10.0)
         else: return rainbow(num_leds, t)
+
+# ---------------------------------------------------------------------------
+# Benchmark phases (default mode)
+# ---------------------------------------------------------------------------
 
 def run_phase(sock, target, port, num_leds, fps, dur, pattern, compressed, label, data_type=DDP_RGB, rgbw=False, keyframe_interval=10, max_payload=MAX_PAYLOAD, inter_pkt_delay=0, rate_limiter=None, channel_offset=0, codec=None):
     iv = 1.0/fps; sent=0; raw_b=0; wire_b=0; prev=None; seq=1
@@ -547,6 +687,10 @@ def run_phase(sock, target, port, num_leds, fps, dur, pattern, compressed, label
     return {"label":label,"pattern":pattern,"comp":compressed,"fps":round(afps,1),
             "sent":sent,"ratio":round(ratio,4),"kbs":round(wire_b/1024/el,1),
             "wire_kb":round(wire_b/1024,1),"raw_kb":round(raw_b/1024,1)}
+
+# ---------------------------------------------------------------------------
+# Diagnostic and debug modes
+# ---------------------------------------------------------------------------
 
 def run_diagnostic(target, port, num_leds, width, rgbw=False, max_payload=MAX_PAYLOAD, inter_pkt_delay=0, channel_offset=0):
     """Send diagnostic marker pattern and hold for observation."""
@@ -660,6 +804,265 @@ def run_debug(target, port, num_leds, rgbw=False, max_payload=MAX_PAYLOAD, inter
             urllib.request.urlopen(req, timeout=5)
         except: pass
 
+# ---------------------------------------------------------------------------
+# IFS fractal live loop mode (--ifs)
+# ---------------------------------------------------------------------------
+
+def run_ifs(target, port, width, height, presets, preset_dur, fps, rate_limiter):
+    """IFS fractal live loop with planar-RLE compression."""
+    num_leds = width * height
+    black = bytes(num_leds * 3)
+
+    _set_live(target, True)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+
+    seq = 1; sent = 0; raw_b = 0; wire_b = 0
+    start = time.monotonic(); nxt = start
+    interval = 1.0 / fps
+    last_preset_idx = -1
+
+    print(f"IFS fractal loop -- {width}x{height}, {fps}fps, "
+          f"cycling every {int(preset_dur)}s")
+    print(f"Presets: {', '.join(presets)}")
+    print(f"Codec: planar-RLE (0x60)")
+    print()
+
+    try:
+        while True:
+            now = time.monotonic()
+            elapsed = now - start
+            preset_idx = int(elapsed / preset_dur) % len(presets)
+            preset_name = presets[preset_idx]
+            phase = elapsed * 0.4
+
+            if preset_idx != last_preset_idx:
+                # Black keyframe on preset switch -- raw, no compression
+                pkts, seq = make_packets(black, seq, comp=COMP_NONE)
+                for p in pkts:
+                    if rate_limiter:
+                        rate_limiter.wait_and_consume(len(p))
+                    sock.sendto(p, (target, port))
+                time.sleep(0.05)
+                last_preset_idx = preset_idx
+                print(f"  -> {preset_name}")
+
+            if now < nxt:
+                time.sleep(max(0, nxt - now - 0.001))
+
+            px = render_ifs_frame(preset_name, width, height, phase)
+            raw_b += len(px)
+
+            enc, comp = planar_rle_encode(px)
+            wire_b += len(enc)
+
+            pkts, seq = make_packets(enc, seq, comp=comp)
+            for p in pkts:
+                if rate_limiter:
+                    rate_limiter.wait_and_consume(len(p))
+                sock.sendto(p, (target, port))
+
+            sent += 1
+            nxt += interval
+            if time.monotonic() > nxt + interval:
+                nxt = time.monotonic()
+
+            if sent > 0 and sent % 5 == 0:
+                el = time.monotonic() - start
+                ratio = wire_b / raw_b if raw_b else 1
+                print(f"  [{preset_name}] {sent/el:.1f}fps  "
+                      f"{wire_b/1024/el:.1f}KB/s  "
+                      f"saved {(1-ratio)*100:.0f}%  "
+                      f"frame={len(enc)/1024:.1f}KB  ct=0x{comp:02x}")
+
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        sock.close()
+        _set_live(target, False)
+
+        elapsed = time.monotonic() - start
+        if elapsed > 0 and sent > 0:
+            ratio = wire_b / raw_b if raw_b else 1
+            print(f"\nTotal: {sent} frames in {elapsed:.1f}s = "
+                  f"{sent/elapsed:.1f}fps")
+            print(f"Wire: {wire_b/1024:.1f} KB "
+                  f"({(1-ratio)*100:.0f}% saved)")
+
+# ---------------------------------------------------------------------------
+# FPS sweep mode (--sweep)
+# ---------------------------------------------------------------------------
+
+def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
+                    level_dur):
+    """Run one codec x pattern cell of the FPS sweep. Returns result dict."""
+    rate = TokenBucket(115000, burst_bytes=1210)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+
+    _set_live(target, True)
+    time.sleep(0.3)
+
+    # Baseline drops -- retry until heap= present
+    diag_txt = _get_diag_retry(target)
+    d0 = parse_diag(diag_txt)
+    base_drops = d0.get('drops', 0)
+
+    smooth_fps = 0; max_fps = 0
+    smooth_kbs = 0.0; smooth_ratio = 1.0
+    peak_lag = 0; total_drops = 0
+
+    for target_fps in fps_levels:
+        iv = 1.0 / target_fps
+        sent = 0; raw_b = 0; wire_b = 0
+        prev = None; seq = 1
+        start = time.monotonic(); nxt = start
+
+        while time.monotonic() - start < level_dur:
+            now = time.monotonic()
+            if now < nxt:
+                time.sleep(max(0, nxt - now - 0.001))
+                continue
+            t = now - start
+            cur = _sweep_frame(pat_name, num_leds, t / level_dur, prev)
+            raw_b += len(cur)
+
+            # Keyframe every 10 frames
+            kf_prev = prev if sent % 10 else None
+            payload, comp = encode_frame(codec, cur, kf_prev)
+            wire_b += len(payload)
+
+            try:
+                for pkt, seq in udp_packets(payload, comp, seq):
+                    rate.wait_and_consume(len(pkt))
+                    sock.sendto(pkt, (target, port))
+                sent += 1
+            except OSError:
+                break
+
+            prev = cur
+            nxt += iv
+            if time.monotonic() > nxt + iv:
+                nxt = time.monotonic()
+
+        el = time.monotonic() - start
+        afps = sent / el if el else 0
+        kbs = wire_b / 1024 / el if el else 0
+        ratio = wire_b / raw_b if raw_b else 1.0
+
+        time.sleep(1.5)  # settle before polling diag
+        diag_txt = _get_diag_retry(target)
+        d1 = parse_diag(diag_txt)
+        lag = d1.get('loopLag', 0)
+        drops_now = d1.get('drops', base_drops)
+        delta_drops = max(0, drops_now - base_drops)
+        base_drops = drops_now
+        total_drops += delta_drops
+        peak_lag = max(peak_lag, lag)
+
+        ok = (afps >= target_fps * 0.95
+              and delta_drops == 0
+              and lag <= 30)
+        max_fps = max(max_fps, int(afps))
+        if ok:
+            smooth_fps = target_fps
+            smooth_kbs = kbs
+            smooth_ratio = ratio
+
+        print(f"    {target_fps:>4}fps -> {afps:>5.1f}fps  {kbs:>6.1f}KB/s  "
+              f"ratio={ratio:.2f}  drops={delta_drops}  lag={lag}ms  "
+              f"{'OK' if ok else 'STOP'}")
+        if not ok:
+            break
+
+    sock.close()
+    _set_live(target, False)
+    return dict(codec=codec, pattern=pat_name,
+                smooth_fps=smooth_fps, max_fps=max_fps,
+                kbs=round(smooth_kbs, 1), ratio=round(smooth_ratio, 3),
+                drops=total_drops, lag=peak_lag)
+
+
+def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
+              level_dur, out_file):
+    """FPS sweep across codec x pattern matrix. UDP/PPP only."""
+    num_leds = width * height
+    raw_sz = num_leds * 3
+
+    print("=" * 72)
+    print("DDP Sweep -- codec x pattern FPS sweep (UDP/PPP)")
+    print(f"Target: {target}:{port}, {width}x{height} = {num_leds}px "
+          f"({raw_sz}B/frame)")
+    print(f"Codecs: {', '.join(codecs)}")
+    print(f"Patterns: {', '.join(patterns)}")
+    print(f"FPS levels: {fps_levels}")
+    print(f"Duration: {level_dur}s per level")
+    print("=" * 72)
+
+    diag_txt = _get_diag_retry(target)
+    if not diag_txt:
+        print("ERROR: device unreachable at", target)
+        return
+    d = parse_diag(diag_txt)
+    print(f"Pre: heap={d.get('heap', '?')}  "
+          f"loopLag={d.get('loopLag', '?')}ms  "
+          f"ddpSafe={d.get('fps', '?')}fps")
+    print()
+
+    results = []
+
+    for codec in codecs:
+        for pat_name in patterns:
+            _gr_reset()
+            print(f"\n[UDP/PPP] codec={codec} pattern={pat_name}")
+            r = _run_sweep_cell(target, port, num_leds, pat_name, codec,
+                                fps_levels, level_dur)
+            results.append(r)
+            print(f"  -> smooth={r['smooth_fps']}fps  max={r['max_fps']}fps  "
+                  f"{r['kbs']}KB/s  ratio={r['ratio']:.3f}  "
+                  f"drops={r['drops']}  lag={r['lag']}ms")
+            time.sleep(2)
+
+    # Summary table
+    hdr = (f"\n{'Codec':<12} {'Pattern':<12} {'Smooth':>7} {'Max':>5} "
+           f"{'KB/s':>7} {'Ratio':>6} {'Drops':>6} {'Lag':>5}")
+    sep = "-" * 72
+    table_lines = [hdr, sep]
+    for r in results:
+        row = (f"{r['codec']:<12} {r['pattern']:<12} "
+               f"{r['smooth_fps']:>6}fps {r['max_fps']:>4}fps "
+               f"{r['kbs']:>7.1f} {r['ratio']:>6.3f} "
+               f"{r['drops']:>6} {r['lag']:>4}ms")
+        table_lines.append(row)
+
+    table_str = "\n".join(table_lines)
+    print("\n" + "=" * 72)
+    print("RESULTS")
+    print(table_str)
+    print("=" * 72)
+
+    diag_txt = _get_diag_retry(target)
+    d1 = parse_diag(diag_txt)
+    post_str = (f"Post: heap={d1.get('heap', '?')}  "
+                f"minheap={d1.get('minheap', '?')}  "
+                f"loopLag={d1.get('loopLag', '?')}ms  "
+                f"heapGuard={d1.get('heapGuard', '?')}")
+    print(f"\n{post_str}")
+
+    with open(out_file, 'w') as f:
+        f.write("DDP Sweep Results\n")
+        f.write(f"Device: {target}:{port}  {width}x{height}={num_leds}px  "
+                f"raw={raw_sz}B/frame\n")
+        f.write(f"FPS levels: {fps_levels}  dur={level_dur}s/level\n\n")
+        f.write(table_str + "\n")
+        f.write(f"\n{post_str}\n")
+    print(f"Results saved to {out_file}")
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(description="DDP benchmark & diagnostic tool")
     parser.add_argument("--target", default="169.254.7.1", help="Device IP (default: 169.254.7.1)")
@@ -679,6 +1082,21 @@ def main():
     parser.add_argument("--offset", type=int, default=0, help="Pixel offset for DDP data (default: 0). Converted to channel offset internally.")
     parser.add_argument("--segment", type=int, default=-1, help="Target a specific segment by ID. Queries device for pixel range, overrides --offset/--width/--height/--leds.")
     parser.add_argument("--codec", choices=["adaptive", "tuple", "planar"], default="adaptive", help="Compression codec for --debug and single-pattern runs (default: adaptive)")
+
+    # IFS fractal live loop
+    parser.add_argument("--ifs", action="store_true", help="IFS fractal live loop mode")
+    parser.add_argument("--ifs-presets", default="fern,sierpinski,dragon,flame,tree", help="Comma-separated preset names (default: all)")
+    parser.add_argument("--ifs-dur", type=float, default=10, help="Seconds per preset (default: 10)")
+    parser.add_argument("--ifs-fps", type=int, default=10, help="Target FPS for IFS mode (default: 10)")
+
+    # FPS sweep
+    parser.add_argument("--sweep", action="store_true", help="UDP/PPP FPS sweep mode")
+    parser.add_argument("--codecs", default="raw,rle,delta-rle,planar-rle", help="Comma-separated codec list (default: all)")
+    parser.add_argument("--patterns", default="rainbow,pulse,twinkle,ghost_rider", help="Comma-separated pattern names (default: all)")
+    parser.add_argument("--fps-levels", default="10,20,30,40,50,60,80,100,120", help="Comma-separated FPS targets")
+    parser.add_argument("--level-dur", type=float, default=8, help="Seconds per FPS level (default: 8)")
+    parser.add_argument("--out", default="/tmp/bench_results.txt", help="Results output file (default: /tmp/bench_results.txt)")
+
     args = parser.parse_args()
 
     global _bench_width, _bench_height
@@ -729,6 +1147,22 @@ def main():
         run_debug(target, port, num_leds, rgbw=args.rgbw, max_payload=mtu, inter_pkt_delay=inter_pkt_delay, channel_offset=channel_offset, codec=codec)
         return
 
+    if args.ifs:
+        ifs_presets = [p.strip() for p in args.ifs_presets.split(",")]
+        ifs_rate = TokenBucket(115000, burst_bytes=1210)
+        run_ifs(target, port, _bench_width, _bench_height, ifs_presets,
+                args.ifs_dur, args.ifs_fps, ifs_rate)
+        return
+
+    if args.sweep:
+        sweep_codecs = [c.strip() for c in args.codecs.split(",")]
+        sweep_patterns = [p.strip() for p in args.patterns.split(",")]
+        sweep_fps = [int(x.strip()) for x in args.fps_levels.split(",")]
+        run_sweep(target, port, _bench_width, _bench_height, sweep_codecs,
+                  sweep_patterns, sweep_fps, args.level_dur, args.out)
+        return
+
+    # --- Default benchmark mode ---
     mode_str = "RGBW" if args.rgbw else "RGB"
     offset_str = f", pixel offset {pixel_offset}" if pixel_offset else ""
     print("="*70)
