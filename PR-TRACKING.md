@@ -5,7 +5,7 @@
 **Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
 **Active branch**: `dev/ppp-wifi`
-**Last updated**: Session 23 (August 2026)
+**Last updated**: Session 24 (August 2026)
 
 ## Status summary
 
@@ -22,16 +22,16 @@
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/mdns-ppp-crash-fix/DRAFT_PR.md) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · DRAFT · PR desc updated with accurate mechanism · softhack007 + willmmiles root cause challenge responded to · ESPAsync bug filed [#472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) + [wled/WLED#5813](https://github.com/wled/WLED/issues/5813) · willmmiles correction acknowledged (lwIP close semantics; write() vs add() hypothesis) |
-| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) · DedeHai backport query answered (IDF 4.x unaffected, guard is no-op) · #5764 relationship clarified (guard stays relevant; not tested on 4.x) · fixup commit pending (restore deleted comments, remove debug println, remove unreferenced define) |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Lock elimination for /json/effects (reworked from Content-Length) | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · DRAFT · **RECOMMENDATION: strip to lock elimination for /json/effects only** -- willmmiles vetoed Content-Length precompute; /json/fxdata truncation root cause still open (PPP fixes reduced 0/10->1/10 but did not resolve; json_chunked.h still uses sendChunked internally); /json/effects lock elimination is the only clean surviving change · ESPAsync [#472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) + [wled/WLED#5813](https://github.com/wled/WLED/issues/5813) active |
+| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) · DedeHai backport query answered (IDF 4.x unaffected, guard is no-op) · #5764 relationship clarified · fixup staged on dev/ddp-spec (restore deleted comments, remove debug println) — pending big-bang review push |
 
 ## Phase 2 — Small upstream fixes (high viability)
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Make state-only WS broadcast opt-in via `wsBroadcastStateOnly` cfg flag | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) · reworked to opt-in (DedeHai/softhack007/coderabbit feedback: native apps consume broadcast info) · `wsBroadcastStateOnly` bool, `if.live.wsbso` cfg key, `#ifndef WLED_WS_BROADCAST_STATE_ONLY` compile-time override · validated on M5StickC via emiemi · new commit pushed to GitHub (`e333e550`) · local staging branch `local/ws-state-only-broadcast-optin` on `upstream/main` |
-| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) · fixup commit pending (remove AI comments, restore deleted original comment) |
-| `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) · fixup pending: rename `wdt_cfg` → `wdtCfg` (camelCase, coderabbit nitpick) |
+| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) · fixup staged on dev/ddp-spec (AI comments removed) — pending big-bang review push |
+| `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) · fixup staged on dev/ddp-spec (wdt_cfg->wdtCfg) — pending big-bang review push |
 
 ## Phase 3 — DDP compression
 
