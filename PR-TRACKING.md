@@ -4,8 +4,8 @@
 **GitHub fork**: https://github.com/aenertia/WLED
 **Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
-**Active branch**: `dev/ppp-wifi`
-**Last updated**: Session 24 (August 2026)
+**Active branch**: `dev/ddp-spec`
+**Last updated**: Session 25 (August 2026)
 
 ## Status summary
 
@@ -22,7 +22,7 @@
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/mdns-ppp-crash-fix/DRAFT_PR.md) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Lock elimination for /json/effects (reworked from Content-Length) | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · DRAFT · **RECOMMENDATION: strip to lock elimination for /json/effects only** -- willmmiles vetoed Content-Length precompute; /json/fxdata truncation root cause still open (PPP fixes reduced 0/10->1/10 but did not resolve; json_chunked.h still uses sendChunked internally); /json/effects lock elimination is the only clean surviving change · ESPAsync [#472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) + [wled/WLED#5813](https://github.com/wled/WLED/issues/5813) active |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | /json/effects lock elimination -- respondModeNames(), no LockedJsonResponse | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · DRAFT · **REBUILT** (session 25): branch rewritten on upstream/main (4d6e2600), strips to respondModeNames() lock elimination only -- respondModeData() untouched, no json_chunked.h dependency, two-pass measure+send mirrors upstream pattern · device-tested 10/10 OK /json/effects (2659B, Content-Length) on M5StickC over PPP · #5808 on GitHub not yet updated (push on explicit instruction) · ESPAsync [#472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) + [wled/WLED#5813](https://github.com/wled/WLED/issues/5813) active |
 | `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) · DedeHai backport query answered (IDF 4.x unaffected, guard is no-op) · #5764 relationship clarified · fixup staged on dev/ddp-spec (restore deleted comments, remove debug println) — pending big-bang review push |
 
 ## Phase 2 — Small upstream fixes (high viability)

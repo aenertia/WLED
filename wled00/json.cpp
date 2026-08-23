@@ -1326,20 +1326,6 @@ static size_t writeJSONStringElement(uint8_t* dest, size_t maxLen, const char* s
   return 1 + n;
 }
 
-// Measure bytes that writeJSONStringElement would produce, without writing.
-// Used for Content-Length pre-computation to avoid chunked transfer truncation
-// on slow links (PPP/serial) where Connection:close races with final chunk.
-static size_t measureJSONStringElement(const char* src) {
-  size_t len = 1; // leading comma
-  len += 1; // opening quote
-  for (const char* p = src; *p; ++p) {
-    char esc = ARDUINOJSON_NAMESPACE::EscapeSequence::escapeChar(*p);
-    len += esc ? 2 : 1;
-  }
-  len += 1; // closing quote
-  return len;
-}
-
 // Streamed fxdata JSON array via json_chunked -- no buffer lock, no two-pass measure.
 void respondModeData(AsyncWebServerRequest* request) {
   using namespace json_chunked;
