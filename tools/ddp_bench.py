@@ -49,6 +49,7 @@ class TokenBucket:
 _bench_width = 40
 _bench_height = 80
 _ddp_destination = 0xFF
+_lossy_depth = False
 DDP_VER1 = 0x40; DDP_PUSH = 0x01; DDP_TYPE_COMPRESSED = 0x80; DDP_RGB = 0x0B
 DDP_TYPE_RGBW32 = 0x1B  # 00 011 011  -- RGBW, 8 bits per channel, 4 channels
 COMP_NONE = 0x00; COMP_DELTA_RLE = 0x10; COMP_RLE = 0x20
@@ -191,6 +192,25 @@ def udp_packets(payload, comp, seq, destination=None, max_chunk=MAX_PAYLOAD):
         yield hdr + payload[off:off + chunk], (seq % 15) + 1
         off += chunk
         seq = (seq % 15) + 1
+
+# ---------------------------------------------------------------------------
+# Lossy colour depth reduction (DedeHai #5810)
+# ---------------------------------------------------------------------------
+
+def strip_lsb(color):
+    """Adaptive LSB stripping by brightness -- DedeHai #5810."""
+    if color > 196: return color & 0xF8
+    elif color > 128: return color & 0xFC
+    elif color > 64: return color & 0xFE
+    return color
+
+def apply_lossy_depth(px, bpp=3):
+    d = bytearray(px)
+    for i in range(len(d) // bpp):
+        d[i*bpp]   = strip_lsb(d[i*bpp])
+        d[i*bpp+1] = strip_lsb(d[i*bpp+1])
+        d[i*bpp+2] = strip_lsb(d[i*bpp+2])
+    return bytes(d)
 
 # ---------------------------------------------------------------------------
 # RGB pattern generators (3 bytes/pixel)
@@ -615,18 +635,22 @@ def send_frame(sock, target, port, data, seq, compressed=False, prev=None, data_
     return seq
 
 def _generate_frame(pattern, num_leds, t, prev, rgbw):
+    bpp = 4 if rgbw else 3
     if rgbw:
-        if pattern == "rainbow": return rainbow_rgbw(num_leds, t, 2.0)
-        elif pattern == "solid_pulse": return solid_pulse_rgbw(num_leds, t)
-        elif pattern == "sparse_twinkle": return sparse_twinkle_rgbw(num_leds, t, prev)
-        else: return rainbow_rgbw(num_leds, t)
+        if pattern == "rainbow": px = rainbow_rgbw(num_leds, t, 2.0)
+        elif pattern == "solid_pulse": px = solid_pulse_rgbw(num_leds, t)
+        elif pattern == "sparse_twinkle": px = sparse_twinkle_rgbw(num_leds, t, prev)
+        else: px = rainbow_rgbw(num_leds, t)
     else:
-        if pattern == "rainbow": return rainbow(num_leds, t, 2.0)
-        elif pattern == "solid_pulse": return solid_pulse(num_leds, t)
-        elif pattern == "sparse_twinkle": return sparse_twinkle(num_leds, t, prev)
-        elif pattern == "ghost_rider": return ghost_rider(num_leds, t, prev)
-        elif pattern.startswith("ifs_"): return render_ifs_frame(pattern[4:], _bench_width, _bench_height, t * 10.0)
-        else: return rainbow(num_leds, t)
+        if pattern == "rainbow": px = rainbow(num_leds, t, 2.0)
+        elif pattern == "solid_pulse": px = solid_pulse(num_leds, t)
+        elif pattern == "sparse_twinkle": px = sparse_twinkle(num_leds, t, prev)
+        elif pattern == "ghost_rider": px = ghost_rider(num_leds, t, prev)
+        elif pattern.startswith("ifs_"): px = render_ifs_frame(pattern[4:], _bench_width, _bench_height, t * 10.0)
+        else: px = rainbow(num_leds, t)
+    if _lossy_depth:
+        px = apply_lossy_depth(px, bpp)
+    return px
 
 # ---------------------------------------------------------------------------
 # Benchmark phases (default mode)
@@ -1082,6 +1106,7 @@ def main():
     parser.add_argument("--offset", type=int, default=0, help="Pixel offset for DDP data (default: 0). Converted to channel offset internally.")
     parser.add_argument("--segment", type=int, default=-1, help="Target a specific segment by ID. Queries device for pixel range, overrides --offset/--width/--height/--leds.")
     parser.add_argument("--codec", choices=["adaptive", "tuple", "planar"], default="adaptive", help="Compression codec for --debug and single-pattern runs (default: adaptive)")
+    parser.add_argument("--lossy-depth", action="store_true", help="Strip LSBs by brightness before encoding (DedeHai #5810 adaptive colour depth reduction)")
 
     # IFS fractal live loop
     parser.add_argument("--ifs", action="store_true", help="IFS fractal live loop mode")
@@ -1099,7 +1124,8 @@ def main():
 
     args = parser.parse_args()
 
-    global _bench_width, _bench_height
+    global _bench_width, _bench_height, _lossy_depth
+    _lossy_depth = args.lossy_depth
     target = args.target
     port = args.port
     mtu = args.mtu
