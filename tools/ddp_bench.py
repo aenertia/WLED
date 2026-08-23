@@ -928,14 +928,15 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
     _set_live(target, True)
     time.sleep(0.3)
 
-    # Baseline drops -- retry until heap= present
+    # Baseline counters -- retry until heap= present
     diag_txt = _get_diag_retry(target)
     d0 = parse_diag(diag_txt)
     base_drops = d0.get('drops', 0)
+    base_pix   = d0.get('pix', 0)
 
     smooth_fps = 0; max_fps = 0
     smooth_kbs = 0.0; smooth_ratio = 1.0
-    peak_lag = 0; total_drops = 0
+    peak_lag = 0; total_drops = 0; total_pix = 0
 
     for target_fps in fps_levels:
         iv = 1.0 / target_fps
@@ -984,10 +985,15 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
         base_drops = drops_now
         total_drops += delta_drops
         peak_lag = max(peak_lag, lag)
+        pix_now = d1.get('pix', base_pix)
+        delta_pix = max(0, pix_now - base_pix)
+        base_pix = pix_now
+        total_pix += delta_pix
 
         ok = (afps >= target_fps * 0.95
               and delta_drops == 0
-              and lag <= 30)
+              and lag <= 30
+              and delta_pix > 0)
         max_fps = max(max_fps, int(afps))
         if ok:
             smooth_fps = target_fps
@@ -996,7 +1002,7 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
 
         print(f"    {target_fps:>4}fps -> {afps:>5.1f}fps  {kbs:>6.1f}KB/s  "
               f"ratio={ratio:.2f}  drops={delta_drops}  lag={lag}ms  "
-              f"{'OK' if ok else 'STOP'}")
+              f"pix={delta_pix}  {'OK' if ok else 'STOP'}")
         if not ok:
             break
 
@@ -1005,7 +1011,7 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
     return dict(codec=codec, pattern=pat_name,
                 smooth_fps=smooth_fps, max_fps=max_fps,
                 kbs=round(smooth_kbs, 1), ratio=round(smooth_ratio, 3),
-                drops=total_drops, lag=peak_lag)
+                drops=total_drops, lag=peak_lag, pix=total_pix)
 
 
 def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
@@ -1045,19 +1051,19 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
             results.append(r)
             print(f"  -> smooth={r['smooth_fps']}fps  max={r['max_fps']}fps  "
                   f"{r['kbs']}KB/s  ratio={r['ratio']:.3f}  "
-                  f"drops={r['drops']}  lag={r['lag']}ms")
+                  f"drops={r['drops']}  lag={r['lag']}ms  pix={r['pix']}")
             time.sleep(2)
 
     # Summary table
     hdr = (f"\n{'Codec':<12} {'Pattern':<12} {'Smooth':>7} {'Max':>5} "
-           f"{'KB/s':>7} {'Ratio':>6} {'Drops':>6} {'Lag':>5}")
-    sep = "-" * 72
+           f"{'KB/s':>7} {'Ratio':>6} {'Drops':>6} {'Lag':>5} {'Pix':>10}")
+    sep = "-" * 84
     table_lines = [hdr, sep]
     for r in results:
         row = (f"{r['codec']:<12} {r['pattern']:<12} "
                f"{r['smooth_fps']:>6}fps {r['max_fps']:>4}fps "
                f"{r['kbs']:>7.1f} {r['ratio']:>6.3f} "
-               f"{r['drops']:>6} {r['lag']:>4}ms")
+               f"{r['drops']:>6} {r['lag']:>4}ms {r.get('pix',0):>10}")
         table_lines.append(row)
 
     table_str = "\n".join(table_lines)
