@@ -1,4 +1,5 @@
 #include "wled.h"
+#include "json_chunked.h"
 #ifdef ARDUINO_ARCH_ESP32
 #include "esp_system.h"
 #include "esp_netif.h"
@@ -1339,96 +1340,35 @@ static size_t measureJSONStringElement(const char* src) {
   return len;
 }
 
-// Two-pass streamed JSON response for mode data: first measures total payload
-// size, then sends with Content-Length via request->send().  The content callback
-// fills each TCP buffer in turn, using writeJSONStringElement for each entry.
+// Streamed fxdata JSON array via json_chunked -- no buffer lock, no two-pass measure.
 void respondModeData(AsyncWebServerRequest* request) {
-  // Pass 1: measure total payload size so we can send with Content-Length.
-  // Pass 2: the content callback fills each TCP send buffer on demand.
-  char lineBuffer[256];
-  size_t totalLen = 1; // ']' only -- first element's comma becomes '['
-  for (size_t i = 0; i < strip.getModeCount(); i++) {
-    strncpy_P(lineBuffer, strip.getModeData(i), sizeof(lineBuffer)-1);
-    lineBuffer[sizeof(lineBuffer)-1] = '\0';
-    if (lineBuffer[0] != 0) {
-      const char* dp = strchr(lineBuffer, '@');
-      totalLen += measureJSONStringElement(dp ? dp + 1 : "");
-    }
-  }
-  size_t fx_index = 0;
-  bool firstEmitted = false;
-  request->send(FPSTR(CONTENT_TYPE_JSON), totalLen,
-    [fx_index, firstEmitted](uint8_t* data, size_t len, size_t) mutable -> size_t {
-      size_t bytes_written = 0;
-      char lineBuffer[256];
-      while (fx_index < strip.getModeCount()) {
-        strncpy_P(lineBuffer, strip.getModeData(fx_index), sizeof(lineBuffer)-1);
-        if (lineBuffer[0] != 0) {
-          lineBuffer[sizeof(lineBuffer)-1] = '\0';
-          const char* dp = strchr(lineBuffer, '@');
-          size_t mode_bytes = writeJSONStringElement(data, len, dp ? dp + 1 : "");
-          if (mode_bytes == 0) break;
-          if (!firstEmitted) { *data = '['; firstEmitted = true; }
-          data += mode_bytes;
-          len -= mode_bytes;
-          bytes_written += mode_bytes;
-        }
-        ++fx_index;
-      }
-      if (fx_index >= strip.getModeCount() && len >= 1) {
-        *data = ']';
-        ++bytes_written;
-        ++fx_index;
-      }
-      return bytes_written;
-  });
+  using namespace json_chunked;
+  const size_t count = strip.getModeCount();
+  respondJSONList(request, size_t(0), count,
+    [](size_t i) -> Element {
+      char line[256];
+      strncpy_P(line, strip.getModeData(i), sizeof(line)-1);
+      line[sizeof(line)-1] = '\0';
+      if (line[0] == 0) return Element();
+      const char* dp = strchr(line, '@');
+      return Element(String(dp ? dp + 1 : ""));
+    });
 }
 
-// Stream effect names as JSON array without holding the JSON buffer lock.
-// Eliminates the deadlock between /json/effects HTTP response (LockedJsonResponse
-// holds lock during async TCP send) and WebSocket state push (sendDataWs needs lock).
-// Pattern mirrors respondModeData() -- zero heap allocation for response body.
+// Streamed effect names JSON array via json_chunked -- no buffer lock needed.
 void respondModeNames(AsyncWebServerRequest* request) {
-  // Two-pass: measure then send with Content-Length (same as respondModeData).
-  char lineBuffer[256];
-  size_t totalLen = 1; // ']' only -- first element's comma becomes '['
-  for (size_t i = 0; i < strip.getModeCount(); i++) {
-    strncpy_P(lineBuffer, strip.getModeData(i), sizeof(lineBuffer)-1);
-    lineBuffer[sizeof(lineBuffer)-1] = '\0';
-    if (lineBuffer[0] != 0) {
-      char* dp = strchr(lineBuffer, '@');
+  using namespace json_chunked;
+  const size_t count = strip.getModeCount();
+  respondJSONList(request, size_t(0), count,
+    [](size_t i) -> Element {
+      char line[256];
+      strncpy_P(line, strip.getModeData(i), sizeof(line)-1);
+      line[sizeof(line)-1] = '\0';
+      if (line[0] == 0) return Element();
+      char* dp = strchr(line, '@');
       if (dp) *dp = 0;
-      totalLen += measureJSONStringElement(lineBuffer);
-    }
-  }
-  size_t fx_index = 0;
-  bool firstEmitted = false;
-  request->send(FPSTR(CONTENT_TYPE_JSON), totalLen,
-    [fx_index, firstEmitted](uint8_t* data, size_t len, size_t) mutable -> size_t {
-      size_t bytes_written = 0;
-      char lineBuffer[256];
-      while (fx_index < strip.getModeCount()) {
-        strncpy_P(lineBuffer, strip.getModeData(fx_index), sizeof(lineBuffer)-1);
-        lineBuffer[sizeof(lineBuffer)-1] = '\0';
-        if (lineBuffer[0] != 0) {
-          char* dp = strchr(lineBuffer, '@');
-          if (dp) *dp = 0;
-          size_t mode_bytes = writeJSONStringElement(data, len, lineBuffer);
-          if (mode_bytes == 0) break;
-          if (!firstEmitted) { *data = '['; firstEmitted = true; }
-          data += mode_bytes;
-          len -= mode_bytes;
-          bytes_written += mode_bytes;
-        }
-        ++fx_index;
-      }
-      if (fx_index >= strip.getModeCount() && len >= 1) {
-        *data = ']';
-        ++bytes_written;
-        ++fx_index;
-      }
-      return bytes_written;
-  });
+      return Element(String(line));
+    });
 }
 
 // Global buffer locking response helper class (to make sure lock is released when AsyncJsonResponse is destroyed)
