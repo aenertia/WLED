@@ -218,6 +218,26 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
     strip.panel.shrink_to_fit();  // release unused memory (just in case)
     // cannot call strip.deserializeLedmap()/strip.setUpMatrix() here due to already locked JSON buffer
     //if (!fromFS) doInit2D = true; // if called at boot (fromFS==true), WLED::beginStrip() will take care of setting up matrix
+    #if defined(SPI_MATRIX_W) && defined(SPI_MATRIX_H)
+    // For SPI Matrix builds: reject NVS panel configs whose total pixel count
+    // doesn't match the compile-time bus size. A stale config from a different
+    // build (e.g. 80x160 saved while 40x80 was running) would pass setUpMatrix()'s
+    // MAX_LEDS check but OOM on the ledmap malloc, causing a boot loop.
+    {
+      unsigned nvsTotalPx = 0;
+      for (const auto &p : strip.panel) nvsTotalPx += (unsigned)p.width * p.height;
+      if (nvsTotalPx != (unsigned)SPI_MATRIX_W * SPI_MATRIX_H) {
+        DEBUG_PRINTF_P(PSTR("SPI Matrix: NVS panel total %u != compile-time %ux%u -- resetting.\n"),
+                       nvsTotalPx, SPI_MATRIX_W, SPI_MATRIX_H);
+        strip.panel.clear();
+        WS2812FX::Panel p;
+        p.width  = SPI_MATRIX_W;
+        p.height = SPI_MATRIX_H;
+        strip.panel.push_back(p);
+        needsSave = true;
+      }
+    }
+    #endif
   }
   #if defined(SPI_MATRIX_W) && defined(SPI_MATRIX_H)
   else if (fromFS) {
