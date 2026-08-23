@@ -5,32 +5,33 @@
 **Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
 **Active branch**: `dev/ppp-wifi`
-**Last updated**: Session 21 (August 2026)
+**Last updated**: Session 23 (August 2026)
 
 ## Status summary
 
 | Metric | Value |
 |--------|-------|
-| PR branches | 23 |
-| Forgejo issues | #1–#27 |
+| PR branches | 23 + 1 local staging (`local/ws-state-only-broadcast-optin`) |
+| Forgejo issues | #1–#28 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | 5 PRs open + 2 issues — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811) |
+| Upstream submissions | 5 PRs open + 3 issues — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
+| ESPAsync upstream issues | 1 filed — [ESP32Async/ESPAsyncWebServer discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) (see Forgejo [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28)) · willmmiles replied, root cause discussion ongoing |
 
 ## Phase 1 — Bug fixes (submit first)
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/mdns-ppp-crash-fix/DRAFT_PR.md) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · CR feedback addressed |
-| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · DRAFT · PR desc updated with accurate mechanism · softhack007 + willmmiles root cause challenge responded to · ESPAsync bug filed [#472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) + [wled/WLED#5813](https://github.com/wled/WLED/issues/5813) · willmmiles correction acknowledged (lwIP close semantics; write() vs add() hypothesis) |
+| `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) · DedeHai backport query answered (IDF 4.x unaffected, guard is no-op) · #5764 relationship clarified (guard stays relevant; not tested on 4.x) · fixup commit pending (restore deleted comments, remove debug println, remove unreferenced define) |
 
 ## Phase 2 — Small upstream fixes (high viability)
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
-| `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) · CR feedback addressed |
-| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) · CR feedback addressed |
-| `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) |
+| `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Make state-only WS broadcast opt-in via `wsBroadcastStateOnly` cfg flag | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) · reworked to opt-in (DedeHai/softhack007/coderabbit feedback: native apps consume broadcast info) · `wsBroadcastStateOnly` bool, `if.live.wsbso` cfg key, `#ifndef WLED_WS_BROADCAST_STATE_ONLY` compile-time override · validated on M5StickC via emiemi · new commit pushed to GitHub (`e333e550`) · local staging branch `local/ws-state-only-broadcast-optin` on `upstream/main` |
+| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) · fixup commit pending (remove AI comments, restore deleted original comment) |
+| `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) · fixup pending: rename `wdt_cfg` → `wdtCfg` (camelCase, coderabbit nitpick) |
 
 ## Phase 3 — DDP compression
 
@@ -71,13 +72,14 @@
 | `pr/bus-skip-show` | [#22](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/22) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/bus-skip-show/DRAFT_PR.md) | Bus idle-skip gate via `hasIdleSkip()` virtual — Hub75, Network, SPI matrix opt in | Ready · independent, no deps |
 | `pr/ddp-per-segment` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ddp-per-segment/DRAFT_PR.md) | Dual-mode DDP routing (Mode A destination byte, Mode B eligibility mask) | Ready |
 
-## Phase 8 — Upstream component fixes (target: arduino-esp32 / esp-idf)
+## Phase 8 — Upstream component fixes (target: arduino-esp32 / esp-idf / ESPAsyncWebServer)
 
 | Branch | Forgejo | GitHub | Target repo | Description | Status |
 |--------|---------|--------|-------------|-------------|--------|
 | `pr/arduino-esp32-mdns-guard` | [#19](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/19) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/arduino-esp32-mdns-guard/DRAFT_PR.md) | espressif/arduino-esp32 | ESPmDNS::end() NULL deref guard | Ready |
 | `pr/arduino-esp32-netif-lazy-init` | [#20](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/20) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/arduino-esp32-netif-lazy-init/DRAFT_PR.md) | espressif/arduino-esp32 | esp_netif_init() before netif creation | Ready |
 | `pr/esp-idf-lcp-echo-docs` | [#21](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/21) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/esp-idf-lcp-echo-docs/DRAFT_PR.md) | espressif/esp-idf | LWIP_ENABLE_LCP_ECHO Kconfig warning | Ready |
+| *(upstream discussion)* | [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28) | — | ESP32Async/ESPAsyncWebServer | `AsyncAbstractResponse::_ack()` RESPONSE_WAIT_ACK exits before ACKs on chunked path | **Filed** — [discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) · willmmiles corrected lwIP close semantics; write() vs add() hypothesis in follow-up · wled/WLED#5813 companion issue open |
 
 ## Deferred
 
@@ -95,6 +97,7 @@ Issues tracked in Forgejo only — not upstream PR candidates. Fork-specific bug
 | [#2](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/2) | DDP high-rate crash at 670+ FPS (P5) | Mitigated by `pr/ddp-flood-hardening` rate limiter + heap guard |
 | [#3](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/3) | /reset endpoint doesn't reboot device (P4) | Open — PPP serial interaction with esp_restart() under investigation |
 | [#4](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/4) | Web UI for per-segment DDP eligibility mask | Open — API-only via /json/cfg; UI work deferred |
+| [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28) | ESPAsyncWebServer: AsyncAbstractResponse RESPONSE_WAIT_ACK exits before ACKs on chunked path | Tracking — [ESP32Async discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) filed; [wled/WLED#5813](https://github.com/wled/WLED/issues/5813) companion issue; root cause discussion ongoing with willmmiles |
 
 ## Recommended submit order
 
