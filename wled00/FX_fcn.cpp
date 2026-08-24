@@ -1386,7 +1386,7 @@ void WS2812FX::service() {
   #ifdef WLED_DEBUG
   if ((_targetFps != FPS_UNLIMITED) && (millis() - nowUp > _frametime)) DEBUG_PRINTF_P(PSTR("Slow effects %u/%d.\n"), (unsigned)(millis()-nowUp), (int)_frametime);
   #endif
-  if (doShow && !_suspend) {
+  if (doShow && !_suspend && !rtFrozenSegs) {
     yield();
     Segment::handleRandomPalette(); // slowly transition random palette; move it into for loop when each segment has individual random palette
     _lastServiceShow = nowUp; // update timestamp, for precise FPS control
@@ -1831,14 +1831,12 @@ void WS2812FX::showFrozenSegs() {
   for (unsigned i = 0; i < _segments.size(); i++)
     if (_segments[i].isActive()) allActiveMask |= (1u << i);
 
-  // Case A: all active segments are frozen -> full pipeline needed (DDP to whole strip)
-  if ((rtFrozenSegs & allActiveMask) == allActiveMask) { show(); return; }
-
-  // Case D: effect segments running -> full pipeline needed
+  // Case D: effect segments running -- service() calls show(); calling it here too
+  // would double-show per iteration, hanging TFT SPI DMA.
   for (unsigned i = 0; i < _segments.size(); i++) {
-    if (!(allActiveMask & (1u << i))) continue;       // inactive
-    if (rtFrozenSegs & (1u << i)) continue;           // frozen by DDP -- ok
-    if (_segments[i].on && !_segments[i].freeze) { show(); return; } // effect seg -> full pipeline
+    if (!(allActiveMask & (1u << i))) continue;
+    if (rtFrozenSegs & (1u << i)) continue;
+    if (_segments[i].on && !_segments[i].freeze) { show(); return; }
   }
 
   // Cases B and C: only frozen segments are active -- fast path
@@ -1875,7 +1873,8 @@ void WS2812FX::showFrozenSegs() {
       const Segment &seg = _segments[slot.segId];
       if (!seg.isActive() || !seg.pixels) continue;
       uint16_t segPixStart = is2D ? (uint16_t)seg.startY * mw + seg.start : seg.start;
-      for (unsigned i = 0; i < slot.length; i++) {
+      unsigned len = min((unsigned)slot.length, (unsigned)seg.length()); // cap: segment may shrink after rebuildDdpSlots()
+      for (unsigned i = 0; i < len; i++) {
         uint32_t c = seg.pixels[i];
         if (c && useGamma) c = gamma32(c);
         BusManager::setPixelColor(getMappedPixelIndex(segPixStart + i), c);

@@ -213,6 +213,9 @@ void WLED::loop()
   // Safety net: exit realtime if timeout expired (backup for handleNotifications check)
   if (realtimeMode && millis() > realtimeTimeout) exitRealtime();
 
+  // Recompute after show() when bus state is settled
+  ddpCurrentSafeFps.store(BusManager::computeSafeDdpFps(), std::memory_order_relaxed);
+
   // Update RTC crash snapshot every 500ms.
   // Frozen after PANIC/WDT reboot until /diag reads it (clears magic).
   {
@@ -438,15 +441,15 @@ void WLED::enableWatchdog() {
   #ifdef ARDUINO_ARCH_ESP32
   #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   // IDF v5: esp_task_wdt_init() takes a config struct, not (timeout, panic)
-  esp_task_wdt_config_t wdt_cfg = {
+  esp_task_wdt_config_t wdtCfg = {
     .timeout_ms = WLED_WATCHDOG_TIMEOUT * 1000,
     .idle_core_mask = 0,       // don't subscribe idle tasks  -- only our loop task
     .trigger_panic = true,
   };
-  esp_err_t watchdog = esp_task_wdt_init(&wdt_cfg);
+  esp_err_t watchdog = esp_task_wdt_init(&wdtCfg);
   if (watchdog == ESP_ERR_INVALID_STATE) {
     // TWDT already initialized (by IDF startup), reconfigure it
-    watchdog = esp_task_wdt_reconfigure(&wdt_cfg);
+    watchdog = esp_task_wdt_reconfigure(&wdtCfg);
   }
   #else
   esp_err_t watchdog = esp_task_wdt_init(WLED_WATCHDOG_TIMEOUT, true);
@@ -633,6 +636,7 @@ void WLED::setup()
 
   DEBUG_PRINTLN(F("Initializing strip"));
   beginStrip();
+  rebuildDdpSlots(); // segments fully init'd now; redo after deserializeConfig() early call
   DEBUG_PRINTF_P(PSTR("heap %u\n"), getFreeHeapSize());
 
   DEBUG_PRINTLN(F("Usermods setup"));
@@ -702,6 +706,7 @@ void WLED::setup()
     }
     #endif
     findWiFi(true);
+    forceReconnect = true; // trigger initConnection() from main loop after PPP is up
   } else {
     // Fresh install  -- PPP only, no WiFi STA scanning
     DEBUG_PRINTLN(F("PPP+WiFi: fresh NVS, skipping WiFi STA (PPP provides connectivity)"));

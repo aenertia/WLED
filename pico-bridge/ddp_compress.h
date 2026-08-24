@@ -10,7 +10,7 @@
 
 #define DDP_FLAGS_VER1    0x40
 #define DDP_FLAGS_PUSH    0x01
-#define DDP_FLAGS_COMPRESSED 0x20
+#define DDP_TYPE_COMPRESSED  0x80  /* C bit in dataType byte (pkt[2]) */
 
 #define DDP_COMP_TYPE_NONE      0x00
 #define DDP_COMP_TYPE_DELTA_RLE 0x10

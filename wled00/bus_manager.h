@@ -130,6 +130,7 @@ class Bus {
     virtual void     begin()                                    {};
     virtual void     show()                                     = 0;
     virtual bool     canShow() const                            { return true; }
+    virtual uint32_t getShowUs() const                          { return 0; }
     virtual void     setStatusPixel(uint32_t c)                 {}
     virtual void     setPixelColor(unsigned pix, uint32_t c)    = 0;
     virtual void     setBrightness(uint8_t b)                   { _bri = b; };
@@ -146,8 +147,6 @@ class Bus {
     virtual uint8_t  getDriverType() const                      { return 0; } // Default to RMT (0) for non-digital buses
     virtual size_t   getBusSize() const                         { return sizeof(Bus); } // currently unused
     virtual const String getCustomText() const                  { return String(); }
-    // true  -> BusManager::show() skips this bus when no segment is active
-    virtual bool     hasIdleSkip() const                        { return false; }
     inline  bool     isSkipShow() const                         { return _skipShow; }
     inline  void     setSkipShow(bool s)                        { _skipShow = s; }
 
@@ -233,7 +232,7 @@ class Bus {
       bool _hasWhite;//     : 1;
       bool _hasCCT;//       : 1;
     //} __attribute__ ((packed));
-    bool _skipShow = false;  // managed by BusManager::show() idle-skip gate
+    bool _skipShow = false;  // set by BusManager::show() when no segment maps to this bus
     static uint8_t _gAWM;
     // _cct has the following meanings (see calculateCCT() & BusManager::setSegmentCCT()):
     //    -1 means to extract approximate CCT value in K from RGB (in calcualteCCT())
@@ -258,6 +257,8 @@ class BusDigital : public Bus {
 
     void show() override;
     bool canShow() const override;
+    uint32_t getShowUs() const override;
+    uint16_t protocolRateKHz() const;
     void setStatusPixel(uint32_t c) override;
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     void setColorOrder(uint8_t colorOrder) override;
@@ -362,7 +363,6 @@ class BusNetwork : public Bus {
     ~BusNetwork() { cleanup(); }
 
     bool canShow() const override  { return !_broadcastLock; } // this should be a return value from UDP routine if it is still sending data out
-    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     size_t getPins(uint8_t* pinArray = nullptr) const override;
@@ -426,7 +426,6 @@ class BusPlaceholder : public Bus {
 class BusHub75Matrix : public Bus {
   public:
     BusHub75Matrix(const BusConfig &bc);
-    bool hasIdleSkip() const override { return true; }
     [[gnu::hot]] void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
@@ -465,7 +464,6 @@ class BusSPIMatrix : public Bus {
   public:
     BusSPIMatrix(const BusConfig &bc);
     ~BusSPIMatrix() { cleanup(); }
-    bool hasIdleSkip() const override { return true; }
     void setPixelColor(unsigned pix, uint32_t c) override;
     [[gnu::hot]] uint32_t getPixelColor(unsigned pix) const override;
     void show() override;
@@ -481,6 +479,7 @@ class BusSPIMatrix : public Bus {
     uint8_t  getScaleY() const { return _scaleY; }
     uint16_t getDmaRows() const { return _dmaRows; }
     size_t   getDmaStripBytes() const { return _dmaStripBytes; }
+    uint32_t getShowUs() const override;
   private:
     uint16_t _panelWidth;
     uint16_t _panelHeight;
@@ -495,6 +494,9 @@ class BusSPIMatrix : public Bus {
     uint16_t  _activeRowMin = 0;         // first virtual row with active segment (inclusive)
     uint16_t  _activeRowMax = 0;         // last virtual row with active segment (exclusive), 0 = fully idle
     uint16_t  _prevActiveRowMax = 0;     // previous range max  -- for blank-push on deactivation
+    bool      _dmaInFlight = false;      // last strip DMA deferred to next show()
+    bool      _writeOpen = false;        // startWrite() active, endWrite() deferred
+    void      drainDma();                // collect deferred DMA + close SPI transaction
     bool allocateBuffers();
     void deallocateBuffers();            // frees DMA/snap bufs when skip-show activates
     void recalcActiveRowRange();
@@ -622,6 +624,18 @@ namespace BusManager {
   [[gnu::hot]] uint32_t getPixelColor(unsigned pix);
   void        show();
   bool        canAllShow();
+  static uint8_t computeSafeDdpFps() {
+    uint32_t sumUs = 0;
+    for (const auto &bus : busses) {
+      if (!bus->isOk()) continue;
+      sumUs += bus->getShowUs();
+    }
+    if (sumUs == 0) return 255;
+    // BusManager::show() is sequential -- use SUM not MAX. 70% headroom
+    // accounts for pixel conversion, dirty-row scan, and main loop overhead.
+    uint32_t fps = 700000UL / sumUs;
+    return (uint8_t)(fps > 255 ? 255 : (fps < 1 ? 1 : fps));
+  }
   inline void setStatusPixel(uint32_t c) { for (auto &bus : busses) bus->setStatusPixel(c);}
   inline void setBrightness(uint8_t b)   { for (auto &bus : busses) bus->setBrightness(b); }
   // for setSegmentCCT(), cct can only be in [-1,255] range; allowWBCorrection will convert it to K

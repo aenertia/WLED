@@ -257,6 +257,19 @@ bool BusDigital::canShow() const {
   return PolyBus::canShow(_busPtr, _iType);
 }
 
+uint16_t BusDigital::protocolRateKHz() const {
+  if (is2Pin()) return _frequencykHz ? _frequencykHz : 2000;
+  return 800; // WS2812/SK6812: 800kHz data rate per protocol spec (1.25us/bit)
+}
+
+uint32_t BusDigital::getShowUs() const {
+  if (isSkipShow()) return 0;
+  uint16_t rateKHz = protocolRateKHz();
+  if (rateKHz == 0) return 0;
+  uint8_t bitsPerLed = is2Pin() ? 32 : (hasWhite() ? 32 : 24);
+  return ((uint32_t)_len * bitsPerLed * 1000UL) / rateKHz;
+}
+
 //If LEDs are skipped, it is possible to use the first as a status LED.
 //TODO only show if no new show due in the next 50ms
 void BusDigital::setStatusPixel(uint32_t c) {
@@ -1247,22 +1260,20 @@ size_t BusHub75Matrix::getPins(uint8_t* pinArray) const {
 // buses with no live output.
 static bool busHasActiveSegment(uint16_t busStart, uint16_t busLen) {
   const uint16_t busEnd = busStart + busLen;
-  // 2D: seg.start/stop are column coords; convert to flat pixel range via maxWidth.
   const bool is2D = (Segment::maxHeight > 1);
   const uint16_t mw = Segment::maxWidth;
   for (unsigned i = 0; i < strip.getSegmentsNum(); i++) {
     const Segment &seg = strip.getSegment(i);
+    if (!seg.isActive()) continue;  // ghost slots (stop=0) have stale coords
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
-      segPixEnd   = (uint16_t)seg.stopY  * mw;
+      segPixEnd   = (uint16_t)(seg.stopY - 1) * mw + seg.stop;
     } else {
       segPixStart = seg.start;
       segPixEnd   = seg.stop;
     }
     if (segPixEnd <= busStart || segPixStart >= busEnd) continue;
-    // blendSegment() runs for transitioning segs even when on=false, so don't
-    // skip during a transition.
     if (seg.on && !seg.freeze) return true;
     if (realtimeMode != REALTIME_MODE_INACTIVE && (rtFrozenSegs & (1u << i))) return true;
   }
@@ -1427,15 +1438,24 @@ uint32_t BusSPIMatrix::getPixelColor(unsigned pix) const {
   return strip.getPixelColorNoMap(_start + pix);
 }
 
+void BusSPIMatrix::drainDma() {
+  if (!_spiDisplay) return;
+  if (_dmaInFlight) { _spiDisplay->dmaWait(); _dmaInFlight = false; }
+  if (_writeOpen)   { _spiDisplay->endWrite(); _writeOpen = false; }
+}
+
 void BusSPIMatrix::show() {
   if (!_valid || !_spiDisplay) return;
   if (_skipShow) {
+    drainDma();
     if (_buffersAllocated) deallocateBuffers();  // reclaim ~28KB while idle
     return;
   }
   if (!_buffersAllocated) {
     if (!allocateBuffers()) return;  // allocation failed  -- skip this frame, retry next
   }
+
+  drainDma();
 
   recalcActiveRowRange();  // ~5us
 
@@ -1451,14 +1471,14 @@ void BusSPIMatrix::show() {
     _prevActiveRowMax = _activeRowMax;  // don't re-expand next frame
   }
 
-  // Snapshot only the rows being pushed; barrier ensures Core 0 DDP writes are visible.
   __sync_synchronize();
-  {
+  if (_snapBuf) {
     unsigned snapStart = pushRowMin * _panelWidth;
     unsigned snapLen   = (pushRowMax - pushRowMin) * _panelWidth;
     memcpy(_snapBuf + snapStart, strip.getPixelsRaw() + _start + snapStart, snapLen * sizeof(uint32_t));
+    __sync_synchronize();
   }
-  __sync_synchronize();
+  const uint32_t *srcPix = _snapBuf ? _snapBuf : (strip.getPixelsRaw() + _start);
 
   const uint16_t physW = _panelWidth * _scaleX;
   const uint16_t numStrips = (_panelHeight + _dmaRows - 1) / _dmaRows;
@@ -1487,7 +1507,7 @@ void BusSPIMatrix::show() {
       for (uint8_t sy = 0; sy < _scaleY; sy++) {
         unsigned outOff = (row * _scaleY + sy) * physW;
         for (uint16_t x = 0; x < _panelWidth; x++) {
-          uint32_t c = color_fade(_snapBuf[rowBase + x], _bri, true);
+          uint32_t c = color_fade(srcPix[rowBase + x], _bri, true);
           uint16_t px = ((R(c) & 0xF8) << 8) | ((G(c) & 0xFC) << 3) | (B(c) >> 3);
           uint16_t swapped = (px >> 8) | (px << 8);
           for (uint8_t sx = 0; sx < _scaleX; sx++) {
@@ -1501,10 +1521,9 @@ void BusSPIMatrix::show() {
     _activeBuf ^= 1;
   }
 
-  if (dmaStarted) {
-    _spiDisplay->dmaWait();
-  }
-  _spiDisplay->endWrite();
+  // Defer final DMA wait + endWrite to next show() -- frees main loop for DDP/WiFi
+  _dmaInFlight = dmaStarted;
+  _writeOpen = true;
 }
 
 void BusSPIMatrix::setBrightness(uint8_t b) {
@@ -1547,7 +1566,7 @@ void BusSPIMatrix::recalcActiveRowRange() {
     uint16_t segPixStart, segPixEnd;
     if (is2D) {
       segPixStart = (uint16_t)seg.startY * mw + seg.start;
-      segPixEnd   = (uint16_t)seg.stopY * mw;
+      segPixEnd   = (uint16_t)(seg.stopY - 1) * mw + seg.stop;
     } else {
       segPixStart = seg.start;
       segPixEnd   = seg.stop;
@@ -1565,6 +1584,16 @@ void BusSPIMatrix::recalcActiveRowRange() {
   if (rMax == 0) { _activeRowMin = 0; _activeRowMax = 0; return; }
   _activeRowMin = rMin;
   _activeRowMax = min(rMax, _panelHeight);
+}
+
+uint32_t BusSPIMatrix::getShowUs() const {
+  if (isSkipShow() || !_buffersAllocated || _dmaRows == 0) return 0;
+  uint16_t activeRows = _activeRowMax > _activeRowMin ? _activeRowMax - _activeRowMin : 0;
+  if (activeRows == 0) return 0;
+  uint16_t physW   = _panelWidth * _scaleX;
+  uint16_t nStrips = (activeRows + _dmaRows - 1) / _dmaRows;
+  uint32_t stripUs = ((uint32_t)_dmaRows * physW * 16UL) / (SPI_FREQUENCY / 1000000UL);
+  return (uint32_t)nStrips * (stripUs + 500); // 500us measured per-strip setAddrWindow overhead
 }
 
 // Lazy-allocate DMA ping-pong and snapshot buffers. Returns false on OOM (retries next frame).
@@ -1587,15 +1616,14 @@ bool BusSPIMatrix::allocateBuffers() {
     _dmaBuf[1] = (uint16_t*)heap_caps_malloc(_dmaStripBytes, MALLOC_CAP_DMA);
   }
 
-  _snapBuf = (uint32_t*)calloc(_len, sizeof(uint32_t));  // zeroed  -- inactive rows are black
-
-  if (!_dmaBuf[0] || !_dmaBuf[1] || !_snapBuf) {
+  if (!_dmaBuf[0] || !_dmaBuf[1]) {
     DEBUGBUS_PRINTLN(F("TFT allocateBuffers() failed  -- will retry next frame"));
     heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
     heap_caps_free(_dmaBuf[1]); _dmaBuf[1] = nullptr;
-    free(_snapBuf); _snapBuf = nullptr;
     return false;
   }
+  if (_scaleX > 1 || _scaleY > 1)
+    _snapBuf = (uint32_t*)calloc(_len, sizeof(uint32_t));
 
   _buffersAllocated = true;
   DEBUGBUS_PRINTF_P(PSTR("TFT allocateBuffers(): %u + %u + %u = %u bytes\n"),
@@ -1608,6 +1636,7 @@ bool BusSPIMatrix::allocateBuffers() {
 // Free DMA/snap buffers when idle; re-allocated on next active show().
 void BusSPIMatrix::deallocateBuffers() {
   if (!_buffersAllocated) return;
+  drainDma();  // must complete in-flight DMA before freeing its target buffer
   heap_caps_free(_dmaBuf[0]); _dmaBuf[0] = nullptr;
   heap_caps_free(_dmaBuf[1]); _dmaBuf[1] = nullptr;
   free(_snapBuf); _snapBuf = nullptr;
@@ -1617,6 +1646,7 @@ void BusSPIMatrix::deallocateBuffers() {
 
 void BusSPIMatrix::cleanup() {
   DEBUGBUS_PRINTLN(F("SPI Matrix Cleanup."));
+  drainDma();
   deallocateBuffers();
   _valid = false;
 }
@@ -1647,6 +1677,9 @@ size_t BusPlaceholder::getPins(uint8_t* pinArray) const {
 
 //utility to get the approx. memory usage of a given BusConfig inclduding segmentbuffer and global buffer (4 bytes per pixel)
 size_t BusConfig::memUsage() const {
+#ifdef WLED_ENABLE_SPI_MATRIX
+  if (Bus::isSPIMatrix(type)) return sizeof(BusSPIMatrix);
+#endif
   size_t mem = (count + skipAmount) * 8; // 8 bytes per pixel for segment + global buffer
   if (Bus::isVirtual(type)) {
     mem += sizeof(BusNetwork) + (count * Bus::getNumberOfChannels(type)); // note: getNumberOfChannels() includes CCT channel if applicable but virtual buses do not use CCT channel buffer
@@ -1657,7 +1690,7 @@ size_t BusConfig::memUsage() const {
     mem += sizeof(BusOnOff);
 #ifdef WLED_ENABLE_SPI_MATRIX
   } else if (Bus::isSPIMatrix(type)) {
-    mem += sizeof(BusSPIMatrix) + count * sizeof(uint32_t);  // _snapBuf (DMA buffers allocated from DMA-capable heap separately)
+    mem += sizeof(BusSPIMatrix);
 #endif
   } else {
     mem += sizeof(BusPwm);
@@ -1831,16 +1864,12 @@ void BusManager::off() {
 void BusManager::show() {
   applyABL(); // apply brightness limit, updates _gMilliAmpsUsed
   for (auto &bus : busses) {
-    // Blank-then-skip: first idle frame runs show() to blank the display,
-    // subsequent idle frames skip entirely.
-    if (bus->hasIdleSkip()) {
-      const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
-      if (!hasActive) {
-        if (bus->isSkipShow()) continue;
-        bus->setSkipShow(true);
-      } else {
-        bus->setSkipShow(false);
-      }
+    const bool hasActive = busHasActiveSegment(bus->getStart(), bus->getLength());
+    if (!hasActive) {
+      if (bus->isSkipShow()) continue;
+      bus->setSkipShow(true);  // first idle frame blanks, subsequent frames skip
+    } else {
+      bus->setSkipShow(false);
     }
     bus->show();
   }

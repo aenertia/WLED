@@ -1,0 +1,61 @@
+pattern,codec,lossy,raw_bytes,compressed_bytes,ratio_pct,saved_pct,frames,pixels,live_smooth_fps,live_max_fps,live_ratio,quality_note
+rainbow,raw,no,288000,288000,100.0,0.0,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,raw,yes,288000,288000,100.0,0.0,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,rle,no,288000,288000,100.0,0.0,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,rle,yes,288000,288000,100.0,0.0,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,delta-rle,no,288000,288000,100.0,0.0,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,delta-rle,yes,288000,288000,100.0,0.0,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,tuple-rle,no,288000,270759,94.01,5.99,30,3200,,,,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,tuple-rle,yes,288000,109432,38.0,62.0,30,3200,,,,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,planar-rle,no,288000,99257,34.46,65.54,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+rainbow,planar-rle,yes,288000,48044,16.68,83.32,30,3200,10,11,1.000,Smooth hue gradient -- lossy causes subtle banding at mid-brightness transitions
+solid_pulse,raw,no,288000,288000,100.0,0.0,30,3200,10,11,1.000,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,raw,yes,288000,288000,100.0,0.0,30,3200,10,11,1.000,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,rle,no,288000,269100,93.44,6.56,30,3200,0,10,1.000,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,rle,yes,288000,269100,93.44,6.56,30,3200,0,10,1.000,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,delta-rle,no,288000,259650,90.16,9.84,30,3200,0,9,1.000,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,delta-rle,yes,288000,240750,83.59,16.41,30,3200,0,9,1.000,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,tuple-rle,no,288000,3000,1.04,98.96,30,3200,,,,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,tuple-rle,yes,288000,3000,1.04,98.96,30,3200,,,,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,planar-rle,no,288000,4680,1.62,98.38,30,3200,30,29,0.016,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+solid_pulse,planar-rle,yes,288000,4680,1.62,98.38,30,3200,30,29,0.016,Single-colour pulse -- lossy undetectable; brightness steps invisible at low bri
+sparse_twinkle,raw,no,288000,288000,100.0,0.0,30,3200,0,9,1.000,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,raw,yes,288000,288000,100.0,0.0,30,3200,10,11,1.000,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,rle,no,288000,121930,42.34,57.66,30,3200,0,9,1.000,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,rle,yes,288000,121930,42.34,57.66,30,3200,10,15,0.585,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,delta-rle,no,288000,14018,4.87,95.13,30,3200,20,27,0.116,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,delta-rle,yes,288000,14011,4.86,95.14,30,3200,20,27,0.124,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,tuple-rle,no,288000,148063,51.41,48.59,30,3200,,,,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,tuple-rle,yes,288000,148063,51.41,48.59,30,3200,,,,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,planar-rle,no,288000,180558,62.69,37.31,30,3200,0,9,1.000,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+sparse_twinkle,planar-rle,yes,288000,180558,62.69,37.31,30,3200,0,9,1.000,Random sparse pixels -- lossy reduces colour fidelity of individual twinkles
+ghost_rider,raw,no,288000,288000,100.0,0.0,30,3200,10,11,1.000,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,raw,yes,288000,288000,100.0,0.0,30,3200,10,11,1.000,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,rle,no,288000,5770,2.0,98.0,30,3200,30,29,0.035,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,rle,yes,288000,5770,2.0,98.0,30,3200,30,29,0.036,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,delta-rle,no,288000,5240,1.82,98.18,30,3200,30,30,0.032,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,delta-rle,yes,288000,5155,1.79,98.21,30,3200,30,29,0.031,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,tuple-rle,no,288000,5250,1.82,98.18,30,3200,,,,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,tuple-rle,yes,288000,5250,1.82,98.18,30,3200,,,,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,planar-rle,no,288000,6793,2.36,97.64,30,3200,0,9,1.000,Particle trail with fade -- lossy slightly flattens dim tail colours
+ghost_rider,planar-rle,yes,288000,6793,2.36,97.64,30,3200,20,29,0.051,Particle trail with fade -- lossy slightly flattens dim tail colours
+chase_wipe,raw,no,288000,288000,100.0,0.0,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,raw,yes,288000,288000,100.0,0.0,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,rle,no,288000,40257,13.98,86.02,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,rle,yes,288000,40257,13.98,86.02,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,delta-rle,no,288000,24137,8.38,91.62,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,delta-rle,yes,288000,24137,8.38,91.62,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,tuple-rle,no,288000,3208,1.11,98.89,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,tuple-rle,yes,288000,3208,1.11,98.89,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,planar-rle,no,288000,4888,1.7,98.3,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+chase_wipe,planar-rle,yes,288000,4888,1.7,98.3,30,3200,,,,Sequential wipe -- lossy undetectable on solid-colour leading edge
+gradient_fade,raw,no,288000,288000,100.0,0.0,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,raw,yes,288000,288000,100.0,0.0,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,rle,no,288000,288000,100.0,0.0,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,rle,yes,288000,288000,100.0,0.0,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,delta-rle,no,288000,288000,100.0,0.0,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,delta-rle,yes,288000,288000,100.0,0.0,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,tuple-rle,no,288000,30660,10.65,89.35,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,tuple-rle,yes,288000,23024,7.99,92.01,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,planar-rle,no,288000,38534,13.38,86.62,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range
+gradient_fade,planar-rle,yes,288000,20636,7.17,92.83,30,3200,,,,Linear fade -- lossy causes visible banding in dark-to-mid range

@@ -46,12 +46,46 @@ void WS2812FX::setUpMatrix() {
       return;
     }
 
+    // Guard: panel config must not claim more pixels than the bus actually has.
+    // Stale NVS from a different build (e.g. 80x160 panel on a 40x80 bus) passes
+    // the MAX_LEDS check above but causes OOM in d_malloc below.
+    if (Segment::maxWidth * Segment::maxHeight > getLengthTotal()) {
+      DEBUG_PRINTF_P(PSTR("2D panel config (%ux%u=%u) exceeds bus length %u -- resetting to 1D.\n"),
+                     Segment::maxWidth, Segment::maxHeight,
+                     Segment::maxWidth * Segment::maxHeight, getLengthTotal());
+      isMatrix = false;
+      Segment::maxWidth = _length;
+      Segment::maxHeight = 1;
+      panel.clear();
+      panel.shrink_to_fit();
+      resetSegments();
+      return;
+    }
+
     customMappingSize = 0; // prevent use of mapping if anything goes wrong
 
     d_free(customMappingTable);
     // Segment::maxWidth and Segment::maxHeight are set according to panel layout
     // and the product will include at least all leds in matrix
     // if actual LEDs are more, getLengthTotal() will return correct number of LEDs
+    {
+      // Pre-check heap before committing to the ledmap allocation.
+      // On low-heap builds (e.g. M5StickC with 12800px) a failed malloc causes a
+      // boot loop if the OOM happens before the watchdog is fed.
+      const size_t needed = sizeof(uint16_t) * getLengthTotal();
+      const size_t headroom = 8192;
+      if (getFreeHeapSize() < needed + headroom) {
+        DEBUG_PRINTF_P(PSTR("2D ledmap needs %u B but only %u free -- resetting to 1D.\n"),
+                       (unsigned)(needed + headroom), (unsigned)getFreeHeapSize());
+        isMatrix = false;
+        Segment::maxWidth = _length;
+        Segment::maxHeight = 1;
+        panel.clear();
+        panel.shrink_to_fit();
+        resetSegments();
+        return;
+      }
+    }
     customMappingTable = static_cast<uint16_t*>(d_malloc(sizeof(uint16_t)*getLengthTotal())); // prefer to not use SPI RAM
 
     if (customMappingTable) {

@@ -410,7 +410,7 @@ void rebuildDdpSlots() {
   for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
     if (!(ddpEligibleMask & (1UL << i))) continue;
     Segment &seg = strip.getSegment(i);
-    if (!seg.isActive()) continue;
+    if (seg.stop <= seg.start) continue; // skip degenerate/unset segments
     DdpSegSlot &slot = ddpSlots[ddpSlotCount++];
     slot.segId = i;
     slot.globalStart = ddpTotalEligible;
@@ -477,9 +477,6 @@ void exitRealtime() {
   } else {
     strip.show();
   }
-#ifdef WLED_ENABLE_DDP_COMPRESSION
-  ddpFreePrevFrame();
-#endif
   updateInterfaces(CALL_MODE_WS_SEND);
 }
 
