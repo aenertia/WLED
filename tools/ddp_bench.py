@@ -548,16 +548,19 @@ def diagnostic_pattern_rgbw(n, width):
 # Device communication helpers
 # ---------------------------------------------------------------------------
 
+_diag_target = None  # overridable via --diag-target; falls back to DDP target
+
 def get_diag(target):
-    try: return urllib.request.urlopen(f"http://{target}/diag", timeout=3).read().decode().strip()
+    dt = _diag_target or target
+    try: return urllib.request.urlopen(f"http://{dt}/diag", timeout=3).read().decode().strip()
     except: return "UNREACHABLE"
 
 def _get_diag_retry(target, retries=3):
-    """Fetch /diag with retries until heap= is present."""
+    dt = _diag_target or target
     for _ in range(retries):
         try:
             txt = urllib.request.urlopen(
-                f"http://{target}/diag", timeout=3).read().decode().strip()
+                f"http://{dt}/diag", timeout=3).read().decode().strip()
             if 'heap=' in txt:
                 return txt
         except:
@@ -979,6 +982,10 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
         time.sleep(1.5)  # settle before polling diag
         diag_txt = _get_diag_retry(target)
         d1 = parse_diag(diag_txt)
+        if 'heap' not in d1:
+            # Device unreachable -- PPP dropped. Abort cell.
+            print(f"    {target_fps:>4}fps -> UNREACHABLE (PPP dropped, aborting cell)")
+            break
         lag = d1.get('loopLag', 0)
         drops_now = d1.get('drops', base_drops)
         delta_drops = max(0, drops_now - base_drops)
@@ -1095,7 +1102,8 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
 
 def main():
     parser = argparse.ArgumentParser(description="DDP benchmark & diagnostic tool")
-    parser.add_argument("--target", default="169.254.7.1", help="Device IP (default: 169.254.7.1)")
+    parser.add_argument("--target", default="169.254.7.1", help="Device IP for DDP UDP (default: 169.254.7.1)")
+    parser.add_argument("--diag-target", default="", help="Device IP for HTTP /diag and /json (default: same as --target). Use WiFi IP when --target is a PPP address to avoid HTTP starvation under DDP load.")
     parser.add_argument("--port", type=int, default=DDP_DEFAULT_PORT, help=f"DDP port (default: {DDP_DEFAULT_PORT})")
     parser.add_argument("--width", type=int, default=20, help="Matrix width (default: 20)")
     parser.add_argument("--height", type=int, default=40, help="Matrix height (default: 40)")
@@ -1130,8 +1138,9 @@ def main():
 
     args = parser.parse_args()
 
-    global _bench_width, _bench_height, _lossy_depth
+    global _bench_width, _bench_height, _lossy_depth, _diag_target
     _lossy_depth = args.lossy_depth
+    _diag_target = args.diag_target if args.diag_target else None
     target = args.target
     port = args.port
     mtu = args.mtu
