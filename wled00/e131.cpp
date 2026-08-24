@@ -561,7 +561,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
 ddp_push:
 #endif
   ddpSeenPush |= push;
-  if (!ddpSeenPush || push) {
+  if (push) {
     ddpPushCount++;
     int sn = p->sequenceNum & 0xF;
     if (sn && ddpLastSeq) {
