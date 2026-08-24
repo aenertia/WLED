@@ -580,10 +580,13 @@ def parse_diag(txt):
     return vals
 
 def _set_live(target, on=True):
-    """Enable or disable realtime live mode on the device."""
+    """Enable or disable realtime live mode on the device.
+    Routes through _diag_target when set so the POST doesn't fight DDP
+    for PPP bandwidth."""
+    dt = _diag_target or target
     body = b'{"on":true,"bri":255,"live":true}' if on else b'{"live":false}'
     try:
-        req = urllib.request.Request(f"http://{target}/json/state",
+        req = urllib.request.Request(f"http://{dt}/json/state",
             data=body, headers={"Content-Type": "application/json"}, method="POST")
         urllib.request.urlopen(req, timeout=5)
     except:
@@ -921,25 +924,43 @@ def run_ifs(target, port, width, height, presets, preset_dur, fps, rate_limiter)
 # FPS sweep mode (--sweep)
 # ---------------------------------------------------------------------------
 
+def _target_reachable(target):
+    """Return True if target responds to a single ICMP ping."""
+    import subprocess
+    r = subprocess.run(["ping", "-c", "1", "-W", "2", target],
+                       capture_output=True)
+    return r.returncode == 0
+
+
 def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
                     level_dur):
     """Run one codec x pattern cell of the FPS sweep. Returns result dict."""
-    rate = TokenBucket(115000, burst_bytes=1210)
+    # Check target before opening socket -- if PPP is down we'd send to /dev/null.
+    if not _target_reachable(target):
+        print(f"  SKIP: DDP target {target} unreachable before cell start")
+        return dict(codec=codec, pattern=pat_name,
+                    smooth_fps=0, max_fps=0, kbs=0.0, ratio=1.0,
+                    drops=0, lag=0, pix=0, pkts=0, skip=True)
+
+    # 75% of link rate -- leaves ~25% slack for TCP (diag polls, set_live POSTs).
+    # Larger burst (8KB) so TCP ACKs slip through inter-packet gaps.
+    rate = TokenBucket(int(115000 * 0.75), burst_bytes=8192)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
 
     _set_live(target, True)
-    time.sleep(0.3)
+    time.sleep(0.5)
 
     # Baseline counters -- retry until heap= present
     diag_txt = _get_diag_retry(target)
     d0 = parse_diag(diag_txt)
     base_drops = d0.get('drops', 0)
     base_pix   = d0.get('pix', 0)
+    base_pkts  = d0.get('pkts', 0)
 
     smooth_fps = 0; max_fps = 0
     smooth_kbs = 0.0; smooth_ratio = 1.0
-    peak_lag = 0; total_drops = 0; total_pix = 0
+    peak_lag = 0; total_drops = 0; total_pix = 0; total_pkts = 0
 
     for target_fps in fps_levels:
         iv = 1.0 / target_fps
@@ -979,12 +1000,13 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
         kbs = wire_b / 1024 / el if el else 0
         ratio = wire_b / raw_b if raw_b else 1.0
 
-        time.sleep(1.5)  # settle before polling diag
+        # 3s settle: realtime timeout is 2.5s; wait for exit before polling.
+        time.sleep(3.0)
         diag_txt = _get_diag_retry(target)
         d1 = parse_diag(diag_txt)
         if 'heap' not in d1:
-            # Device unreachable -- PPP dropped. Abort cell.
             print(f"    {target_fps:>4}fps -> UNREACHABLE (PPP dropped, aborting cell)")
+            total_pkts += max(0, d1.get('pkts', base_pkts) - base_pkts)
             break
         lag = d1.get('loopLag', 0)
         drops_now = d1.get('drops', base_drops)
@@ -996,6 +1018,10 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
         delta_pix = max(0, pix_now - base_pix)
         base_pix = pix_now
         total_pix += delta_pix
+        pkts_now = d1.get('pkts', base_pkts)
+        delta_pkts = max(0, pkts_now - base_pkts)
+        base_pkts = pkts_now
+        total_pkts += delta_pkts
 
         ok = (afps >= target_fps * 0.95
               and delta_drops == 0
@@ -1009,7 +1035,7 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
 
         print(f"    {target_fps:>4}fps -> {afps:>5.1f}fps  {kbs:>6.1f}KB/s  "
               f"ratio={ratio:.2f}  drops={delta_drops}  lag={lag}ms  "
-              f"pix={delta_pix}  {'OK' if ok else 'STOP'}")
+              f"pix={delta_pix}  pkts={delta_pkts}  {'OK' if ok else 'STOP'}")
         if not ok:
             break
 
@@ -1018,7 +1044,27 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
     return dict(codec=codec, pattern=pat_name,
                 smooth_fps=smooth_fps, max_fps=max_fps,
                 kbs=round(smooth_kbs, 1), ratio=round(smooth_ratio, 3),
-                drops=total_drops, lag=peak_lag, pix=total_pix)
+                drops=total_drops, lag=peak_lag, pix=total_pix,
+                pkts=total_pkts)
+
+
+_ppp_restart_cmd = None  # set via --ppp-restart-cmd
+
+
+def _try_ppp_restart(target, restart_cmd):
+    """Attempt PPP restart using restart_cmd; wait up to 12s for target to come up."""
+    import subprocess
+    if not restart_cmd:
+        return False
+    print(f"  PPP down -- running: {restart_cmd}")
+    subprocess.run(restart_cmd, shell=True)
+    for _ in range(12):
+        time.sleep(1)
+        if _target_reachable(target):
+            print("  PPP recovered")
+            return True
+    print("  PPP restart failed")
+    return False
 
 
 def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
@@ -1037,15 +1083,8 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
     print(f"Duration: {level_dur}s per level")
     print("=" * 72)
 
-    # Verify DDP target (UDP destination) is reachable before starting.
-    # When --diag-target is set, the diag poll will succeed even if the DDP
-    # target (PPP) is down. Send a test ping to catch that case early.
-    import subprocess
-    r = subprocess.run(["ping", "-c", "1", "-W", "2", target],
-                       capture_output=True)
-    if r.returncode != 0:
-        print(f"ERROR: DDP target {target} unreachable (ping failed). "
-              f"Is PPP up?")
+    if not _target_reachable(target):
+        print(f"ERROR: DDP target {target} unreachable. Is PPP up?")
         return
 
     diag_txt = _get_diag_retry(target)
@@ -1063,25 +1102,35 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
     for codec in codecs:
         for pat_name in patterns:
             _gr_reset()
+            # Per-cell PPP liveness check; attempt restart if --ppp-restart-cmd given.
+            if not _target_reachable(target):
+                if not _try_ppp_restart(target, _ppp_restart_cmd):
+                    print(f"\n[UDP/PPP] codec={codec} pattern={pat_name} -- SKIP (PPP down, no recovery)")
+                    results.append(dict(codec=codec, pattern=pat_name,
+                                        smooth_fps=0, max_fps=0, kbs=0.0, ratio=1.0,
+                                        drops=0, lag=0, pix=0, pkts=0, skip=True))
+                    continue
+                time.sleep(1)
             print(f"\n[UDP/PPP] codec={codec} pattern={pat_name}")
             r = _run_sweep_cell(target, port, num_leds, pat_name, codec,
                                 fps_levels, level_dur)
             results.append(r)
             print(f"  -> smooth={r['smooth_fps']}fps  max={r['max_fps']}fps  "
                   f"{r['kbs']}KB/s  ratio={r['ratio']:.3f}  "
-                  f"drops={r['drops']}  lag={r['lag']}ms  pix={r['pix']}")
+                  f"drops={r['drops']}  lag={r['lag']}ms  pix={r['pix']}  pkts={r['pkts']}")
             time.sleep(2)
 
     # Summary table
     hdr = (f"\n{'Codec':<12} {'Pattern':<12} {'Smooth':>7} {'Max':>5} "
-           f"{'KB/s':>7} {'Ratio':>6} {'Drops':>6} {'Lag':>5} {'Pix':>10}")
-    sep = "-" * 84
+           f"{'KB/s':>7} {'Ratio':>6} {'Drops':>6} {'Lag':>5} {'Pix':>10} {'Pkts':>7}")
+    sep = "-" * 93
     table_lines = [hdr, sep]
     for r in results:
+        skip_flag = " *SKIP*" if r.get('skip') else ""
         row = (f"{r['codec']:<12} {r['pattern']:<12} "
                f"{r['smooth_fps']:>6}fps {r['max_fps']:>4}fps "
                f"{r['kbs']:>7.1f} {r['ratio']:>6.3f} "
-               f"{r['drops']:>6} {r['lag']:>4}ms {r.get('pix',0):>10}")
+               f"{r['drops']:>6} {r['lag']:>4}ms {r.get('pix',0):>10} {r.get('pkts',0):>7}{skip_flag}")
         table_lines.append(row)
 
     table_str = "\n".join(table_lines)
@@ -1141,17 +1190,23 @@ def main():
 
     # FPS sweep
     parser.add_argument("--sweep", action="store_true", help="UDP/PPP FPS sweep mode")
-    parser.add_argument("--codecs", default="raw,rle,delta-rle,planar-rle", help="Comma-separated codec list (default: all)")
+    parser.add_argument("--codecs", default="rle,delta-rle,planar-rle",
+                        help="Comma-separated codec list (default: rle,delta-rle,planar-rle). "
+                             "Omit 'raw' for PPP: 3200px raw=93.7KB/s saturates the 1.5Mbaud link.")
     parser.add_argument("--patterns", default="rainbow,pulse,twinkle,ghost_rider", help="Comma-separated pattern names (default: all)")
     parser.add_argument("--fps-levels", default="10,20,30,40,50,60,80,100,120", help="Comma-separated FPS targets")
     parser.add_argument("--level-dur", type=float, default=8, help="Seconds per FPS level (default: 8)")
     parser.add_argument("--out", default="/tmp/bench_results.txt", help="Results output file (default: /tmp/bench_results.txt)")
+    parser.add_argument("--ppp-restart-cmd", default="",
+                        help="Shell command to restart PPP when it drops mid-sweep. "
+                             "Example: \"sudo pppd /dev/ttyUSB0 1500000 noauth nodetach local nocrtscts novj nodeflate nobsdcomp noaccomp nopcomp lcp-echo-interval 0 mru 1500 mtu 1500 169.254.7.2:169.254.7.1 &\"")
 
     args = parser.parse_args()
 
-    global _bench_width, _bench_height, _lossy_depth, _diag_target
+    global _bench_width, _bench_height, _lossy_depth, _diag_target, _ppp_restart_cmd
     _lossy_depth = args.lossy_depth
     _diag_target = args.diag_target if args.diag_target else None
+    _ppp_restart_cmd = args.ppp_restart_cmd if args.ppp_restart_cmd else None
     target = args.target
     port = args.port
     mtu = args.mtu
