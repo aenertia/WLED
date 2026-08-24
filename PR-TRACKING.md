@@ -5,7 +5,7 @@
 **Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
 **Active branch**: `dev/ppp-wifi`
-**Last updated**: Session 22 (August 2026)
+**Last updated: Session 27 (August 2026)
 
 ## Status summary
 
@@ -14,7 +14,7 @@
 | PR branches | 23 |
 | Forgejo issues | #1–#28 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | 5 PRs open + 3 issues — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
+| Upstream submissions | 3 PRs open + 1 merged + 1 closed + 3 issues (1 closed) — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
 | ESPAsync upstream issues | 1 filed — [ESP32Async/ESPAsyncWebServer discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) (see Forgejo [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28)) |
 
 ## Phase 1 — Bug fixes (submit first)
@@ -22,7 +22,7 @@
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/mdns-ppp-crash-fix` | [#18](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/18) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/mdns-ppp-crash-fix/DRAFT_PR.md) | mDNS NULL netif crash on WiFi STA disconnect under PPP | Ready |
-| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Submitted** — [wled/WLED#5808](https://github.com/wled/WLED/pull/5808) · PR desc updated with accurate ESPAsync mechanism · ESPAsync root cause filed — Forgejo [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28) |
+| `pr/chunked-json-fix` | [#5](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/5) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/chunked-json-fix/DRAFT_PR.md) | Content-Length for /json/fxdata — prevents truncation on slow links | **Closed** -- root cause found: sendChunked callback returned 0 instead of RESPONSE_TRY_AGAIN when buffer too small. Content-Length approach vetoed by willmmiles. Fix applied in json_chunked.h on dev/ppp-wifi.
 | `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | **Submitted** — [wled/WLED#5807](https://github.com/wled/WLED/pull/5807) |
 
 ## Phase 2 — Small upstream fixes (high viability)
@@ -30,7 +30,7 @@
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
 | `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WebSocket broadcast — saves 4–6KB heap | **Submitted** — [wled/WLED#5806](https://github.com/wled/WLED/pull/5806) · CR feedback addressed |
-| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Submitted** — [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) · CR feedback addressed |
+| `pr/segment-name-race-fix` | [#24](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/24) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-name-race-fix/DRAFT_PR.md) | alloc-fill-swap-free in Segment::setName() — dual-core race fix | **Merged** upstream -- [wled/WLED#5805](https://github.com/wled/WLED/pull/5805) merged by maintainer. Comments stripped per reviewer feedback (190676d3).
 | `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | **Submitted** — [wled/WLED#5804](https://github.com/wled/WLED/pull/5804) |
 
 ## Phase 3 — DDP compression

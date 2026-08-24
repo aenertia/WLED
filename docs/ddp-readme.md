@@ -1,6 +1,6 @@
 # DDP Implementation Reference
 
-**Repo**: `git@git.awa.3d.ae.net.nz:aenertia/wled.git`, branch `dev/ddp-spec`
+**Repo**: `https://github.com/aenertia/WLED`, branch `dev/ppp-wifi`
 **Device**: M5StickC (ESP32-PICO-D4, 4MB flash, no PSRAM), 40x80 virtual matrix
 **Transport tested**: PPP 1.5Mbaud, WiFi UDP
 
@@ -464,7 +464,7 @@ heapGuard (20KB threshold): never triggered
 
 ### 6.5 Wave 3 regression baselines
 
-Branch: dev/ddp-spec @ bece94c3, M5StickC 40x80 TFT, dual-stack (WiFi + PPP):
+Branch: dev/ppp-wifi @ bece94c3, M5StickC 40x80 TFT, dual-stack (WiFi + PPP):
 
 ```
 UDP WiFi:  661fps rainbow raw, 997fps pulse raw, heapGuard=0

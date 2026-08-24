@@ -3,7 +3,7 @@
 > **Branch**: `dev/ppp-wifi` | **Base**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED) upstream main
 > **Hardware**: M5StickC (ESP32-PICO-D4, 4MB flash, no PSRAM)
 > **Transport**: PPP-over-serial (USB) + WiFi STA/AP simultaneously
-> **Status**: Active development — 18 upstream PR candidates, none submitted yet
+> **Status**: Active development — 5 PRs submitted (1 merged), DDP compression + per-segment routing validated on device
 
 This is my personal fork of WLED targeting the M5StickC as a PC ARGB controller. The goal is a USB-connected LED controller that speaks DDP, HTTP, and mDNS over a PPP link rather than relying on WiFi association for every session. WiFi still works — you get both simultaneously — but PPP over the CP2104 USB-serial gives you a reliable, always-on network interface without the join/leave cycle.
 
@@ -104,7 +104,11 @@ The SPM1423 mic CLK line is GPIO0, which is also the ESP32 boot strapping pin. I
   - Mode A: DDP `destination` byte (1–32) routes to segment 0–31, channel offset is segment-relative
   - Mode B: `ddpEligibleMask` bitmask distributes a flat pixel stream across eligible segments
 
-- **Compressed DDP** (delta+RLE) — ~95% bandwidth reduction on sparse patterns. Sender computes delta against previous frame, RLE-encodes changed runs, packs into DDP extension bytes. See the [DDP spec](http://www.3waylabs.com/ddp/) for the extension byte layout this builds on.
+- **Compressed DDP** — six codec types in `handleDDPPacket()`: Delta+RLE (0x10), RLE keyframe (0x20), Transform (0x30), Delta-only (0x40), Tuple-RLE (0x50), Planar-RLE (0x60). Uses the DDP C bit (`dataType & 0x80`) as the compression signal. ~95% bandwidth reduction on sparse patterns, 62:1 on solid content. Python sender in `tools/ddp_bench.py`. Full spec in [`docs/ddp-readme.md`](docs/ddp-readme.md).
+
+- **Mixed-segment realtime** — internal effects and DDP can run on separate segments simultaneously. `service()` show is gated on `!rtFrozenSegs`; bus push is owned by `showFrozenSegs()` on DDP PUSH cadence, compositing both effect and DDP pixels atomically. Validated with Ghost Rider on seg0 + DDP twinkle on seg1.
+
+- **Auto-ceiling DDP rate** — `ddpCurrentSafeFps` computed from bus show times each loop iteration. Rate limiter gates DDP at `min(ddpMaxFps, ddpCurrentSafeFps)`. `/diag` exposes `ddpSlots`, `totalElig`, `eligMask`, `frozen` bitmask, per-bus `showUs`.
 
 - **Bus skip-show + DDP realtime fast path** — when a segment's bus has no changes (DDP frozen-segment check), `show()` is skipped entirely. TFT SPI DMA is the bottleneck at ~8ms per frame; skipping unchanged buses pushes sustained DDP throughput from 45fps to 119fps.
 
@@ -227,7 +231,7 @@ The bus skip-show path (45fps → 119fps) requires the DDP sender to hold frozen
 
 ## PR Candidates
 
-18 upstream PR candidates across 7 phases, none submitted yet. All live on `pr/*` topic branches rebased onto upstream `main`:
+5 PRs submitted upstream (1 merged, 1 closed, 3 open). All live on `pr/*` topic branches rebased onto upstream `main`:
 
 | Phase | Branches | Description |
 |-------|----------|-------------|
