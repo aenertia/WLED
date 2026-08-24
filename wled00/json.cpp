@@ -496,6 +496,7 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
       if (strip.getSegmentsNum() > 3 && deleted >= strip.getSegmentsNum()/2U) strip.purgeSegments(); // batch deleting more than half segments
     }
     strip.resume();
+    rebuildDdpSlots(); // segment geometry changed; update Mode B offset table
   }
   // reset segment request
   if (root[F("rSeg")] | false) {
