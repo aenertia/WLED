@@ -1077,15 +1077,18 @@ _ppp_restart_cmd = None  # set via --ppp-restart-cmd
 
 
 def _try_ppp_restart(target, restart_cmd):
-    """Attempt PPP restart using restart_cmd; wait up to 12s for target to come up."""
+    """Attempt PPP restart using restart_cmd; wait up to 15s for target to come up.
+    After ping succeeds, adds a 5s extra settle for PPP negotiation and the
+    ESP32 PPP stack to stabilise before the caller resumes sending DDP."""
     import subprocess
     if not restart_cmd:
         return False
     print(f"  PPP down -- running: {restart_cmd}")
     subprocess.run(restart_cmd, shell=True)
-    for _ in range(12):
+    for _ in range(15):
         time.sleep(1)
         if _target_reachable(target):
+            time.sleep(5)  # PPP link up but ESP32 stack needs settle time
             print("  PPP recovered")
             return True
     print("  PPP restart failed")
