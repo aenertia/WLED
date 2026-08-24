@@ -1037,6 +1037,17 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
     print(f"Duration: {level_dur}s per level")
     print("=" * 72)
 
+    # Verify DDP target (UDP destination) is reachable before starting.
+    # When --diag-target is set, the diag poll will succeed even if the DDP
+    # target (PPP) is down. Send a test ping to catch that case early.
+    import subprocess
+    r = subprocess.run(["ping", "-c", "1", "-W", "2", target],
+                       capture_output=True)
+    if r.returncode != 0:
+        print(f"ERROR: DDP target {target} unreachable (ping failed). "
+              f"Is PPP up?")
+        return
+
     diag_txt = _get_diag_retry(target)
     if not diag_txt:
         print("ERROR: device unreachable at", target)
