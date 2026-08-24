@@ -1839,9 +1839,6 @@ void WS2812FX::showFrozenSegs() {
   for (unsigned i = 0; i < _segments.size(); i++)
     if (_segments[i].isActive()) allActiveMask |= (1u << i);
 
-  // Case A: all active segments are frozen -> full pipeline needed (DDP to whole strip)
-  if ((rtFrozenSegs & allActiveMask) == allActiveMask) { show(); return; }
-
   // Case D: effect segments running -- service() calls show(); calling it here too
   // would double-show per iteration, hanging TFT SPI DMA.
   for (unsigned i = 0; i < _segments.size(); i++) {
