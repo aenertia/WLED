@@ -557,9 +557,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
-#ifdef WLED_ENABLE_DDP_COMPRESSION
 ddp_push:
-#endif
   ddpSeenPush |= push;
   if (push) {
     ddpPushCount++;
