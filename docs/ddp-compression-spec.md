@@ -138,8 +138,13 @@ Beats byte-RLE (0x20) when pixels repeat as complete tuples rather than per-chan
 - Control byte bit 7 = 0: RUN -- next tuple repeated `(ctrl & 0x7F) + 1` times
 - Control byte bit 7 = 1: LITERAL -- next `(ctrl & 0x7F) + 1` tuples copied verbatim
 
-**Multi-packet**: Safe for frames spanning multiple packets (channel offset advances
-in channel units).
+**Multi-packet constraint**: NOT safe for multi-packet frames. The device decoder
+initialises `pixel = channelOffset / channels` at the start of each packet, treating
+each packet as a new stream start rather than a continuation. Continuation packets
+(channelOffset > 0) decode garbage. Tuple-RLE frames MUST fit in a single UDP packet
+(<= MTU - DDP_HEADER_LEN, typically <= 1452B). For 1600px RGB (4800B raw), twinkle
+content compresses to ~4700B -- does not fit. Restrict to solid/palette content where
+compression achieves <1452B output, or use 0x00/0x20/0x10 for larger frames.
 
 ### 0x60 -- Planar-RLE (per-channel planes, each PackBits-encoded)
 
@@ -165,17 +170,17 @@ continuation packets (channelOffset > 0) for 0x60 frames.
 
 | Content | Recommended | Ratio | Notes |
 |---------|-------------|-------|-------|
-| Solid / uniform color | 0x60 planar-RLE | 50-100x | All planes compress as single run |
-| Wipe / bar fill | 0x50 tuple-RLE | 5-30x | Pixel-level runs |
+| Solid / uniform color | 0x60 planar-RLE | 50-100x | Single-packet only; falls back to 0x20 if > MTU |
+| Wipe / bar fill | 0x50 tuple-RLE | 5-30x | Single-packet only; falls back to 0x20 if > MTU |
 | Static frame (no change) | 0x10 delta-RLE | >100x | Delta = all zeros = single run |
 | Sparse twinkle (<10% change) | 0x10 delta-RLE | 5-20x | Delta isolates changed pixels |
 | Particle / ghost rider | 0x20 RLE | 20-50x | Most pixels black = long zero runs |
 | Rainbow / gradient | 0x00 raw | 1x | Incompressible; rate-limit instead |
 | First frame / resync | 0x20 RLE | varies | Always use for stream restart |
 
-**Adaptive selection** (sender-side): Compute all candidate encodings and pick the
-smallest. In practice: try planar (0x60), tuple (0x50), delta-RLE (0x10), RLE (0x20)
-in order; use raw (0x00) if none beats uncompressed.
+**Adaptive selection** (sender-side): try planar (0x60), tuple (0x50), delta-RLE
+(0x10), RLE (0x20) in order; use raw (0x00) if none beats uncompressed. For 0x60 and
+0x50, only use if the encoded size fits in a single UDP packet (<= ~1452B).
 
 ---
 
@@ -210,7 +215,60 @@ For non-delta codecs (0x20, 0x50, 0x60): stateless; every frame is self-containe
 
 ---
 
-## 7. Implementation files
+## 7. Per-segment DDP targeting (WLED extension)
+
+Standard DDP uses the destination byte (byte 3) as a device ID. This implementation
+repurposes it for sub-device segment targeting, enabling two routing modes.
+
+### Mode A: destination-routed
+
+`destination` byte 1-32 routes the packet to segment N-1. `channelOffset` is
+segment-relative (0 = first pixel of the target segment). The segment must be active;
+the packet is silently dropped if the segment index is out of range.
+
+```python
+# Send to segment 1 (destination=2), pixel offset 0
+struct.pack("!BBBBIH", flags, seq, data_type, 2, 0, len(payload))
+```
+
+### Mode B: eligibility-mask (concatenated stream)
+
+`destination` byte = 0. The receiver distributes pixels across all segments in the
+`ddpEligibleMask` bitmask, in segment-index order. The sender streams a flat pixel
+buffer; the receiver splits it at segment boundaries using a pre-computed slot table.
+
+Set the mask via `/json/cfg`: `{"if":{"live":{"ddpelig":3}}}` (segments 0 and 1).
+
+The slot table (`ddpSlots[]`, `ddpSlotCount`) is rebuilt whenever:
+- `/json/cfg` POST changes `ddpelig`
+- `/json/state` POST adds or modifies segments
+- `beginStrip()` completes at boot
+
+```python
+# Mode B: destination=0, flat pixel stream covers all eligible segments in order
+struct.pack("!BBBBIH", flags, seq, data_type, 0, byte_offset, len(chunk))
+```
+
+### Legacy (backwards compatible)
+
+`destination=0` with `ddpEligibleMask=0` uses the original full-strip absolute
+pixel indexing behaviour. No segment routing occurs.
+
+### Mixed-segment rendering (effect + DDP)
+
+When some segments run internal effects (non-frozen) and others are DDP-frozen,
+`service()` still runs effect functions but does NOT push to the bus. The push is
+owned by `showFrozenSegs()` Case D, triggered on DDP PUSH cadence via
+`handleNotifications()`. Case D calls `show()` which blends all segments from
+their respective `seg.pixels[]` buffers -- effects from the non-frozen segment,
+DDP data from the frozen segment -- then pushes to the bus atomically.
+
+This ensures the bus sees a coherent composite frame rather than racing between
+service() at 42fps and DDP at 30fps.
+
+---
+
+## 8. Implementation files
 
 | File | Purpose |
 |------|---------|
