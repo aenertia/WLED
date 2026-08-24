@@ -77,12 +77,30 @@ In all cases: `ddpEligibleMask` marks which segments accept realtime, the rest k
 
 ## Testing
 
-Validated on M5StickC (ESP32-PICO-D4) with:
-- Ghost Rider effect on seg0 + DDP twinkle stream on seg1 (mixed frozen/non-frozen)
-- Audioreactive usermod active during per-segment realtime (audio continues for
-  non-frozen segments)
-- Realtime enter/exit cycling (50 cycles, heap stable)
-- Full-strip legacy mode (`ddpelig=0`) unchanged behaviour
+Validated on M5StickC (ESP32-PICO-D4) with vanilla `esp32dev` build (no PPP, no SPI Matrix -- standard WiFi + WS2812B):
+
+**Build**: `esp32dev_g26_test` env extending `esp32dev` with `LEDPIN=26`, `DEFAULT_LED_COUNT=256`. Flash 85.0%, RAM 26.6%. Clean build, zero warnings.
+
+**3-segment mixed-mode test** (256px WS2812B strip on G26, split into 3 segments):
+- seg0 (0-85): Rainbow effect (fx=9)
+- seg1 (86-171): DDP eligible (`ddpelig=2`)
+- seg2 (172-255): Ghost Rider effect (fx=120)
+
+Results via `/json/info` during DDP streaming to seg1:
+```
+ddpelig: 2        -- seg1 eligible
+ddpslots: 1       -- one slot in offset table
+frozensegs: 2     -- bit 1 set = seg1 frozen by realtime
+live: True         -- realtime mode active
+liveseg: 1        -- first frozen segment is seg1
+```
+
+seg0 (Rainbow) and seg2 (Ghost Rider) continued running effects undisturbed while seg1 received DDP pixel data. Mixed frozen/non-frozen segment rendering confirmed operational.
+
+**Additional validation from fork testing** (M5StickC with SPI Matrix TFT + WS2812B, dual-stack WiFi+PPP):
+- Ghost Rider on seg0 + DDP twinkle on seg1: all codecs (Raw RGB, RLE, Delta+RLE) clean, no tearing
+- 50-cycle realtime enter/exit soak: heap stable, no leak
+- Full-strip legacy mode (`ddpelig=0`): unchanged behaviour confirmed
 
 ## Development process
 

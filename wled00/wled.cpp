@@ -553,7 +553,7 @@ void WLED::setup()
 
   DEBUG_PRINTLN(F("Initializing strip"));
   beginStrip();
-  rebuildDdpSlots(); // segments fully init'd now; redo after deserializeConfig() early call
+  rebuildDdpSlots(); // refresh after strip init in case segment count changed
   DEBUG_PRINTF_P(PSTR("heap %u\n"), getFreeHeapSize());
 
   DEBUG_PRINTLN(F("Usermods setup"));

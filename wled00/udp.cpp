@@ -446,7 +446,9 @@ void realtimeLock(uint32_t timeoutMs, byte md)
     }
   }
 
-  realtimeTimeout = millis() + timeoutMs;
+  if (realtimeTimeout != UINT32_MAX) {
+    realtimeTimeout = (timeoutMs == 255001 || timeoutMs == 65000) ? UINT32_MAX : millis() + timeoutMs;
+  }
   realtimeMode = md;
 
   if (realtimeOverride) return;
@@ -460,7 +462,6 @@ void exitRealtime() {
   strip.setBrightness(bri, true);
   realtimeTimeout = 0;
   realtimeMode = REALTIME_MODE_INACTIVE;
-  realtimeExitedAt = millis();
   realtimeIP[0] = 0;
   if (rtFrozenSegs) {
     for (uint8_t i = 0; i < 32 && rtFrozenSegs; i++) {
