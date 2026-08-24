@@ -59,13 +59,16 @@ typedef struct ip_addr ip4_addr_t;
 #define DDP_FLAGS_REPLY   0x04    // unsupported - response packet from another display
 #define DDP_FLAGS_STORAGE 0x08    // unsupported - show data from a storage unit instead of from packet data field. Data field defines storage unit (by name, number, URL or whatever mechanism wanted).
 #define DDP_FLAGS_TIME    0x10
-#define DDP_FLAGS_COMPRESSED 0x20   // bit 5: payload is compressed (reserved in spec, set to zero by unpatched senders)
+#define DDP_TYPE_COMPRESSED 0x80    // bit 7 (C bit) of dataType: payload is compressed
 
-// Compression type in sequenceNum byte upper nibble (bits 7-4), used when DDP_FLAGS_COMPRESSED is set
+// Compression type in sequenceNum byte upper nibble (bits 7-4), used when DDP_TYPE_COMPRESSED is set
 #define DDP_COMP_TYPE_NONE      0x00  // no compression (standard DDP)
 #define DDP_COMP_TYPE_DELTA_RLE 0x10  // XOR delta + byte-level RLE
 #define DDP_COMP_TYPE_RLE       0x20  // byte-level RLE only (no delta, used for keyframes)
 #define DDP_COMP_TYPE_TRANSFORM 0x30  // uniform transform + sparse explicit pixel writes
+#define DDP_COMP_TYPE_DELTA_ONLY 0x40  // raw XOR delta, no RLE -- benchmark mode
+#define DDP_COMP_TYPE_TUPLE_RLE  0x50  // tuple-level RLE: same control bytes as 0x20 but unit = channels bytes
+#define DDP_COMP_TYPE_PLANAR_RLE 0x60  // planar RLE: per-channel planes, each [len:2LE][rle_data]
 
 #define DDP_TRANSFORM_SCALE_TOWARD  0x01  // blend each pixel toward target color by param/256
 #define DDP_TRANSFORM_SCALE_MULT    0x02  // multiply each pixel by param/256

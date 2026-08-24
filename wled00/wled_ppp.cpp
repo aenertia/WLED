@@ -196,14 +196,9 @@ static void ppp_status_handler(void *arg, esp_event_base_t base, int32_t event_i
     if (event_id == NETIF_PPP_PHASE_DEAD) {
         __atomic_fetch_add(&ppp_restarts, 1, __ATOMIC_RELAXED);
 #ifdef WLED_USE_PPP_UART
-        char diag[128];
-        snprintf(diag, sizeof(diag),
-                 "\r\n[PPP#%lu rx=%lu fed=%lu tx=%lu txc=%lu]\r\n",
+        ESP_LOGW(TAG, "PPP#%lu dead rx=%lu fed=%lu tx=%lu txc=%lu",
                  ppp_restarts, ppp_rx_bytes, ppp_rx_fed,
                  ppp_tx_bytes, ppp_tx_calls);
-        uart_write_bytes(PPP_UART_NUM, diag, strlen(diag));
-        uart_wait_tx_done(PPP_UART_NUM, pdMS_TO_TICKS(200));
-        // UART is always-on: auto-restart
         if (ppp_netif_uart) {
             esp_netif_action_start(ppp_netif_uart, 0, 0, NULL);
         }
@@ -255,13 +250,9 @@ static void ppp_event_handler(void *arg, esp_event_base_t base, int32_t event_id
         // UART auto-restart (always-on wired connection)
 #ifdef WLED_USE_PPP_UART
         if (ppp_netif_uart) {
-            char diag[128];
-            snprintf(diag, sizeof(diag),
-                     "\r\n[PPP#%lu rx=%lu fed=%lu tx=%lu txc=%lu]\r\n",
+            ESP_LOGW(TAG, "PPP#%lu lost_ip rx=%lu fed=%lu tx=%lu txc=%lu",
                      ppp_restarts, ppp_rx_bytes, ppp_rx_fed,
                      ppp_tx_bytes, ppp_tx_calls);
-            uart_write_bytes(PPP_UART_NUM, diag, strlen(diag));
-            uart_wait_tx_done(PPP_UART_NUM, pdMS_TO_TICKS(200));
             esp_netif_action_start(ppp_netif_uart, 0, 0, NULL);
         }
 #endif
@@ -396,15 +387,10 @@ static void ppp_rx_task(void *arg)
     uint8_t buf[1024];
     size_t buffered = 0;
     for (;;) {
-        // Two-tier flow control to prevent UART ISR ring buffer overrun.
-        // The ISR writes continuously at 1.5Mbps; if esp_netif_receive()
-        // blocks (tcpip_thread mailbox full), the ring buffer fills.
-        // Tier 1 (>50%): yield to let tcpip_thread drain.
-        // Tier 2 (>85%): emergency flush  -- drop bytes rather than let
-        // the ISR overrun into adjacent DRAM (FreeRTOS TCBs).
+        // Back-pressure: yield when ring buffer is filling so tcpip_thread
+        // can drain. No flush -- discarding HDLC frames forces TCP retransmits.
         uart_get_buffered_data_len(PPP_UART_NUM, &buffered);
         if (buffered > (PPP_RX_BUF_SIZE * 3 / 2)) {  // >75% of 2x alloc
-            uart_flush_input(PPP_UART_NUM);
             __atomic_fetch_add(&ppp_uart_overflows, 1, __ATOMIC_RELAXED);
             vTaskDelay(pdMS_TO_TICKS(2));
             continue;
@@ -472,16 +458,12 @@ void initPPP()
             prev_rx = ppp_rx_bytes;
             prev_tx = ppp_tx_bytes;
             if (ppp_netif_uart) {
-                char d[192];
-                snprintf(d, sizeof(d),
-                         "\r\n[DIAG rx=%lu tx=%lu %luKB/s ovf=%lu rst=%lu up=%lus]\r\n",
+                ESP_LOGI(TAG, "DIAG rx=%lu tx=%lu %luKB/s ovf=%lu rst=%lu up=%lus",
                          ppp_rx_bytes, ppp_tx_bytes,
                          (ppp_rx_bytes_sec + ppp_tx_bytes_sec) / 1024,
                          ppp_uart_overflows, ppp_restarts, millis() / 1000);
-                uart_write_bytes(PPP_UART_NUM, d, strlen(d));
                 if (ppp_rx_bytes_sec > (PPP_BW_BUDGET_BYTES * 80 / 100)) {
-                    const char *w = "\r\n[WARN: RX near bandwidth limit]\r\n";
-                    uart_write_bytes(PPP_UART_NUM, w, strlen(w));
+                    ESP_LOGW(TAG, "RX near bandwidth limit");
                 }
             }
         }

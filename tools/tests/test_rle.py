@@ -16,12 +16,18 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ddp_codec import (
+    COMP_DELTA_ONLY,
     COMP_DELTA_RLE,
     COMP_NONE,
     COMP_RLE,
     compress_adaptive,
+    compress_delta_only,
     rle_decode,
     rle_encode,
+    rle_planar_decode,
+    rle_planar_encode,
+    rle_tuple_decode,
+    rle_tuple_encode,
     xor_delta,
 )
 
@@ -34,6 +40,15 @@ def _roundtrip(data: bytes) -> None:
     decoded = rle_decode(encoded)
     assert decoded == data, (
         f"roundtrip failed: len(src)={len(data)}, "
+        f"len(enc)={len(encoded)}, len(dec)={len(decoded)}"
+    )
+
+
+def _tuple_roundtrip(data: bytes, channels: int = 3) -> None:
+    encoded = rle_tuple_encode(data, channels)
+    decoded = rle_tuple_decode(encoded, channels)
+    assert decoded == data, (
+        f"tuple roundtrip failed: len(src)={len(data)}, "
         f"len(enc)={len(encoded)}, len(dec)={len(decoded)}"
     )
 
@@ -355,3 +370,253 @@ class TestDeltaRleRGBWChannelPreservation:
                     f"iteration {iteration}, pixel {px}: "
                     f"W=0x{reconstructed[w_idx]:02X} != expected 0x{curr[w_idx]:02X}"
                 )
+
+
+# ── 15. Delta-only (benchmark baseline) ────────────────────────────
+
+class TestDeltaOnly:
+    def test_identical_frames_all_zeros(self) -> None:
+        """Identical frames: delta = all zeros, returned raw (no compression)."""
+        frame = b"\xFF\x00\x80" * 100
+        payload, comp = compress_delta_only(frame, frame)
+        assert comp == COMP_DELTA_ONLY
+        assert payload == b"\x00" * 300
+
+    def test_single_pixel_change_800px(self) -> None:
+        """Single pixel change in 800-pixel RGB frame: output = 2400 raw bytes."""
+        prev = b"\x00" * 2400
+        cur = bytearray(prev)
+        cur[600] = 0xFF
+        cur[601] = 0x80
+        cur[602] = 0x40
+        payload, comp = compress_delta_only(bytes(cur), prev)
+        assert comp == COMP_DELTA_ONLY
+        assert len(payload) == 2400
+
+    def test_no_prev_falls_back_to_none(self) -> None:
+        """No previous frame: returns raw with COMP_NONE."""
+        cur = b"\xAA" * 300
+        payload, comp = compress_delta_only(cur, b"")
+        assert comp == COMP_NONE
+        assert payload == cur
+
+    def test_delta_only_ge_delta_rle(self) -> None:
+        """For 10 random frame pairs: delta-only >= delta+RLE in size."""
+        rng = random.Random(0xD0)
+        for i in range(10):
+            n = rng.randint(100, 2000) * 3
+            prev = bytes(rng.getrandbits(8) for _ in range(n))
+            cur = bytearray(prev)
+            for _ in range(rng.randint(1, 20)):
+                cur[rng.randint(0, n - 1)] ^= 0xFF
+            cur = bytes(cur)
+
+            do_payload, _ = compress_delta_only(cur, prev)
+            dr_payload, _ = compress_adaptive(cur, prev)
+            assert len(do_payload) >= len(dr_payload), (
+                f"iter {i}: delta-only ({len(do_payload)}) < "
+                f"delta+RLE ({len(dr_payload)})"
+            )
+
+    def test_roundtrip_xor_decode(self) -> None:
+        """XOR decode of delta-only output recovers original frame."""
+        prev = bytes(range(256)) * 3
+        cur = bytearray(prev)
+        cur[0] = 0xFF
+        cur[100] = 0x42
+        cur[500] = 0x00
+        cur = bytes(cur)
+
+        payload, comp = compress_delta_only(cur, prev)
+        assert comp == COMP_DELTA_ONLY
+        recovered = xor_delta(payload, prev)
+        assert recovered == cur
+
+
+# ── 15. Planar RLE ─────────────────────────────────────────────────
+
+def _rainbow_800() -> bytes:
+    """800-pixel rainbow gradient as interleaved RGB."""
+    data = bytearray(800 * 3)
+    for i in range(800):
+        h = (i / 800) * 6
+        c = int(h)
+        f = h - c
+        q = int(255 * (1 - f))
+        t = int(255 * f)
+        r, g, b = [
+            (255, t, 0), (q, 255, 0), (0, 255, t),
+            (0, q, 255), (t, 0, 255), (255, 0, q),
+        ][c % 6]
+        data[i * 3 : i * 3 + 3] = bytes([r, g, b])
+    return bytes(data)
+
+
+def _planar_roundtrip(data: bytes, channels: int = 3) -> None:
+    enc = rle_planar_encode(data, channels)
+    dec = rle_planar_decode(enc, channels)
+    assert dec == data, (
+        f"planar roundtrip failed: len(src)={len(data)}, "
+        f"len(enc)={len(enc)}, len(dec)={len(dec)}"
+    )
+
+
+class TestRLEPlanar:
+    def test_empty_roundtrip(self) -> None:
+        _planar_roundtrip(b"")
+
+    def test_single_pixel_roundtrip(self) -> None:
+        _planar_roundtrip(b"\xFF\x80\x40")
+
+    def test_solid_red_800px(self) -> None:
+        """Solid red: R=255 run, G=0 run, B=0 run -- each plane ~2 bytes."""
+        src = b"\xFF\x00\x00" * 800
+        enc = rle_planar_encode(src)
+        dec = rle_planar_decode(enc)
+        assert dec == src
+        # 800 bytes of one value -> ~14 bytes RLE (128-byte runs).
+        # 3 planes * ~14 + 6-byte header = ~48 bytes max.
+        assert len(enc) < 60, f"solid red too large: {len(enc)}"
+
+    def test_rainbow_planar_beats_byte_rle(self) -> None:
+        """Planar RLE must beat byte-level RLE on a rainbow gradient."""
+        raw = _rainbow_800()
+        byte_enc = rle_encode(raw)
+        planar_enc = rle_planar_encode(raw)
+        _planar_roundtrip(raw)
+        assert len(planar_enc) < len(byte_enc), (
+            f"planar ({len(planar_enc)}) must beat byte-level ({len(byte_enc)})"
+        )
+
+    def test_smooth_gradient_plane_sizes(self) -> None:
+        """R ramps, G=128 constant, B=64 constant.
+
+        G and B planes compress to small runs; R plane is large (no runs).
+        """
+        pixels = 800
+        data = bytearray(pixels * 3)
+        for i in range(pixels):
+            data[i * 3] = i % 256
+            data[i * 3 + 1] = 128
+            data[i * 3 + 2] = 64
+        src = bytes(data)
+        enc = rle_planar_encode(src)
+        dec = rle_planar_decode(enc)
+        assert dec == src
+
+        import struct
+        r_len = struct.unpack_from("<H", enc, 0)[0]
+        g_len = struct.unpack_from("<H", enc, 2 + r_len)[0]
+        b_len = struct.unpack_from("<H", enc, 2 + r_len + 2 + g_len)[0]
+        # Constant planes: 800 identical bytes -> ~14 bytes RLE
+        assert g_len < 20, f"G plane too large: {g_len}"
+        assert b_len < 20, f"B plane too large: {b_len}"
+        # R ramp has no runs, mostly literals
+        assert r_len > 700, f"R plane suspiciously small: {r_len}"
+
+    def test_random_roundtrip_100(self) -> None:
+        """100 random 3-byte-aligned buffers must roundtrip."""
+        rng = random.Random(0xA1)
+        for _ in range(100):
+            n_pixels = rng.randint(0, 500)
+            data = bytes(rng.getrandbits(8) for _ in range(n_pixels * 3))
+            _planar_roundtrip(data)
+
+    def test_rgbw_roundtrip(self) -> None:
+        """4-channel (RGBW) planar roundtrip."""
+        src = b"\xFF\x00\x80\x40" * 200
+        _planar_roundtrip(src, channels=4)
+        enc = rle_planar_encode(src, channels=4)
+        # 4 planes * 2-byte header = 8 bytes header
+        assert enc[:2] != b"\x00\x00", "R plane must have data"
+
+    def test_worst_case_expansion(self) -> None:
+        """Random 800px: encoded size < raw * 1.02 + header."""
+        rng = random.Random(0xBC)
+        for _ in range(20):
+            n_pixels = 800
+            raw = bytes(rng.getrandbits(8) for _ in range(n_pixels * 3))
+            enc = rle_planar_encode(raw)
+            _planar_roundtrip(raw)
+            limit = len(raw) * 1.02 + 6
+            assert len(enc) < limit, (
+                f"encoded {len(enc)} >= limit {limit:.0f}"
+            )
+
+
+# ── Tuple-level RLE ────────────────────────────────────────────────
+
+class TestRLETuple:
+
+    def test_empty_roundtrip(self) -> None:
+        assert rle_tuple_encode(b"") == b""
+        assert rle_tuple_decode(b"") == b""
+        _tuple_roundtrip(b"")
+
+    def test_single_pixel(self) -> None:
+        _tuple_roundtrip(b"\xFF\x00\x00")
+
+    def test_run_of_3(self) -> None:
+        src = b"\xFF\x00\x00" * 3
+        enc = rle_tuple_encode(src)
+        # ctrl = 3-1 = 0x02, then one RGB tuple
+        assert enc == b"\x02\xFF\x00\x00"
+        assert len(enc) == 4
+        _tuple_roundtrip(src)
+
+    def test_run_of_128(self) -> None:
+        src = b"\xFF\x00\x00" * 128
+        enc = rle_tuple_encode(src)
+        assert enc == b"\x7F\xFF\x00\x00"
+        assert len(enc) == 4
+        _tuple_roundtrip(src)
+
+    def test_run_of_129_splits(self) -> None:
+        src = b"\xFF\x00\x00" * 129
+        enc = rle_tuple_encode(src)
+        _tuple_roundtrip(src)
+        # 128 + 1 = two tokens (RUN of 128 + LITERAL of 1), each 4 bytes
+        assert len(enc) == 8
+
+    def test_alternating_worst_case(self) -> None:
+        src = (b"\xFF\x00\x00" + b"\x00\xFF\x00") * 400  # 800 pixels
+        enc = rle_tuple_encode(src)
+        _tuple_roundtrip(src)
+        overhead = (len(enc) - len(src)) / len(src)
+        assert overhead < 0.015
+
+    def test_mixed_roundtrip(self) -> None:
+        src = (
+            b"\x11\x22\x33" * 10
+            + b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F"
+            + b"\xAA\xBB\xCC" * 20
+        )
+        _tuple_roundtrip(src)
+
+    def test_100_random_roundtrips(self) -> None:
+        rng = random.Random(0xBEEF)
+        for _ in range(100):
+            n_pixels = rng.randint(1, 800)
+            data = bytes(rng.getrandbits(8) for _ in range(n_pixels * 3))
+            _tuple_roundtrip(data)
+
+    def test_rgbw_roundtrip(self) -> None:
+        rng = random.Random(0xABCD)
+        for _ in range(20):
+            n_pixels = rng.randint(1, 200)
+            data = bytes(rng.getrandbits(8) for _ in range(n_pixels * 4))
+            _tuple_roundtrip(data, channels=4)
+
+    def test_solid_red_800px(self) -> None:
+        src = b"\xFF\x00\x00" * 800  # 2400 bytes
+        enc = rle_tuple_encode(src)
+        _tuple_roundtrip(src)
+        # 800 / 128 = 7 RUN tokens (6x128 + 1x32), each 1 ctrl + 3 data = 4 bytes
+        assert len(enc) == 28
+
+    def test_worst_case_expansion(self) -> None:
+        rng = random.Random(0xDEAD)
+        src = bytes(rng.getrandbits(8) for _ in range(800 * 3))
+        enc = rle_tuple_encode(src)
+        _tuple_roundtrip(src)
+        assert len(enc) < len(src) * 1.015

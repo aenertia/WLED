@@ -23,6 +23,7 @@ std::atomic<bool> loopPriorityBoosted{false};
 // tcpip_thread-only state (no atomics needed  -- single writer/reader)
 static uint32_t ddpLastFrameUs = 0;
 static bool ddpDropCurrentFrame = false;
+static uint8_t starvationSkip = 0;
 
 #ifdef ARDUINO_ARCH_ESP32
 extern TaskHandle_t loopTaskHandle;
@@ -78,7 +79,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     }
   }
 
-  static bool ddpSeenPush = false;
+  static bool ddpSeenPush = false;  // reset on mode entry; stale true across reconnects is benign
   ddpPktCount++;
   static uint8_t ddpLastSeq = 0;
   static uint32_t ddpSeqGaps = 0;
@@ -128,7 +129,10 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     if (isFrameStart) {
       uint32_t nowUs = micros();
       uint32_t elapsedUs = nowUs - ddpLastFrameUs;
-      uint32_t minIntervalUs = ddpMaxFps > 0 ? (1000000U / ddpMaxFps) : 0;
+      uint8_t effFps = ddpMaxFps > 0
+        ? min((uint8_t)ddpMaxFps, ddpCurrentSafeFps.load(std::memory_order_relaxed))
+        : ddpCurrentSafeFps.load(std::memory_order_relaxed);
+      uint32_t minIntervalUs = effFps > 0 ? (1000000U / effFps) : 0;
       if (minIntervalUs > 0 && elapsedUs < minIntervalUs) {
         ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
         ddpDropCurrentFrame = true;
@@ -155,17 +159,18 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
         loopPriorityBoosted.store(true, std::memory_order_release);
       }
 #endif
-      static uint8_t starvationSkip = 0;
       if (++starvationSkip < 10) {
         ddpRateLimitDrops.fetch_add(1, std::memory_order_relaxed);
         return;
       }
       starvationSkip = 0;
+    } else {
+      starvationSkip = 0;
     }
   }
 
   unsigned ddpChannelsPerLed = 3; // default to RGB
-  if ((p->dataType & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4; // RGBW data type (see DDP protocol definition)
+  if (((p->dataType & 0x7F) & 0b00111000)>>3 == 0b011) ddpChannelsPerLed = 4; // RGBW data type (see DDP protocol definition); mask C bit before type check
 
   uint32_t start =  htonl(p->channelOffset) / ddpChannelsPerLed;
   start += DMXAddress / ddpChannelsPerLed;
@@ -203,7 +208,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       freezeEligibleSegs();
     }
   }
-  realtimeLock(2500, REALTIME_MODE_DDP);
+  realtimeLock(realtimeTimeoutMs, REALTIME_MODE_DDP);
 
   // Heap guard: skip pixel writes if heap is critically low.
   // Graceful degradation: skip pixel writes but still process push flag
@@ -218,7 +223,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   // Old PPP bandwidth rate limiter removed  -- subsumed by global rate limiter above (Issue #2)
 
 #ifdef WLED_ENABLE_DDP_COMPRESSION
-  if ((p->flags & DDP_FLAGS_COMPRESSED) && !realtimeOverride) {
+  if ((p->dataType & DDP_TYPE_COMPRESSED) && !realtimeOverride) {
     auto ddpCompWritePixel = [&](unsigned absIdx, uint32_t col) {
       uint8_t dest = p->destination;
       uint8_t r = R(col), g = G(col), b = B(col), w = W(col);
@@ -257,7 +262,13 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
     // When exactly one segment is DDP-frozen, allocate only for that
     // segment's pixel count (~512B for 256px) instead of the full strip
     // (~8960B for 4480px), saving ~8.4KB heap in the common case.
-    if (totalLen <= 12800) {
+    // Tuple and planar decoders don't use prevFrame -- skip alloc for them.
+    // Do NOT free on type switch: delta-RLE may resume next packet and needs
+    // the existing baseline. Allocate only when a delta-capable type arrives.
+    bool needsPrevFrame = (compType == DDP_COMP_TYPE_DELTA_RLE ||
+                           compType == DDP_COMP_TYPE_RLE       ||
+                           compType == DDP_COMP_TYPE_DELTA_ONLY);
+    if (needsPrevFrame && totalLen <= 12800) {
       unsigned wantSize = totalLen;
       uint8_t  wantSegId = 0xFF;
       uint16_t wantSegStart = 0;
@@ -327,7 +338,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
       size_t explicitStart = hdrLen + 2;
 
       // Step A: apply uniform transform to all pixels in range
-      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;
+      unsigned transformEnd = (numExplicit > 0) ? min((unsigned)(start + numExplicit), totalLen) : totalLen;  // numExplicit: count from start, not absolute
       if (tOp == DDP_TRANSFORM_SCALE_TOWARD) {
         for (unsigned px = start; px < transformEnd; px++) {
           uint32_t prev = 0;
@@ -362,6 +373,122 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
         uint8_t eW = ddpChannelsPerLed > 3 ? tdata[off + 5] : 0;
         ddpCompWritePixel(pxIdx, RGBW32(eR, eG, eB, eW));
       }
+    } else if (compType == DDP_COMP_TYPE_DELTA_ONLY) {
+      // raw XOR delta, no RLE -- benchmark mode
+      unsigned stop = start + dataLen / ddpChannelsPerLed;
+      for (unsigned px = start; px < stop && px < totalLen; px++) {
+        uint8_t r = data[c], g = data[c+1], b = data[c+2];
+        uint8_t w = (ddpChannelsPerLed > 3) ? data[c+3] : 0;
+        if (ddpPrevFrame && DDP_PF_IDX(px) < ddpPrevFrameSize) {
+          uint16_t prev565 = ddpPrevFrame[DDP_PF_IDX(px)];
+          r ^= PF_R565(prev565);
+          g ^= PF_G565(prev565);
+          b ^= PF_B565(prev565);
+        }
+        ddpCompWritePixel(px, RGBW32(r, g, b, w));
+        c += ddpChannelsPerLed;
+      }
+    } else if (compType == DDP_COMP_TYPE_TUPLE_RLE) {
+      // Same PackBits control bytes as 0x20, but unit = ddpChannelsPerLed bytes.
+      const uint8_t *src = data + c;
+      size_t srcLen = dataLen;
+      size_t pos = 0;
+      unsigned pixel = start;
+      while (pos < srcLen && pixel < totalLen) {
+        uint8_t ctrl = src[pos++];
+        unsigned count = (ctrl & 0x7F) + 1;
+        if (ctrl & 0x80) {
+          for (unsigned i = 0; i < count && pixel < totalLen; i++) {
+            if (pos + ddpChannelsPerLed > srcLen) goto tuple_done;
+            uint8_t r = src[pos], g = src[pos+1], b = src[pos+2];
+            uint8_t w = (ddpChannelsPerLed > 3) ? src[pos+3] : 0;
+            ddpCompWritePixel(pixel++, RGBW32(r, g, b, w));
+            pos += ddpChannelsPerLed;
+          }
+        } else {
+          if (pos + ddpChannelsPerLed > srcLen) break;
+          uint8_t r = src[pos], g = src[pos+1], b = src[pos+2];
+          uint8_t w = (ddpChannelsPerLed > 3) ? src[pos+3] : 0;
+          pos += ddpChannelsPerLed;
+          for (unsigned i = 0; i < count && pixel < totalLen; i++)
+            ddpCompWritePixel(pixel++, RGBW32(r, g, b, w));
+        }
+      }
+      tuple_done:;
+    } else if (compType == DDP_COMP_TYPE_PLANAR_RLE) {
+      // Wire: [Rlen:2LE][R-rle][Glen:2LE][G-rle][Blen:2LE][B-rle]
+      // Whole-frame codec -- plane headers are only valid at start==0.
+      // Continuation packets (start>0) carry raw plane data with no header;
+      // silently skip them rather than misparse mid-stream bytes as lengths.
+      if (start != 0) goto ddp_push;
+      const uint8_t *src = data + c;
+      size_t srcLen = dataLen;
+      // Hoist before any goto to avoid jumping over initializations.
+      uint8_t *planes = nullptr;
+      size_t pos = 0;
+      // Derive pixel count from R-plane RLE output, not dataLen (which is
+      // compressed size) or totalLen (which would over-allocate for the strip).
+      unsigned numPx = 0;
+      if (srcLen >= 2) {
+        uint16_t rPlaneRleLen = src[0] | ((uint16_t)src[1] << 8);
+        if (rPlaneRleLen > 0 && rPlaneRleLen <= srcLen - 2) {
+          const uint8_t *rp = src + 2;
+          size_t pp = 0;
+          while (pp < rPlaneRleLen) {
+            uint8_t ctrl = rp[pp++];
+            unsigned cnt = (ctrl & 0x7F) + 1;
+            numPx += cnt;
+            if (ctrl & 0x80) {
+              if (pp + cnt > rPlaneRleLen) break;
+              pp += cnt;
+            } else {
+              if (pp >= rPlaneRleLen) break;
+              pp++;
+            }
+          }
+          numPx = min(numPx, (unsigned)(totalLen - start));
+        }
+      }
+      if (numPx == 0) goto ddp_push;
+      planes = (uint8_t*)malloc(numPx * ddpChannelsPerLed);
+      if (!planes) goto ddp_push;
+      memset(planes, 0, numPx * ddpChannelsPerLed);
+
+      for (unsigned ch = 0; ch < (unsigned)ddpChannelsPerLed && ch < 3; ch++) {
+        if (pos + 2 > srcLen) break;
+        uint16_t plen = src[pos] | ((uint16_t)src[pos+1] << 8);
+        pos += 2;
+        if (pos + plen > srcLen) break;
+        uint8_t *dst = planes + ch * numPx;
+        const uint8_t *psrc = src + pos;
+        size_t pp = 0, op = 0;
+        while (pp < plen && op < numPx) {
+          uint8_t ctrl = psrc[pp++];
+          unsigned cnt = (ctrl & 0x7F) + 1;
+          if (ctrl & 0x80) {
+            for (unsigned i = 0; i < cnt && op < numPx; i++) {
+              if (pp >= plen) break;
+              dst[op++] = psrc[pp++];
+            }
+          } else {
+            if (pp >= plen) break;
+            uint8_t val = psrc[pp++];
+            unsigned end = op + cnt < numPx ? op + cnt : numPx;
+            while (op < end) dst[op++] = val;
+          }
+        }
+        pos += plen;
+      }
+
+      for (unsigned i = 0; i < numPx && (start + i) < totalLen; i++) {
+        uint8_t r = planes[0 * numPx + i];
+        uint8_t g = planes[1 * numPx + i];
+        uint8_t b = planes[2 * numPx + i];
+        uint8_t w = (ddpChannelsPerLed > 3) ? planes[3 * numPx + i] : 0;  // W channel: 4th plane not decoded, always 0
+        ddpCompWritePixel(start + i, RGBW32(r, g, b, w));
+      }
+      free(planes);
+      planes = nullptr;
     }
   } else
 #endif
@@ -434,7 +561,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
 ddp_push:
 #endif
   ddpSeenPush |= push;
-  if (!ddpSeenPush || push) {
+  if (push) {
     ddpPushCount++;
     int sn = p->sequenceNum & 0xF;
     if (sn && ddpLastSeq) {

@@ -7,7 +7,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ddp_bench import (
-    DDP_RGB, DDP_TYPE_RGBW32, DDP_VER1, DDP_PUSH,
+    DDP_RGB, DDP_TYPE_RGBW32, DDP_TYPE_COMPRESSED, DDP_VER1, DDP_PUSH,
     COMP_NONE, COMP_DELTA_RLE, COMP_RLE,
     make_packets, compress_adaptive, rle_encode,
     rainbow, rainbow_rgbw, solid_rgbw,
@@ -17,13 +17,19 @@ from ddp_bench import (
 )
 
 
+def _pkts(data, **kw):
+    """Unpack make_packets() tuple, return just the packet list."""
+    pkts, _ = make_packets(data, **kw)
+    return pkts
+
+
 # --- RGB baseline tests (ensure no regression) ---
 
 class TestRGBBaseline:
     def test_rgb_packet_data_type(self):
         """Header byte 2 == 0x0B for RGB packets."""
         data = rainbow(10, 0.0)
-        pkts = make_packets(data, seq=1, data_type=DDP_RGB)
+        pkts = _pkts(data, seq=1, data_type=DDP_RGB)
         assert len(pkts) >= 1
         hdr = pkts[0][:10]
         assert hdr[2] == DDP_RGB  # data type byte
@@ -36,7 +42,7 @@ class TestRGBBaseline:
     def test_rgb_default_data_type(self):
         """make_packets() defaults to DDP_RGB when data_type not specified."""
         data = bytes([255, 0, 0] * 5)
-        pkts = make_packets(data, seq=1)
+        pkts = _pkts(data, seq=1)
         hdr = pkts[0][:10]
         assert hdr[2] == DDP_RGB
 
@@ -47,47 +53,49 @@ class TestRGBWPackets:
     def test_rgbw_packet_data_type(self):
         """Header byte 2 == 0x1B for RGBW packets."""
         data = rainbow_rgbw(10, 0.0)
-        pkts = make_packets(data, seq=1, data_type=DDP_TYPE_RGBW32)
+        pkts = _pkts(data, seq=1, data_type=DDP_TYPE_RGBW32)
         assert len(pkts) >= 1
         hdr = pkts[0][:10]
         assert hdr[2] == DDP_TYPE_RGBW32
 
     def test_rgbw_packet_data_type_value(self):
         """DDP_TYPE_RGBW32 encodes 4 channels: bits[5:3] == 0b011."""
-        # Receiver checks: (dataType & 0b00111000) >> 3 == 0b011
+        # Receiver checks: (dataType & 0x7F & 0b00111000) >> 3 == 0b011
         channels_field = (DDP_TYPE_RGBW32 & 0b00111000) >> 3
         assert channels_field == 0b011  # means 4 channels
 
     def test_rgbw_packet_preserves_flags(self):
         """RGBW packets still set VER1 and PUSH flags correctly."""
         data = solid_rgbw(5, 255, 0, 0, 128)
-        pkts = make_packets(data, seq=1, push=True, data_type=DDP_TYPE_RGBW32)
+        pkts = _pkts(data, seq=1, push=True, data_type=DDP_TYPE_RGBW32)
         flags = pkts[-1][0]
         assert flags & DDP_VER1
         assert flags & DDP_PUSH
 
     def test_rgbw_multi_packet_offset(self):
         """Large RGBW data splits across packets with correct offsets."""
-        n = 500  # 2000 bytes, needs 2 packets at 1440 max
+        n = 500  # 2000 bytes, needs 2 packets at MAX_PAYLOAD=1200
         data = solid_rgbw(n, 100, 150, 200, 50)
         assert len(data) == 2000
-        pkts = make_packets(data, seq=1, data_type=DDP_TYPE_RGBW32)
+        pkts = _pkts(data, seq=1, data_type=DDP_TYPE_RGBW32)
         assert len(pkts) == 2
         # First packet: offset 0
         _, _, _, _, off1, chunk1 = struct.unpack("!BBBBIH", pkts[0][:10])
         assert off1 == 0
-        assert chunk1 == 1440
-        # Second packet: offset 1440
+        assert chunk1 == 1200
+        # Second packet: offset 1200
         _, _, _, _, off2, chunk2 = struct.unpack("!BBBBIH", pkts[1][:10])
-        assert off2 == 1440
-        assert chunk2 == 560
+        assert off2 == 1200
+        assert chunk2 == 800
 
     def test_rgbw_compressed_packet_data_type(self):
-        """Compressed RGBW packets still carry 0x1B data type."""
+        """Compressed RGBW packets carry C bit set: dataType == 0x9B."""
         data = solid_rgbw(50, 128, 128, 128, 64)
-        pkts = make_packets(data, seq=1, comp=COMP_RLE, data_type=DDP_TYPE_RGBW32)
+        pkts = _pkts(data, seq=1, comp=COMP_RLE, data_type=DDP_TYPE_RGBW32)
         hdr = pkts[0][:10]
-        assert hdr[2] == DDP_TYPE_RGBW32
+        # C bit (0x80) set; pixel format recoverable via dataType & 0x7F == 0x1B
+        assert hdr[2] == DDP_TYPE_RGBW32 | DDP_TYPE_COMPRESSED
+        assert hdr[2] & 0x7F == DDP_TYPE_RGBW32
 
 
 # --- RGBW pattern generators ---

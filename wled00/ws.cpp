@@ -16,7 +16,13 @@ constexpr uint8_t BINARY_PROTOCOL_DDP     = P_DDP; // = 2
 
 static uint16_t wsLiveClientId = 0;
 static unsigned long wsLastLiveTime = 0;
-//static uint8_t* wsFrameBuffer = nullptr;
+
+// WS DDP rate gate -- mirrors e131.cpp UDP gate; async_tcp is single-threaded, no mutex.
+static uint32_t wsddpLastFrameUs  = 0;
+static bool     wsddpDropCurrent  = false;
+uint32_t wsddpPktCount     = 0;
+uint32_t wsddpAcceptCount  = 0;
+uint32_t wsddpDropCount    = 0;
 
 #define WS_LIVE_INTERVAL 40
 
@@ -92,8 +98,37 @@ void wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
           case BINARY_PROTOCOL_ARTNET:
             handleE131Packet((e131_packet_t*)&data[offset], client->remoteIP(), P_ARTNET, len - offset);
             break;
-          case BINARY_PROTOCOL_DDP:
+          case BINARY_PROTOCOL_DDP: {
+            // Rate gate (mirrors e131.cpp UDP gate with WS-local state)
+            bool isPush = (len > (size_t)offset) && (data[offset] & DDP_FLAGS_PUSH);
+            uint32_t chanOff = 0;
+            if (len >= (size_t)(offset + 8)) {
+              chanOff = ((uint32_t)data[offset+4] << 24) | ((uint32_t)data[offset+5] << 16)
+                      | ((uint32_t)data[offset+6] <<  8) |  (uint32_t)data[offset+7];
+            }
+            bool isFrameStart = (chanOff == 0) || isPush;
+            if (isFrameStart) {
+              wsddpPktCount++;
+              uint32_t nowUs = micros();
+              uint8_t effFps = ddpMaxFps > 0
+                ? min((uint8_t)ddpMaxFps, ddpCurrentSafeFps.load(std::memory_order_relaxed))
+                : ddpCurrentSafeFps.load(std::memory_order_relaxed);
+              uint32_t minUs = effFps > 0 ? (1000000U / effFps) : 0;
+              if (minUs > 0 && (nowUs - wsddpLastFrameUs) < minUs) {
+                wsddpDropCurrent = true;
+                wsddpDropCount++;
+                break;
+              }
+              wsddpLastFrameUs = nowUs;
+              wsddpDropCurrent = false;
+              wsddpAcceptCount++;
+            } else if (wsddpDropCurrent) {
+              wsddpDropCount++;
+              break;
+            }
+            yield(); // scheduling point before DDP processing -- same pattern as service()
             handleE131Packet((e131_packet_t*)&data[offset], client->remoteIP(), P_DDP, len - offset);
+          }
         }
       }
     } else {

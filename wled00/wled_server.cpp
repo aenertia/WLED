@@ -509,6 +509,8 @@ void initServer()
       (unsigned long)realtimeTimeout, (unsigned long)millis(),
       (long)((int32_t)(millis() - realtimeTimeout)),
       (unsigned)rtFrozenSegs);
+    response->printf("ddpSlots=%u totalElig=%u eligMask=0x%08x\n",
+      (unsigned)ddpSlotCount, (unsigned)ddpTotalEligible, (unsigned)ddpEligibleMask);
     extern volatile uint32_t ddpPktCount, ddpPixWritten, ddpHeapSkips, ddpOverrideSkips, ddpLastStart, ddpLastDataLen, ddpPushCount;
     response->printf("ddp: pkts=%u pix=%u heapSkip=%u ovrSkip=%u lastStart=%u lastLen=%u push=%u\n",
       (unsigned)ddpPktCount, (unsigned)ddpPixWritten, (unsigned)ddpHeapSkips,
@@ -523,6 +525,22 @@ void initServer()
       (unsigned)ddpHeapGuardDrops.load(std::memory_order_relaxed),
       (unsigned)ddpMaxFps,
       (unsigned)(millis() - lastLoopMs.load(std::memory_order_relaxed)));
+    extern uint32_t wsddpPktCount, wsddpAcceptCount, wsddpDropCount;
+    response->printf("wsddp: pkts=%u accepted=%u dropped=%u\n",
+      (unsigned)wsddpPktCount, (unsigned)wsddpAcceptCount, (unsigned)wsddpDropCount);
+    {
+      uint32_t sumUs = 0;
+      for (size_t i = 0; i < BusManager::getNumBusses(); i++) {
+        Bus* b = BusManager::getBus(i);
+        if (b && b->isOk()) {
+          uint32_t us = b->getShowUs();
+          response->printf("bus[%u].showUs=%u skip=%u ", (unsigned)i, (unsigned)us, (unsigned)b->isSkipShow());
+          sumUs += us;
+        }
+      }
+      response->printf("\nddpSafe: fps=%u sumUs=%u\n",
+        (unsigned)ddpCurrentSafeFps.load(std::memory_order_relaxed), (unsigned)sumUs);
+    }
     response->printf("\n--- pixels ---\n");
     if (totalLen > 0) {
       response->print("px[0..4]: ");
