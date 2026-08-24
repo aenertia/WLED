@@ -1394,7 +1394,7 @@ void WS2812FX::service() {
   #ifdef WLED_DEBUG
   if ((_targetFps != FPS_UNLIMITED) && (millis() - nowUp > _frametime)) DEBUG_PRINTF_P(PSTR("Slow effects %u/%d.\n"), (unsigned)(millis()-nowUp), (int)_frametime);
   #endif
-  if (doShow && !_suspend) {
+  if (doShow && !_suspend && !rtFrozenSegs) {
     yield();
     Segment::handleRandomPalette(); // slowly transition random palette; move it into for loop when each segment has individual random palette
     _lastServiceShow = nowUp; // update timestamp, for precise FPS control
@@ -1844,7 +1844,7 @@ void WS2812FX::showFrozenSegs() {
   for (unsigned i = 0; i < _segments.size(); i++) {
     if (!(allActiveMask & (1u << i))) continue;
     if (rtFrozenSegs & (1u << i)) continue;
-    if (_segments[i].on && !_segments[i].freeze) return; // service() handles show()
+    if (_segments[i].on && !_segments[i].freeze) { show(); return; }
   }
 
   // Cases B and C: only frozen segments are active -- fast path
