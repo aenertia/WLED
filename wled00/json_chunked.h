@@ -606,7 +606,7 @@ void respondJSONChunked(AsyncWebServerRequest* request, Element writer) {
   request->sendChunked(FPSTR(CONTENT_TYPE_JSON),
     [JC_CAPTURE_BY_MOVE(writer)] (uint8_t* data, size_t len, size_t) mutable -> size_t {
       WriteResult r = writer(data, len);
-      return r.count;
+      return (r.count == 0 && !r.done) ? RESPONSE_TRY_AGAIN : r.count;
     });
 }
 
