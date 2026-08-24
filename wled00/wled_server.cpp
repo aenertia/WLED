@@ -509,6 +509,8 @@ void initServer()
       (unsigned long)realtimeTimeout, (unsigned long)millis(),
       (long)((int32_t)(millis() - realtimeTimeout)),
       (unsigned)rtFrozenSegs);
+    response->printf("ddpSlots=%u totalElig=%u eligMask=0x%08x\n",
+      (unsigned)ddpSlotCount, (unsigned)ddpTotalEligible, (unsigned)ddpEligibleMask);
     extern volatile uint32_t ddpPktCount, ddpPixWritten, ddpHeapSkips, ddpOverrideSkips, ddpLastStart, ddpLastDataLen, ddpPushCount;
     response->printf("ddp: pkts=%u pix=%u heapSkip=%u ovrSkip=%u lastStart=%u lastLen=%u push=%u\n",
       (unsigned)ddpPktCount, (unsigned)ddpPixWritten, (unsigned)ddpHeapSkips,
