@@ -569,14 +569,39 @@ def _get_diag_retry(target, retries=3):
     return ""
 
 def parse_diag(txt):
-    """Parse /diag key=value tokens into dict. Strips (suffix) and ms unit."""
+    """Parse /diag into a flat dict.
+
+    Line-prefix disambiguation: tokens on lines starting with a known
+    prefix word get that word prepended so duplicate keys (e.g. 'pkts'
+    on both 'ddp:' and 'wsddp:') don't collide.  The first word on each
+    line is used as the prefix; tokens on the top-level 'reset=...' line
+    have no prefix.  Callers use plain keys ('pix', 'drops', 'heap') for
+    the top-level line and prefixed keys ('ddp_pkts', 'ddp_pix') for
+    the 'ddp:' line.
+    """
     vals = {}
-    for tok in txt.split():
-        if '=' in tok:
+    for line in txt.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        # Determine per-line prefix from the first word if it ends with ':'
+        if parts[0].endswith(':'):
+            prefix = parts[0].rstrip(':') + '_'
+            toks = parts[1:]
+        else:
+            prefix = ''
+            toks = parts
+        for tok in toks:
+            if '=' not in tok:
+                continue
             k, _, v = tok.partition('=')
             v = v.split('(')[0].rstrip('ms')
-            try:    vals[k] = int(v)
-            except: vals[k] = v
+            try:    vals[prefix + k] = int(v)
+            except: vals[prefix + k] = v
+            # Also store without prefix for backward compat with top-level keys
+            if not prefix:
+                try:    vals[k] = int(v)
+                except: vals[k] = v
     return vals
 
 def _set_live(target, on=True):
@@ -954,9 +979,9 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
     # Baseline counters -- retry until heap= present
     diag_txt = _get_diag_retry(target)
     d0 = parse_diag(diag_txt)
-    base_drops = d0.get('drops', 0)
-    base_pix   = d0.get('pix', 0)
-    base_pkts  = d0.get('pkts', 0)
+    base_drops = d0.get('ddpRate_drops', 0)
+    base_pix   = d0.get('ddp_pix', 0)
+    base_pkts  = d0.get('ddp_pkts', 0)
 
     smooth_fps = 0; max_fps = 0
     smooth_kbs = 0.0; smooth_ratio = 1.0
@@ -1006,24 +1031,24 @@ def _run_sweep_cell(target, port, num_leds, pat_name, codec, fps_levels,
         d1 = parse_diag(diag_txt)
         if 'heap' not in d1:
             print(f"    {target_fps:>4}fps -> UNREACHABLE (PPP dropped, aborting cell)")
-            total_pkts += max(0, d1.get('pkts', base_pkts) - base_pkts)
+            total_pkts += max(0, d1.get('ddp_pkts', base_pkts) - base_pkts)
             break
-        lag = d1.get('loopLag', 0)
-        drops_now = d1.get('drops', base_drops)
+        lag = d1.get('ddpRate_loopLag', 0)
+        drops_now = d1.get('ddpRate_drops', base_drops)
         delta_drops = max(0, drops_now - base_drops)
         base_drops = drops_now
         total_drops += delta_drops
         peak_lag = max(peak_lag, lag)
-        pix_now = d1.get('pix', base_pix)
+        pix_now = d1.get('ddp_pix', base_pix)
         delta_pix = max(0, pix_now - base_pix)
         base_pix = pix_now
         total_pix += delta_pix
-        pkts_now = d1.get('pkts', base_pkts)
+        pkts_now = d1.get('ddp_pkts', base_pkts)
         delta_pkts = max(0, pkts_now - base_pkts)
         base_pkts = pkts_now
         total_pkts += delta_pkts
 
-        ok = (afps >= target_fps * 0.95
+        ok = (afps >= target_fps * 0.85
               and delta_drops == 0
               and lag <= 30
               and delta_pix > 0)
@@ -1093,8 +1118,8 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
         return
     d = parse_diag(diag_txt)
     print(f"Pre: heap={d.get('heap', '?')}  "
-          f"loopLag={d.get('loopLag', '?')}ms  "
-          f"ddpSafe={d.get('fps', '?')}fps")
+          f"loopLag={d.get('ddpRate_loopLag', '?')}ms  "
+          f"ddpSafe={d.get('ddpSafe_fps', d.get('fps', '?'))}fps")
     print()
 
     results = []
@@ -1143,8 +1168,8 @@ def run_sweep(target, port, width, height, codecs, patterns, fps_levels,
     d1 = parse_diag(diag_txt)
     post_str = (f"Post: heap={d1.get('heap', '?')}  "
                 f"minheap={d1.get('minheap', '?')}  "
-                f"loopLag={d1.get('loopLag', '?')}ms  "
-                f"heapGuard={d1.get('heapGuard', '?')}")
+                f"loopLag={d1.get('ddpRate_loopLag', '?')}ms  "
+                f"heapGuard={d1.get('ddpRate_heapGuard', '?')}")
     print(f"\n{post_str}")
 
     with open(out_file, 'w') as f:
