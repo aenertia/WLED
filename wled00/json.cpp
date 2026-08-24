@@ -790,6 +790,9 @@ void serializeInfo(JsonObject root)
   }
 
   root[F("lip")] = realtimeIP[0] == 0 ? "" : realtimeIP.toString();
+  root[F("ddpelig")] = ddpEligibleMask;
+  root[F("ddpslots")] = ddpSlotCount;
+  root[F("frozensegs")] = rtFrozenSegs;
 
   #ifdef WLED_ENABLE_WEBSOCKETS
   root[F("ws")] = ws.count();
