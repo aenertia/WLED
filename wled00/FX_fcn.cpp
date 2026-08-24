@@ -1745,7 +1745,7 @@ void WS2812FX::show() {
     _pixelCCT = static_cast<uint8_t*>(allocate_buffer(totalLen * sizeof(uint8_t), BFRALLOC_PREFER_PSRAM)); // allocate CCT buffer if necessary, prefer PSRAM
   if (_pixelCCT) memset(_pixelCCT, 127, totalLen); // set neutral (50:50) CCT
 
-  if (realtimeMode == REALTIME_MODE_INACTIVE || useMainSegmentOnly || realtimeOverride > REALTIME_OVERRIDE_NONE) {
+  if (realtimeMode == REALTIME_MODE_INACTIVE || rtFrozenSegs || realtimeOverride > REALTIME_OVERRIDE_NONE) {
     // clear frame buffer
     memset(_pixels, 0, sizeof(uint32_t) * totalLen);
     // blend all segments into (cleared) buffer
@@ -1867,7 +1867,7 @@ void WS2812FX::showFrozenSegs() {
 }
 
 void WS2812FX::setRealtimePixelColor(unsigned i, uint32_t c) {
-  if (useMainSegmentOnly) {
+  if (rtFrozenSegs) {
     const Segment &seg = getMainSegment();
     if (seg.isActive() && i < seg.length()) seg.setPixelColorRaw(i, c);
   } else {
