@@ -397,6 +397,15 @@ Source: session 25 PPP sweep (3200px, 40x80), session 27 WiFi sweep (1600px, 40x
 
 ## 6. Performance
 
+> **Test conditions -- pessimistic baselines**: All numbers below were measured on
+> an M5StickC (ESP32-PICO-D4, 520KB SRAM, **no PSRAM**) running the full
+> `m5stickc_ppp_wifi` stack: WiFi + PPP dual-stack active simultaneously, an eSPI
+> SPI-Matrix bus (ST7735S TFT) consuming ~6740µs per DMA frame, and a 40x80 virtual
+> 2x2-scaled matrix. Most deployments will have none of these constraints -- a
+> typical ESP32 driving WS2812B strips over WiFi-only has ~40KB more free heap,
+> no SPI DMA overhead, and no PPP stack. Treat these numbers as a floor, not a
+> ceiling.
+
 ### 6.1 PPP 1.5Mbaud (session 25, 3200px, 40x80)
 
 ```
@@ -414,6 +423,11 @@ drops=0 across 16 codec x pattern cells. heapGuard=0 throughout.
 
 ### 6.2 WiFi UDP (session 27, 1600px, 40x40, twinkle-rainbow)
 
+Worst-case content (twinkle-rainbow is near-incompressible with all codecs). The
+WiFi show-guard (15ms minimum between shows, required when STA + PPP both active)
+caps achieved fps below the 30fps target. A WiFi-only build without the PPP stack
+removes the 15ms guard and approaches the ddpSafe ceiling of 103fps for this device.
+
 ```
 Codec        fps   wire B/f  ratio  drops
 ------------------------------------------
@@ -423,9 +437,6 @@ Delta+RLE    18.9    4690    0.977     31
 Tuple-RLE    20.9    4742    0.988      3  (visual glitch -- multi-pkt decoder bug)
 Planar-RLE   --      0       --         0  (all frames exceed MTU, skipped)
 ```
-
-Twinkle-rainbow is essentially incompressible with all codecs. The WiFi show-guard
-(15ms minimum between shows) caps achieved fps below the 30fps target.
 
 ### 6.3 WiFi UDP (session 27, visual validation, Ghost Rider seg0 + DDP seg1)
 
@@ -440,6 +451,9 @@ After `service()` show-race fix (ff55be3d):
 
 ### 6.4 Heap (M5StickC, m5stickc_ppp_wifi build)
 
+Worst-case heap: dual-stack (WiFi + PPP), SPI DMA bus active, delta-rle prevFrame
+allocated. A WiFi-only build without PPP reclaims ~8-12KB of lwIP/PPP stack.
+
 ```
 Boot heap (post all fixes): ~67KB free
 minheap during DDP (PPP sustained, delta-rle, 3200px): ~46KB
@@ -450,7 +464,7 @@ heapGuard (20KB threshold): never triggered
 
 ### 6.5 Wave 3 regression baselines
 
-Branch: dev/ddp-spec @ bece94c3, M5StickC 40x80 TFT:
+Branch: dev/ddp-spec @ bece94c3, M5StickC 40x80 TFT, dual-stack (WiFi + PPP):
 
 ```
 UDP WiFi:  661fps rainbow raw, 997fps pulse raw, heapGuard=0
@@ -530,3 +544,212 @@ WS PPP:    150fps compressed (256px segment), heapGuard=0
 - **WebSocket DDP** (`ws.cpp`): implemented, not tested this branch.
 
 - **Transform codec (0x30)**: implemented in `e131.cpp`, not benchmarked.
+
+---
+
+## 10. Considerations and future directions
+
+This section addresses suggestions raised in wled/WLED#5810 (softhack007, DedeHai)
+and records design decisions with rationale grounded in measured hardware behaviour.
+
+### 10.1 Wire format: C bit vs new protocol ID
+
+softhack007: "we definitely must have a new protocol ID for compressed DDP"
+
+Our current position: the DDP spec's own C bit (dataType bit 7, "Customer defined")
+is the intended extension point. Standard receivers that ignore it treat the payload
+as raw RGB and display noise -- the expected opt-in behaviour for a vendor extension.
+No reserved bits in byte 0 (flags) are touched.
+
+The honest limitation: C bit is a data-type modifier, not a transport-layer signal.
+If the upstream DDP spec ever assigns meaning to the upper nibble of byte 1 (currently
+reserved, we use it for comp_type), we have a conflict. softhack007's suggestion --
+"we don't need to stuff everything into the existing DDP format" -- is architecturally
+cleaner. A proper sub-protocol could define:
+
+- A dedicated port alongside 4048 (e.g. 4049 for compressed DDP)
+- Or a one-byte opcode after the 10-byte DDP header that signals compressed framing
+
+The port approach breaks existing senders and requires firewall changes. The opcode
+approach means a receiver that doesn't understand it reads the opcode as the first
+pixel byte -- still just noise, same degradation as the C bit approach.
+
+For the current M5StickC / PPP use case the C bit is sufficient. If this feature
+goes upstream and becomes a first-class WLED feature rather than a vendor extension,
+a dedicated sub-protocol with its own negotiation is the right long-term answer.
+The wire format as defined here is a stepping stone, not a final protocol.
+
+### 10.2 Byte-level RLE vs pixel-level vs channel-plane
+
+softhack007: "RGB-based (3 colour streams) RLE instead of byte-based"
+
+We implement both:
+- Byte-level (0x20, 0x10): worst case for RGB content (a run of red pixels
+  interleaves FF,00,00,FF,00,00 -- no byte runs). Good for sparse animations where
+  delta (0x10) first converts most pixels to 0x00,0x00,0x00 runs.
+- Pixel-level (0x50 Tuple-RLE): directly encodes pixel runs. Better than byte-level
+  for wipes and solid fills. Single-packet constraint limits viability at scale.
+- Channel-plane (0x60 Planar-RLE): splits R, G, B into independent streams then
+  RLE-encodes each. Best for uniform content (98% savings on pulse/solid). Each
+  channel independently has long runs even when interleaved bytes don't.
+
+Measured on M5StickC 40x80, PPP session 25:
+
+| Content | Byte-RLE (0x20) | Pixel-RLE (0x50) | Planar-RLE (0x60) |
+|---------|-----------------|------------------|--------------------|
+| Solid pulse | 0.963x | -- | 0.016x (62x) |
+| Ghost rider | 0.032x (31x) | -- | 0.047x (21x) |
+| Twinkle | 0.708x | -- | 0.978x |
+| Rainbow | 1.000x | -- | 1.000x |
+
+Planar wins heavily on uniform content; byte-level+delta wins on sparse animation.
+Neither helps rainbow. The correct approach is adaptive selection, which we implement
+sender-side. The receiver dispatches on comp_type with no knowledge of how the sender
+chose.
+
+softhack007's RGB-stream RLE is essentially our Planar-RLE without the per-plane
+length headers. The headers are necessary for the receiver to locate plane boundaries
+without scanning. Our format is equivalent to what he described.
+
+### 10.3 Delta compression: state sync and restart
+
+softhack007: "stream restart points so the receiver gets a chance to recover"
+
+Implemented. The 0x20 keyframe (RLE-only, no delta) resets prevFrame to zeros when
+received at channelOffset=0. The sender sends a keyframe every N frames (configurable)
+and on reconnection. With keyframe_interval=10 at 30fps, max desync window = 333ms.
+
+The prevFrame synchronisation issue that remains: the device stores prevFrame as
+RGB565 (2B/pixel), losing 3 LSBs per channel. The sender must mirror this packing
+or delta desync occurs on codec switch. This is documented in the sender guide
+(section 5.4). A future revision could use full RGB888 prevFrame at the cost of
+3x more heap (~18KB vs ~6KB for 3200px).
+
+### 10.4 Lossy compression: adaptive LSB stripping
+
+DedeHai: "adaptive colour depth reduction"
+
+```c
+if (color > 196) color = color & 0xF8;  // 3 LSBs
+else if (color > 128) color = color & 0xFC;  // 2 LSBs
+else if (color > 64)  color = color & 0xFE;  // 1 LSB
+// below 64: no stripping (preserve fade trails)
+```
+
+This is implemented sender-side in `tools/ddp_bench.py --lossy-depth`. It improves
+RLE ratio on gradient content by quantising similar colours to identical values,
+creating longer runs. The loss is below perceptual threshold for most LED content
+because gamma compression already removes the same LSBs at high brightness.
+
+DedeHai's intuition about RGB565 is confirmed by our prevFrame design -- we already
+store prevFrame as 565 and deltas against that, effectively applying the same
+quantisation. The difference: his LSB stripping applies before encoding (affects the
+wire data), our 565 quantisation is receiver-internal (delta baseline only).
+
+Keeping lossy operations sender-side is the right call. The receiver stays lossless
+and deterministic. Senders that want quality/bandwidth trade-offs apply LSB stripping
+before computing the delta.
+
+Firmware-side lossy decode is not planned. The implementation complexity and the
+risk of perceptible artefacts on high-quality setups outweigh the bandwidth savings,
+which are already addressed by the existing lossless codecs for most content types.
+
+### 10.5 Palette / LUT compression
+
+DedeHai: "use a palette look-up, GIF-style"
+
+For solid-colour animations, Planar-RLE (0x60) already achieves 98% savings -- a
+256-colour palette adds complexity with no benefit in that regime. For real video
+on a 64x64+ hub75 panel at 24-bit colour, a palette reduces 3B/pixel to 1B/pixel
+(3x) before any RLE. The bandwidth saving is real.
+
+The blocking problem for UDP DDP: a lost palette packet corrupts every subsequent
+frame until resync. There is no acknowledgement mechanism in DDP. The receiver must
+either retransmit-request (breaking the fire-and-forget model) or tolerate a full
+keyframe retransmit at every palette change. For fixed-palette animations this is
+acceptable; for video it is not.
+
+Not planned for this implementation. Worth revisiting alongside per-segment targeting
+for multi-ESP hub75 installations where the palette is stable for long periods.
+
+### 10.6 gzip / deflate
+
+softhack007 floated this as an option. Deflate ratio on LED content:
+- Sparse animation (ghost rider): comparable to our delta+RLE, higher decode cost
+- Rainbow / gradient: genuinely better than our codecs because deflate exploits
+  cross-pixel spatial correlation that byte-RLE can't see
+- Solid uniform: both achieve near-100% savings
+
+ESP32-PICO-D4 (M5StickC): tinfl decompress-only is ~12KB ROM. A 9600B frame
+(3200px RGB) needs 9600B output buffer + ~32KB sliding window = ~42KB heap during
+inflate. With ~67KB free heap, this leaves <25KB for WiFi/PPP stacks -- feasible
+but dangerously tight, no PSRAM headroom on this device.
+
+ESP32-S3 with 8MB PSRAM: non-issue. Heap pressure is not a concern.
+
+Verdict: not suitable for M5StickC. Viable for PSRAM-equipped targets as an optional
+high-ratio codec (comp_type 0x70 or similar). Would require a new codec entry and
+a receive-side heap check before allocation. Not planned for this branch.
+
+### 10.7 Hardware JPEG decode (ESP32-S3.1 / P4)
+
+Your observation: ESP32-S3.1 and P4 have on-chip JPEG hardware decode. In
+combination with DDP-as-transport this enables:
+
+- Sender encodes each frame as JPEG (standard encoder, arbitrary quality)
+- Sends as one or more DDP packets with a new comp_type (e.g. 0x70)
+- Receiver calls hardware JPEG decode directly into the pixel buffer
+- No prevFrame needed -- every frame is self-contained
+- Random-access per frame, no keyframe scheduling, no desync
+
+Frame sizes: 64x64 RGB JPEG at q=50 is typically 2-6KB, fits in 2-5 DDP packets
+over Ethernet or WiFi with no issues. For hub75 walls (128x128+) q=30 gives
+acceptable quality at 5-15KB -- still manageable.
+
+This is the right architecture for the use case softhack007 identified: "best use
+case is large matrix displays (64x64 and beyond), maybe in combination with Video Lab".
+Block artefacts that disqualify JPEG on small displays (softhack007: "8x8 DCT blocks
+on a small pixel set") become invisible at hub75 scale (128x128 = 256 8x8 blocks).
+
+Not implemented here -- requires S3/P4 target, hardware JPEG API integration, and
+a new comp_type assignment. The DDP framing already supports it: define comp_type
+0x70 as "JPEG frame, hardware decode required", single-packet or multi-packet. The
+receiver checks the target MCU at compile time; non-S3/P4 builds reject 0x70 packets
+with an unsupported-codec drop. Worth tracking as a separate feature once the base
+compression PR lands upstream.
+
+### 10.8 WebSocket DDP compression
+
+DedeHai: "adding the compression feature to DDP-over-WS, including JS frontend code"
+
+WS DDP is implemented in `ws.cpp` and the JS frontend at `data/common.js`. The wire
+format is identical -- the same DDP header and payload, delivered over a WS frame
+instead of UDP. Compression applies without protocol changes.
+
+The practical constraint: WS permessage-deflate is not implemented in the ESP32
+AsyncWebServer stack. Frame-level compression (our scheme) is independent of that
+and works today over WS. The JS sender would need to implement the same codec logic
+currently in `tools/ddp_bench.py`. A compact JS RLE encoder is ~30 lines.
+
+Not tested on this branch. WS+PPP combination was found unstable under sustained
+load (TCP framing overhead + serial backpressure kills throughput). WS+WiFi is viable
+and is a natural next step once the base compression work is upstreamed.
+
+### 10.9 Codec type space
+
+Current assignments:
+
+| Code | Status | Name |
+|------|--------|------|
+| 0x00 | standard | Raw (no C bit) |
+| 0x10 | implemented, tested | Delta+RLE |
+| 0x20 | implemented, tested | RLE keyframe |
+| 0x30 | implemented, not benchmarked | Transform |
+| 0x40 | implemented | Delta-only (benchmark) |
+| 0x50 | implemented, single-pkt only | Tuple-RLE |
+| 0x60 | implemented, single-pkt only | Planar-RLE |
+| 0x70 | reserved | (JPEG hardware, future S3/P4) |
+| 0x80-0xF0 | unassigned | |
+
+The upper nibble gives 15 usable slots (0x10-0xF0). Current assignments leave 8
+unassigned. Any future codec must be registered here to avoid collision.
