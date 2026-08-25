@@ -14,7 +14,7 @@
 |--------|-------|
 | PR branches | 20 local + upstream-pr/segment-eligibility |
 | Forgejo issues | #1--#28 |
-| Upstream PRs | 3 open, 1 merged, 2 closed |
+| Upstream PRs | 4 open, 1 merged, 2 closed |
 | Upstream issues | 2 open, 1 closed |
 | ESPAsync upstream issues | 1 filed -- [ESP32Async/ESPAsyncWebServer discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) (see Forgejo [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28)) |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
@@ -26,6 +26,7 @@
 | [#5804](https://github.com/wled/WLED/pull/5804) | `pr/watchdog-idf5-compat` | [#25](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/25) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/watchdog-idf5-compat/DRAFT_PR.md) | esp_task_wdt_config_t struct API for IDF 5.x | Open |
 | [#5806](https://github.com/wled/WLED/pull/5806) | `pr/ws-state-only-broadcast` | [#23](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/23) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ws-state-only-broadcast/DRAFT_PR.md) | Skip serializeInfo() on WS broadcast -- saves 4-6KB heap | Open -- CR feedback addressed |
 | [#5807](https://github.com/wled/WLED/pull/5807) | `pr/audioreactive-pdm-fix` | [#17](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/17) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/audioreactive-pdm-fix/DRAFT_PR.md) | Skip i2s_set_clk() for PDM mode on IDF 5.x | Open |
+| [#5817](https://github.com/wled/WLED/pull/5817) | `pr/segment-eligibility` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-eligibility/DRAFT_PR.md) | Per-segment realtime eligibility mask (replaces useMainSegmentOnly) | Open |
 
 ## Active upstream issues
 
@@ -40,8 +41,8 @@
 
 | Branch | Forgejo | GitHub | Description | Status |
 |--------|---------|--------|-------------|--------|
-| `pr/segment-eligibility` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-eligibility/DRAFT_PR.md) | Per-segment realtime eligibility mask (Mode B only, replaces useMainSegmentOnly) | Ready -- pushed to GitHub, merged into dev/ppp-wifi, validated on hardware |
-| `upstream-pr/segment-eligibility` | -- | -- | Submission branch (pr/segment-eligibility sans DRAFT_PR.md) | Ready for manual PR submission |
+| `pr/segment-eligibility` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-eligibility/DRAFT_PR.md) | Per-segment realtime eligibility mask (Mode B only, replaces useMainSegmentOnly) | **Submitted** -- [wled/WLED#5817](https://github.com/wled/WLED/pull/5817) |
+| `upstream-pr/segment-eligibility` | -- | -- | Submission branch (pr/segment-eligibility sans DRAFT_PR.md) | **Submitted** -- [wled/WLED#5817](https://github.com/wled/WLED/pull/5817) |
 
 Supersedes `pr/ddp-per-segment` for upstream. Mode A (destination-byte routing) excluded per softhack007 feedback ("separate PR"). `pr/ddp-per-segment` retained fork-local for Mode A + Mode B combined.
 
