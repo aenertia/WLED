@@ -85,7 +85,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   // when realtimeLock() checks whether to do legacy strip.fill(BLACK)
   {
     uint8_t dest = p->destination;
-    if (ddpSlotCount > 0 && dest < 1) {
+    if (ddpSlotCount > 0 && dest == 0) {
       freezeEligibleSegs();
     }
   }
@@ -94,7 +94,7 @@ static void handleDDPPacket(e131_packet_t* p, size_t packetLen) {
   if (!realtimeOverride) {
     uint8_t dest = p->destination;
 
-    if (ddpSlotCount > 0 && dest < 1) {
+    if (ddpSlotCount > 0 && dest == 0) {
       // Mode B: distribute flat stream across eligible segments via slot table
       freezeEligibleSegs();
       for (uint8_t s = 0; s < ddpSlotCount; s++) {
