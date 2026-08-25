@@ -449,7 +449,7 @@ bool deserializeState(JsonObject root, byte callMode, byte presetId)
     for (uint8_t i = 0; i < strip.getSegmentsNum() && i < 32; i++) {
       if (rtFrozenSegs & (1UL << i)) strip.getSegment(i).freeze = !realtimeOverride;
     }
-    realtimeOverride = REALTIME_OVERRIDE_NONE;
+    realtimeOverride = REALTIME_OVERRIDE_NONE;  // ignore request for override if frozen segments active
   }
 
   if (root.containsKey("live")) {

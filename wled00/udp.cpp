@@ -448,8 +448,9 @@ void realtimeLock(uint32_t timeoutMs, byte md)
         }
       }
     } else {
-      strip.fill(BLACK);
+      strip.fill(BLACK); // clear entire strip
     }
+    // if strip is off (bri==0) and not already in RTM
     if (briT == 0) {
       strip.setBrightness(briLast, true);
     }
@@ -469,17 +470,17 @@ void exitRealtime() {
   if (!realtimeMode) return;
   if (realtimeOverride == REALTIME_OVERRIDE_ONCE) realtimeOverride = REALTIME_OVERRIDE_NONE;
   strip.setBrightness(bri, true);
-  realtimeTimeout = 0;
-  realtimeMode = REALTIME_MODE_INACTIVE;
+  realtimeTimeout = 0; // cancel realtime mode immediately
+  realtimeMode = REALTIME_MODE_INACTIVE; // inform UI immediately
   realtimeIP[0] = 0;
-  if (rtFrozenSegs) {
+  if (rtFrozenSegs) { // unfreeze live segment(s) again
     for (size_t s = 0; s < strip.getSegmentsNum(); s++) {
       strip.getSegment(s).freeze = false;
     }
     rtFrozenSegs = 0;
     strip.trigger();
   } else {
-    strip.show();
+    strip.show(); // possible fix for #3589
   }
   updateInterfaces(CALL_MODE_WS_SEND);
 }
