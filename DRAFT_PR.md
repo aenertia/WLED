@@ -30,6 +30,11 @@ set.cpp, xml.cpp + audioreactive and EleksTube_IPS usermods (replaced references
 - `ddpelig=0` (default) preserves legacy full-strip pixel indexing
 - `MO` settings checkbox maps to single-segment mask, same UI behaviour
 - cfg.json writes both `mso` (bool) and `ddpelig` (bitmask)
+- `liveseg` in `/json/info` now reports the first frozen segment index (via
+  `__builtin_ctz(rtFrozenSegs)`) rather than always the main segment ID. When
+  `ddpelig` matches the main segment (the common case), the value is identical.
+  When `ddpelig` targets a different segment, the reported value reflects the
+  actual realtime target -- more useful for diagnostics but a visible change.
 - No change for existing senders (OpenRGB, xLights, LedFX, HyperHDR)
 
 ## Overhead

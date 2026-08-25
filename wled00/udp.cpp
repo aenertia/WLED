@@ -438,8 +438,17 @@ void freezeEligibleSegs() {
 void realtimeLock(uint32_t timeoutMs, byte md)
 {
   if (!realtimeMode && !realtimeOverride) {
-    if (rtFrozenSegs == 0 && ddpSlotCount == 0) {
-      strip.fill(BLACK); // legacy: blank entire strip
+    if (ddpSlotCount > 0) {
+      // per-segment mode: freeze eligible segments immediately
+      freezeEligibleSegs();
+      // if WLED is off, freeze non-eligible segments too so they stay dark
+      if (bri == 0) {
+        for (size_t s = 0; s < strip.getSegmentsNum(); s++) {
+          if (!(rtFrozenSegs & (1UL << s))) strip.getSegment(s).freeze = true;
+        }
+      }
+    } else {
+      strip.fill(BLACK);
     }
     if (briT == 0) {
       strip.setBrightness(briLast, true);
@@ -464,11 +473,8 @@ void exitRealtime() {
   realtimeMode = REALTIME_MODE_INACTIVE;
   realtimeIP[0] = 0;
   if (rtFrozenSegs) {
-    for (uint8_t i = 0; i < 32 && rtFrozenSegs; i++) {
-      if (rtFrozenSegs & (1UL << i)) {
-        if (i < strip.getSegmentsNum())
-          strip.getSegment(i).freeze = false;
-      }
+    for (size_t s = 0; s < strip.getSegmentsNum(); s++) {
+      strip.getSegment(s).freeze = false;
     }
     rtFrozenSegs = 0;
     strip.trigger();
