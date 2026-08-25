@@ -458,14 +458,14 @@ void exitRealtime() {
   if (!realtimeMode) return;
   if (realtimeOverride == REALTIME_OVERRIDE_ONCE) realtimeOverride = REALTIME_OVERRIDE_NONE;
   strip.setBrightness(bri, true);
-  realtimeTimeout = 0;
-  realtimeMode = REALTIME_MODE_INACTIVE;
+  realtimeTimeout = 0; // cancel realtime mode immediately
+  realtimeMode = REALTIME_MODE_INACTIVE; // inform UI immediately
   realtimeExitedAt = millis();
   realtimeIP[0] = 0;
 #ifdef WLED_ENABLE_DDP_COMPRESSION
   ddpFreePrevFrame();
 #endif
-  if (rtFrozenSegs) {
+  if (rtFrozenSegs) { // unfreeze live segment(s) again
     for (uint8_t i = 0; i < 32 && rtFrozenSegs; i++) {
       if (rtFrozenSegs & (1UL << i)) {
         if (i < strip.getSegmentsNum())
@@ -475,7 +475,7 @@ void exitRealtime() {
     rtFrozenSegs = 0;
     strip.trigger();
   } else {
-    strip.show();
+    strip.show(); // possible fix for #3589
   }
   updateInterfaces(CALL_MODE_WS_SEND);
 }
