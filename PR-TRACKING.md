@@ -71,7 +71,7 @@
 |--------|---------|--------|-------------|--------|
 | `pr/bus-skip-show` | [#22](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/22) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/bus-skip-show/DRAFT_PR.md) | Bus idle-skip gate via `hasIdleSkip()` virtual — Hub75, Network, SPI matrix opt in | Ready · independent, no deps |
 | `pr/ddp-per-segment` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ddp-per-segment/DRAFT_PR.md) | Dual-mode DDP routing (Mode A destination byte, Mode B eligibility mask) | Ready |
-| `v2/segment-eligibility` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | — | Per-segment live input eligibility v2 (replaces useMainSegmentOnly with _liveSegs on WS2812FX) | **Local** — rework of closed [#5817](https://github.com/wled/WLED/pull/5817); esp32dev build passes; awaiting maintainer direction before submit |
+| `pr/segment-eligibility-v2` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-eligibility-v2/DRAFT_PR.md) | Per-segment live input eligibility v2 (replaces useMainSegmentOnly with _liveSegs bitmask) | **Ready** — rework of closed [#5817](https://github.com/wled/WLED/pull/5817); esp32dev build passes; submit branch `pr/segment-eligibility-v2-submit` (clean, no DRAFT_PR.md); behaviour change for non-DDP protocols flagged in PR description |
 
 ## Phase 8 — Upstream component fixes (target: arduino-esp32 / esp-idf / ESPAsyncWebServer)
 
