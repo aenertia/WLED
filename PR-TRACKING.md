@@ -14,7 +14,7 @@
 | PR branches | 23 |
 | Forgejo issues | #1–#28 |
 | Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | 5 PRs open, 1 merged, 3 closed + 3 issues — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805) (merged), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809) (closed), [#5817](https://github.com/wled/WLED/pull/5817) (closed -- reworked as v2), [#5818](https://github.com/wled/WLED/pull/5818) (v2); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
+| Upstream submissions | 4 PRs open, 1 merged, 4 closed + 3 issues — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805) (merged), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809) (closed), [#5817](https://github.com/wled/WLED/pull/5817) (closed -- v1), [#5818](https://github.com/wled/WLED/pull/5818) (closed -- v2, reworking as v3); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
 | ESPAsync upstream issues | 1 filed — [ESP32Async/ESPAsyncWebServer discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) (see Forgejo [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28)) |
 
 ## Phase 1 — Bug fixes (submit first)
@@ -71,7 +71,7 @@
 |--------|---------|--------|-------------|--------|
 | `pr/bus-skip-show` | [#22](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/22) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/bus-skip-show/DRAFT_PR.md) | Bus idle-skip gate via `hasIdleSkip()` virtual — Hub75, Network, SPI matrix opt in | Ready · independent, no deps |
 | `pr/ddp-per-segment` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/ddp-per-segment/DRAFT_PR.md) | Dual-mode DDP routing (Mode A destination byte, Mode B eligibility mask) | Ready |
-| `pr/segment-eligibility-v2` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-eligibility-v2/DRAFT_PR.md) | Per-segment live input eligibility v2 (replaces useMainSegmentOnly with _liveSegs bitmask) | **Submitted** — [wled/WLED#5818](https://github.com/wled/WLED/pull/5818); rework of closed [#5817](https://github.com/wled/WLED/pull/5817); behaviour change for non-DDP protocols flagged in PR description |
+| `pr/segment-eligibility-v2` | [#26](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/26) | [DRAFT_PR.md](https://github.com/aenertia/WLED/blob/pr/segment-eligibility-v2/DRAFT_PR.md) | Per-segment live input eligibility v2 (replaces useMainSegmentOnly with _liveSegs bitmask) | **Closed** — [wled/WLED#5818](https://github.com/wled/WLED/pull/5818); CodeRabbit review identified routing inconsistency for non-DDP protocols and settings page bitmask persistence; reworking as v3 |
 
 ## Phase 8 — Upstream component fixes (target: arduino-esp32 / esp-idf / ESPAsyncWebServer)
 
