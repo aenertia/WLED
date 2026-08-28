@@ -1,64 +1,73 @@
-# Per-segment realtime eligibility mask
+# feat(realtime): per-segment live input eligibility (replaces useMainSegmentOnly)
 
-Replaces `useMainSegmentOnly` with a `ddpEligibleMask` bitmask. Segments marked
-eligible accept DDP/E1.31/Art-Net realtime data; the rest keep running effects.
+Rework of #5817 and #5818. Addresses all review feedback from @softhack007 and
+@netmindz.
 
-## Motivation
+The `useMainSegmentOnly` bool is replaced with a `uint32_t _liveSegs` bitmask
+on the strip object. Each bit marks a segment as eligible for realtime data.
+Eligible segments get frozen (effects suppressed) during live input; everything
+else keeps running normally.
 
-Multi-segment setups (PC ARGB with fans + matrix, retail video panel + accent
-lighting, DJ booth with hub75 + LED strips) need some segments on realtime while
-others run local effects. The old boolean was main-segment-only or the entire strip.
+## What changed
 
-Some additional comments from separate DDP Compression conversation #5810.
+- `useMainSegmentOnly` global removed from `wled.h`
+- `_liveSegs` (std::atomic<uint32_t>) added to `WS2812FX`
+- Accessors: `getLiveSegs()`, `setLiveSegs(mask)`, `isLiveSeg(idx)`
+- `useMainSegmentOnly()` kept as an inline (`_liveSegs != 0`) for usermod compat
+- `seg.freeze` converted from bitfield to separate `bool` (atomic w.r.t. preemption)
+- `setRealtimePixelColor()` routes all protocols through live segments, not DDP-only
+- `rebuildDdpSlots()` reads `strip.getLiveSegs()` instead of the old global
+- `ddpSlotEpoch` seqlock (std::atomic<uint32_t>) prevents slot table races
+- Config key: `if.live.seg` (uint32_t bitmask); old `ddpelig` key migrated on read
+- `/diag` shows `_liveSegs=0x...` for remote diagnosis
 
-## Changes
+Files: `FX.h`, `FX_fcn.cpp`, `wled.h`, `wled.cpp`, `udp.cpp`, `cfg.cpp`,
+`json.cpp`, `set.cpp`, `xml.cpp`, `e131.cpp`, `wled_server.cpp` +
+`usermods/EleksTube_IPS/TFTs.h`, `usermods/audioreactive/audio_reactive.cpp`
 
-- `ddpEligibleMask` (uint32): per-segment eligibility, cfg key `ddpelig`
-- `ddpSlots[]`: pre-computed offset table for flat-stream-to-segment routing
-- `rtFrozenSegs` (uint32): tracks which segments are frozen by realtime
-- `showFrozenSegs()`: renders frozen segment pixels to bus without re-running effects
-- `service()` show gate: skips `show()` when frozen segs exist, prevents race
-- `realtimeLock()`/`exitRealtime()`: freeze/unfreeze lifecycle
-- `rebuildDdpSlots()` called from config load, segment API changes, and strip init
+## Why this approach
 
-Files: wled.h, udp.cpp, FX.h, FX_fcn.cpp, e131.cpp, cfg.cpp, json.cpp, wled.cpp,
-set.cpp, xml.cpp + audioreactive and EleksTube_IPS usermods (replaced references).
+Previous versions (v1 #5817, v2 #5818) used a separate `showFrozenSegs()` fast
+path that bypassed `blendSegment()`. Review correctly identified that this broke
+the `service() -> show() -> blendSegment()` pipeline contract: TM1814 off-refresh,
+`needsUpdate()`, `strip.trigger()`, and WARLS routing all depend on that path.
+
+This version eliminates `showFrozenSegs()` entirely. The standard pipeline handles
+all cases: frozen segments have DDP data in `seg.pixels[]`; `blendSegment()` reads
+that directly and composites into `_pixels[]`. No separate rendering path, no
+pipeline bypass.
 
 ## Backwards compatibility
 
-- `mso=true` in cfg.json migrates to `ddpEligibleMask = (1 << mainSegId)`
-- `ddpelig=0` (default) preserves legacy full-strip pixel indexing
-- `MO` settings checkbox maps to single-segment mask, same UI behaviour
-- cfg.json writes both `mso` (bool) and `ddpelig` (bitmask)
-- `liveseg` in `/json/info` now reports the first frozen segment index (via
-  `__builtin_ctz(rtFrozenSegs)`) rather than always the main segment ID. When
-  `ddpelig` matches the main segment (the common case), the value is identical.
-  When `ddpelig` targets a different segment, the reported value reflects the
-  actual realtime target -- more useful for diagnostics but a visible change.
+- `mso=true` in cfg.json migrates to `_liveSegs = (1 << mainSegId)` on read
+- `ddpelig` key still accepted on read; writes use `seg`
+- `getLiveSegs()==0` (default) preserves legacy full-strip absolute pixel indexing
+- `useMainSegmentOnly()` inline returns `_liveSegs != 0` for existing usermods
 - No change for existing senders (OpenRGB, xLights, LedFX, HyperHDR)
 
 ## Overhead
 
-- **RAM**: +164B static (ddpSlots[32] = 160B, masks + counters = 4B). Not heap-allocated
-  because rebuildDdpSlots() runs from packet handlers.
-- **Flash**: ~750B (showFrozenSegs ~70 lines, slot functions ~30 lines)
-- **CPU when ddpelig=0**: zero -- all paths gated on ddpSlotCount/rtFrozenSegs
+- **RAM**: +4B (`_liveSegs` atomic on WS2812FX). `seg.freeze` bool replaces
+  bitfield bit -- sizeof(Segment) unchanged on tested targets.
+- **Flash**: ~200B net (slot table + epoch counter; showFrozenSegs removed)
+- **CPU when _liveSegs==0**: zero -- all paths gated on getLiveSegs()
 
 ## Testing
 
-Tested on ESP32-PICO-D4 (M5StickC), vanilla esp32dev build, WS2812B 8x32 panel:
-- 3 segments: seg0 Rainbow, seg1 DDP-eligible, seg2 Ghost Rider
-- During DDP to seg1: `frozensegs=2`, seg0+seg2 effects undisturbed
-- Realtime enter/exit cycling: heap stable
-- Legacy mode (ddpelig=0): unchanged behaviour
-- Audioreactive: audio continues for non-frozen segments
+Tested on ESP32-PICO-D4 (M5StickC), `m5stickc_ppp_wifi` and `esp32dev` builds:
 
-Build: esp32dev SUCCESS, Flash 85.0%, RAM 26.6%.
+```
+Build:         70.8% flash, 26.0% RAM (m5stickc_ppp_wifi)
+DDP flood:     112fps actual (PPP link-limited), 60s, no WDT
+Heap soak:     50 enter/exit cycles, delta=0-4B (<1KB threshold)
+TFT+DDP:       60fps concurrent, 30s, no SPI DMA crash
+Codecs:        raw (0x00), planar-RLE (0x60), delta-RLE (0x01) all pass
+PPP+WiFi:      dual-stack confirmed (sta + ap + ppp in /json/info nifs)
+Config:        seg key round-trips across reboot
+Uptime:        770s continuous, resetReason=3 (no WDT)
+```
 
-## Future direction
+Mixed-segment: Ghost Rider on seg0 + DDP twinkle on seg1 -- effects undisturbed
+on non-eligible segments throughout.
 
-The slot table and frozen-segment rendering enable a follow-up: per-packet segment
-targeting via the DDP destination byte, for video wall compositors that need to route
-different content to different segments within a single frame.
-
-Assisted-by: OpenCode/OhMyOpenCode agentic harness with multiple LLM providers
+`grep -rn 'ddpEligibleMask\|rtFrozenSegs\|showFrozenSegs' wled00/` -- zero hits.

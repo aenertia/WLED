@@ -102,11 +102,11 @@ The SPM1423 mic CLK line is GPIO0, which is also the ESP32 boot strapping pin. I
 
 - **DDP per-segment targeting** — dual-mode DDP routing replaces the old `useMainSegmentOnly` boolean:
   - Mode A: DDP `destination` byte (1–32) routes to segment 0–31, channel offset is segment-relative
-  - Mode B: `ddpEligibleMask` bitmask distributes a flat pixel stream across eligible segments
+  - Mode B: `_liveSegs` bitmask (set via `/json/cfg` `if.live.seg`) distributes a flat pixel stream across eligible segments
 
 - **Compressed DDP** — six codec types in `handleDDPPacket()`: Delta+RLE (0x10), RLE keyframe (0x20), Transform (0x30), Delta-only (0x40), Tuple-RLE (0x50), Planar-RLE (0x60). Uses the DDP C bit (`dataType & 0x80`) as the compression signal. ~95% bandwidth reduction on sparse patterns, 62:1 on solid content. Python sender in `tools/ddp_bench.py`. Full spec in [`docs/ddp-readme.md`](docs/ddp-readme.md).
 
-- **Mixed-segment realtime** — internal effects and DDP can run on separate segments simultaneously. `service()` show is gated on `!rtFrozenSegs`; bus push is owned by `showFrozenSegs()` on DDP PUSH cadence, compositing both effect and DDP pixels atomically. Validated with Ghost Rider on seg0 + DDP twinkle on seg1.
+- **Mixed-segment realtime** — internal effects and DDP can run on separate segments simultaneously. Eligible segments (`_liveSegs` bitmask) are frozen via `seg.freeze` during realtime; the standard `blendSegment()` pipeline composites DDP and effect pixels atomically. Validated with Ghost Rider on seg0 + DDP twinkle on seg1.
 
 - **Auto-ceiling DDP rate** — `ddpCurrentSafeFps` computed from bus show times each loop iteration. Rate limiter gates DDP at `min(ddpMaxFps, ddpCurrentSafeFps)`. `/diag` exposes `ddpSlots`, `totalElig`, `eligMask`, `frozen` bitmask, per-bus `showUs`.
 

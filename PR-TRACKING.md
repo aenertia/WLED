@@ -5,17 +5,17 @@
 **Branch base**: All pr/* branches are on `upstream/main` (9ebdbdea)
 **Upstream**: [Aircoookie/WLED](https://github.com/Aircoookie/WLED)
 **Active branch**: `dev/ppp-wifi`
-**Last updated**: Session 29 (August 2026)
+**Last updated**: 2026-08-28 (integration sprint + sanitization)
 
 ## Status summary
 
 | Metric | Value |
 |--------|-------|
-| PR branches | 23 |
-| Forgejo issues | #1–#28 |
-| Device soak test | 250min+ continuous, reset=1 (POWERON) |
-| Upstream submissions | 4 PRs open, 1 merged, 4 closed + 3 issues — [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805) (merged), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809) (closed), [#5817](https://github.com/wled/WLED/pull/5817) (closed -- v1), [#5818](https://github.com/wled/WLED/pull/5818) (closed -- v2, reworking as v3); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
-| ESPAsync upstream issues | 1 filed — [ESP32Async/ESPAsyncWebServer discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) (see Forgejo [#28](https://git.awa.3d.ae.net.nz/aenertia/wled/issues/28)) |
+| PR branches | 21 (stale/closed branches removed) |
+| Device soak test | 770s continuous, resetReason=3 (no WDT) |
+| Upstream submissions | 4 PRs open, 1 merged, 4 closed + 3 issues -- [#5804](https://github.com/wled/WLED/pull/5804), [#5805](https://github.com/wled/WLED/pull/5805) (merged), [#5806](https://github.com/wled/WLED/pull/5806), [#5807](https://github.com/wled/WLED/pull/5807), [#5808](https://github.com/wled/WLED/pull/5808), [#5809](https://github.com/wled/WLED/pull/5809) (closed), [#5817](https://github.com/wled/WLED/pull/5817) (closed -- v1), [#5818](https://github.com/wled/WLED/pull/5818) (closed -- v2); issues [#5810](https://github.com/wled/WLED/issues/5810), [#5811](https://github.com/wled/WLED/issues/5811), [#5813](https://github.com/wled/WLED/issues/5813) |
+| ESPAsync upstream issues | 1 filed -- [ESP32Async/ESPAsyncWebServer discussion #472](https://github.com/ESP32Async/ESPAsyncWebServer/discussions/472) |
+| Segment eligibility | v3 in progress -- `_liveSegs` (std::atomic<uint32_t>), eliminates showFrozenSegs/rtFrozenSegs, uses standard blendSegment() pipeline. See DRAFT_PR.md. |
 
 ## Phase 1 — Bug fixes (submit first)
 
@@ -118,16 +118,15 @@ Issues tracked in Forgejo only — not upstream PR candidates. Fork-specific bug
 6. `pr/watchdog-idf5-compat` — 15 lines, no deps
 7. `pr/ddp-rle-codec` — codec only
 8. `pr/ddp-compressed-receiver` — depends on #7
-9. `pr/effects-fade-snap` — 10 lines, no deps
-10. `pr/text-aa-fonts` — no deps
-11. `pr/text-drop-shadow` — after #10 (stub, pending implementation)
-12. `pr/argb-passthrough` — note wled_ppp.cpp hunk is fork-specific
-13. `pr/tft-bus-matrix` — M5StickC-specific, factor out AXP192
-14. `pr/ppp-transport` — with pr/mdns-ppp-crash-fix companion
-15. `pr/ddp-compressed` — full bundle, after #7 and #8
-16. `pr/ddp-per-segment` — after DDP compression lands
-17. `pr/slip-transport` — low priority
-18. `pr/effects-deferred-fade` — after V3 resolves text/gradient interaction
-19. `pr/arduino-esp32-mdns-guard` — to espressif/arduino-esp32
-20. `pr/arduino-esp32-netif-lazy-init` — to espressif/arduino-esp32
+9. `pr/text-aa-fonts` — no deps
+10. `pr/argb-passthrough` — note wled_ppp.cpp hunk is fork-specific
+11. `pr/tft-bus-matrix` — M5StickC-specific, factor out AXP192
+12. `pr/ppp-transport` — with pr/mdns-ppp-crash-fix companion
+13. `pr/ddp-compressed` — full bundle, after #7 and #8
+14. `pr/ddp-per-segment` / `pr/segment-eligibility-v2` — v3 _liveSegs rework; see DRAFT_PR.md
+15. `pr/slip-transport` — low priority
+16. `pr/bus-skip-show` — independent, no deps
+17. `pr/ddp-flood-hardening` — after ddp-per-segment lands
+18. `pr/arduino-esp32-mdns-guard` — to espressif/arduino-esp32
+19. `pr/arduino-esp32-netif-lazy-init` — to espressif/arduino-esp32
 21. `pr/esp-idf-lcp-echo-docs` — to espressif/esp-idf
